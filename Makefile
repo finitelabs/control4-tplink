@@ -2,7 +2,7 @@
 # Run `make help` for available targets.
 
 DISTRIBUTIONS := drivercentral oss
-README_DRIVER := kasa_power_strip
+README_DRIVER := kasa_outlet
 README_BUILD  := oss
 
 # Paths

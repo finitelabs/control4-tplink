@@ -26,9 +26,9 @@
 
 <!-- #endif -->
 
-The TP-Link Kasa Power Strip driver provides local, cloud-free control of Kasa
-smart power strips (HS300/KP303/KP400) and smart plugs directly from Control4,
-on **both** generations of TP-Link's local protocol.
+The TP-Link Kasa Outlet driver provides local, cloud-free control of Kasa smart
+power strips (HS300/KP303/KP400) and smart plugs directly from Control4, on
+**both** generations of TP-Link's local protocol.
 
 Unlike older Kasa drivers that rely on TP-Link's legacy plaintext protocol on
 port 9999, this driver speaks **KLAP** — the encrypted local protocol TP-Link
@@ -145,9 +145,9 @@ is an outline of the basic steps for your convenience.
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/).
 2. Extract and
    [install](<(https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)>)
-   the `kasa_power_strip.c4z` driver.
-3. Use the "Search" tab to find the "TP-Link Kasa Power Strip" driver and add it
-   to your project (one instance per physical device).
+   the `kasa_outlet.c4z` driver.
+3. Use the "Search" tab to find the "TP-Link Kasa Outlet" driver and add it to
+   your project (one instance per physical device).
 
    ![Search Drivers](images/search-drivers.png)
 
@@ -172,9 +172,9 @@ is an outline of the basic steps for your convenience.
    [Github](https://github.com/finitelabs/control4-kasa/releases/latest).
 2. Extract and
    [install](<(https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)>)
-   the `kasa_power_strip.c4z` driver.
-3. Use the "Search" tab to find the "TP-Link Kasa Power Strip" driver and add it
-   to your project (one instance per physical device).
+   the `kasa_outlet.c4z` driver.
+3. Use the "Search" tab to find the "TP-Link Kasa Outlet" driver and add it to
+   your project (one instance per physical device).
 
    ![Search Drivers](images/search-drivers.png)
 

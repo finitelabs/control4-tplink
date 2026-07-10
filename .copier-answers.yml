@@ -9,5 +9,5 @@ project_description: Control4 driver for TP-Link Kasa devices on KLAP firmware (
     strips and smart plugs)
 project_name: control4-kasa
 readme_build: oss
-readme_driver_slug: kasa_power_strip
+readme_driver_slug: kasa_outlet
 vendor_modules: json deferred drivers-common-public xml
