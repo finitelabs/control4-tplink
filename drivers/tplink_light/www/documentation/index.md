@@ -113,8 +113,10 @@ for setting it up.
 3. For direct mode, set the [IP Address](#ip-address) and TP-Link credential
    properties. For proxy mode, bind the driver's TP-Link Outlet connection to an
    output of a TP-Link Outlet driver instead.
-4. `Driver Status` shows `Connected` once state is flowing. If the driver fails
-   to connect, set `Log Mode` to `Print` and check the lua output window.
+4. `Driver Status` shows the connection and active protocol, e.g.
+   `Connected (KLAP)` in direct mode or `Connected (Outlet)` in proxy mode. If
+   the driver fails to connect, set `Log Mode` to `Print` and check the lua
+   output window.
 
 ## Driver Properties
 

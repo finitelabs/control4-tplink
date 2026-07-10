@@ -59,6 +59,28 @@ Closet, 192.168.2.24, device 2324/2325 today, light proxy 2326).
 - Rack Lights L930-5: tplink_light direct mode, then remove 2324/2325.
 - Then remove TP-Link agent 1868 and remaining chowmain tplink drivers.
 
+## Rack Lights migration checklist (inventory 2026-07-10)
+
+Old chain: 2324 (klap_device, "L930-5 DELETEME") -> 2325 (klap_light) ->
+proxy 2326 ("Rack Lights DELETEME"). New: 2800 (tplink_light, "Rack
+Lights") -> proxy 2801 ("Rack Lights").
+
+1. Programming: 8 command actions target proxy 2326 (code_items 1299, 1300,
+   1303, 1305, 1306, 1374, 1375, 1377: on/off, "Set the color 6500K",
+   "Set the color (0.131192, 0.049698)"). Re-point item_id 2326 -> 2801 via
+   the Director SOAP programming API (no DB surgery).
+2. Home Connect (device 1388): "Select Lights and Relays" DEVICE_SELECTOR
+   includes 2326 (and 1195, the Astronaut Lamp proxy, for that later
+   migration). Replace 2326 with 2801 via eval UpdateProperty on 1388.
+3. Nightlight Routine (device 2153, routine-nightlight.c4z): savedModes and
+   Objects persist references to 2326; reconfigure to 2801.
+4. Apple Bridge (2249) / HomeKit (2250): persisted state references 2326;
+   verify the new light exports and remove the old one.
+5. No events or variable watches on 2324/2325/2326; connections are all
+   chowmain-internal.
+6. After verification: delete 2324/2325/2326, then the TP-Link agent 1868
+   once the remaining chowmain TP-Link drivers are migrated.
+
 ## Verification
 
 - Direct mode against L930-5 (192.168.2.24) while chowmain still runs:

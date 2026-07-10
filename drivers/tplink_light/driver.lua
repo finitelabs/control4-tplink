@@ -41,6 +41,12 @@ local klap = Klap:new()
 -- Forward declarations; assigned in the Backends section near the end.
 local backendStart, backendSendCommand
 
+--- Human-readable name of the active transport ("Outlet" or "KLAP"), for
+--- Driver Status. A legacy (port 9999) transport with the IOT bulb schema
+--- can slot in here for Kasa KL-series bulbs on original firmware.
+--- @type string?
+local transportName = nil
+
 ---------------------------------------------------------------------------
 -- ESPHome color modes that include brightness control
 ---------------------------------------------------------------------------
@@ -2340,7 +2346,7 @@ local function applyUpdate(entity, state)
 
   -- Connection state must be sent BEFORE dynamic capabilities
   if not wasConnected then
-    UpdateProperty("Driver Status", "Connected")
+    UpdateProperty("Driver Status", transportName and ("Connected (" .. transportName .. ")") or "Connected")
     SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
   end
 
@@ -2648,8 +2654,10 @@ end
 backendStart = function()
   CancelTimer(DIRECT_POLL_TIMER)
   directConnected = false
+  transportName = nil
 
   if isOutletBound() then
+    transportName = "Outlet"
     setNetworkPropertiesAttribs(constants.HIDE_PROPERTY)
     SendToProxy(OUTLET_BINDING, "REFRESH_STATE", {}, "NOTIFY")
     return
@@ -2673,7 +2681,8 @@ backendStart = function()
     password = Properties["TP-Link Password"] or "",
   })
 
-  UpdateProperty("Driver Status", "Connecting...")
+  transportName = "KLAP"
+  UpdateProperty("Driver Status", "Connecting (KLAP)...")
   directPoll()
   local pollSeconds = tointeger(Properties["Poll Rate (Seconds)"]) or 5
   SetTimer(DIRECT_POLL_TIMER, pollSeconds * 1000, directPoll, true)
