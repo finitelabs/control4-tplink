@@ -44,6 +44,17 @@
         </items>
         <default>On</default>
       </property>
+      <!-- #ifndef DRIVERCENTRAL -->
+      <property>
+        <name>Update Channel</name>
+        <type>LIST</type>
+        <default>Production</default>
+        <items>
+          <item>Production</item>
+          <item>Prerelease</item>
+        </items>
+      </property>
+      <!-- #endif -->
       <property>
         <name>Driver</name>
         <type>LABEL</type>
@@ -120,7 +131,14 @@
       </property>
     </properties>
     <commands/>
-    <actions/>
+    <actions>
+      <!-- #ifndef DRIVERCENTRAL -->
+      <action>
+        <name>Update Drivers</name>
+        <command>UpdateDrivers</command>
+      </action>
+      <!-- #endif -->
+    </actions>
   </config>
   <capabilities>
     <dimmer>True</dimmer>

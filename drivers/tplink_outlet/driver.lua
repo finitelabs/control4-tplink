@@ -79,13 +79,16 @@ local energyInFlight = false
 local DEVICE_PROPERTIES = { "Device Information", "Model", "Device Name", "MAC Address", "Firmware", "WiFi RSSI" }
 
 --#ifndef DRIVERCENTRAL
---- Get all device IDs for instances of this driver, sorted ascending.
+--- Get all device IDs for instances of the TP-Link driver suite (outlet and
+--- light), sorted ascending. The suite shares one GitHub updater; the
+--- instance with the lowest id is the update leader regardless of type.
 --- @return integer[]
 local function getDriverIds()
-  local drivers = C4:GetDevicesByC4iName(C4:GetDriverFileName()) or {}
   local ids = {}
-  for id, _ in pairs(drivers) do
-    table.insert(ids, tointeger(id))
+  for _, filename in ipairs(DRIVER_FILENAMES) do
+    for id, _ in pairs(C4:GetDevicesByC4iName(filename) or {}) do
+      table.insert(ids, tointeger(id))
+    end
   end
   table.sort(ids)
   return ids

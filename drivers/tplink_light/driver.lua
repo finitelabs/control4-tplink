@@ -2,6 +2,12 @@
 DC_PID = 0 -- TODO: Assign DriverCentral product ID
 DC_X = nil
 DC_FILENAME = "tplink_light.c4z"
+--#else
+DRIVER_GITHUB_REPO = "finitelabs/control4-tplink"
+DRIVER_FILENAMES = {
+  "tplink_outlet.c4z",
+  "tplink_light.c4z",
+}
 --#endif
 require("lib.utils")
 require("drivers-common-public.global.handlers")
@@ -12,6 +18,9 @@ require("drivers-common-public.global.url")
 JSON = require("JSON")
 
 local log = require("lib.logging")
+--#ifndef DRIVERCENTRAL
+local githubUpdater = require("lib.github-updater")
+--#endif
 local persist = require("lib.persist")
 local constants = require("constants")
 local Klap = require("lib.klap")
@@ -185,6 +194,83 @@ local currentBrightnessPresetId = nil
 -- LIGHT_COLOR_TARGET_PRESET_ID counterpart (spec _3.1).
 local currentColorPresetId = nil
 
+--#ifndef DRIVERCENTRAL
+--- Get all device IDs for instances of the TP-Link driver suite (outlet and
+--- light), sorted ascending. The suite shares one GitHub updater; the
+--- instance with the lowest id is the update leader regardless of type.
+--- @return integer[]
+local function getDriverIds()
+  local ids = {}
+  for _, filename in ipairs(DRIVER_FILENAMES) do
+    for id, _ in pairs(C4:GetDevicesByC4iName(filename) or {}) do
+      table.insert(ids, tointeger(id))
+    end
+  end
+  table.sort(ids)
+  return ids
+end
+
+--- Sync a property value to all other instances of the driver suite.
+--- @param propertyName string
+--- @param propertyValue string
+local function syncPropertyToOtherInstances(propertyName, propertyValue)
+  local ids = getDriverIds()
+  local myId = C4:GetDeviceID()
+  for _, deviceId in ipairs(ids) do
+    if deviceId ~= myId then
+      log:info("Syncing property '%s' = '%s' to device %d", propertyName, propertyValue, deviceId)
+      SetDeviceProperties(deviceId, { [propertyName] = propertyValue }, true)
+    end
+  end
+end
+
+--- Update the driver suite from the GitHub repository.
+--- @param forceUpdate? boolean Force the update even if the drivers are up to date.
+function UpdateDrivers(forceUpdate)
+  log:trace("UpdateDrivers(%s)", forceUpdate)
+  githubUpdater
+    :updateAll(DRIVER_GITHUB_REPO, DRIVER_FILENAMES, Properties["Update Channel"] == "Prerelease", forceUpdate)
+    :next(function(updatedDrivers)
+      if not IsEmpty(updatedDrivers) then
+        log:info("Updated driver(s): %s", table.concat(updatedDrivers, ","))
+      else
+        log:info("No driver updates available")
+      end
+    end, function(error)
+      log:error("An error occurred updating drivers: %s", error)
+    end)
+end
+
+--- Update Drivers action handler.
+function EC.UpdateDrivers()
+  log:trace("EC.UpdateDrivers()")
+  log:print("Updating drivers")
+  UpdateDrivers(true)
+end
+--#endif
+
+--- @param propertyValue string
+function OPC.Automatic_Updates(propertyValue)
+  log:trace("OPC.Automatic_Updates('%s')", propertyValue)
+  --#ifndef DRIVERCENTRAL
+  if not gInitialized then
+    return
+  end
+  syncPropertyToOtherInstances("Automatic Updates", propertyValue)
+  --#endif
+end
+
+--#ifndef DRIVERCENTRAL
+--- @param propertyValue string
+function OPC.Update_Channel(propertyValue)
+  log:trace("OPC.Update_Channel('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  syncPropertyToOtherInstances("Update Channel", propertyValue)
+end
+--#endif
+
 ---------------------------------------------------------------------------
 -- Driver lifecycle
 ---------------------------------------------------------------------------
@@ -219,6 +305,19 @@ function OnDriverLateInit()
   end
 
   gInitialized = true
+
+  --#ifndef DRIVERCENTRAL
+  -- Periodic update check (every 30 minutes, suite leader instance only)
+  SetTimer("UpdateCheck", 30 * 60 * 1000, function()
+    -- Recompute leader each cycle in case the previous leader was removed
+    local isLeaderInstance = Select(getDriverIds(), 1) == C4:GetDeviceID()
+    if isLeaderInstance and toboolean(Properties["Automatic Updates"]) then
+      log:info("Checking for driver update (leader instance)")
+      UpdateDrivers()
+    end
+  end, true)
+  --#endif
+
   UpdateProperty("Driver Status", "Disconnected")
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   backendStart()
