@@ -140,7 +140,7 @@ local function updateOutputProperty(n)
   if output.watts ~= nil then
     table.insert(parts, string.format("%.1f W", output.watts))
   end
-  UpdateProperty("Output " .. n, table.concat(parts, " — "))
+  UpdateProperty("Output " .. n, table.concat(parts, " - "))
 end
 
 --- Apply a new relay state for an output: variables, events, relay proxy, property.

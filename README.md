@@ -11,17 +11,16 @@ The TP-Link Outlet driver provides local, cloud-free control of Kasa
 smart power strips (HS300/KP303/KP400) and smart plugs directly from
 Control4, on **both** generations of TP-Link's local protocol.
 
-Unlike older Kasa drivers that rely on TP-Link's legacy plaintext
-protocol on port 9999, this driver speaks **KLAP** — the encrypted local
-protocol TP-Link rolled out in firmware updates starting late 2024,
-which **disables the legacy protocol entirely**. If your Kasa device
-stopped responding to an existing Control4 driver after a firmware
-update, this driver is the fix: it implements the KLAP v2 handshake and
-session encryption while retaining the legacy IOT command schema those
-devices still use internally. Devices still on the original firmware are
-supported too — the driver auto-detects the protocol and falls back to
-the legacy port 9999 transport, so the same driver keeps working across
-TP-Link's forced firmware migration.
+Older Kasa drivers rely on TP-Link's plaintext protocol on port 9999.
+TP-Link firmware updates rolled out since late 2024 disable that
+protocol and replace it with KLAP, an encrypted local protocol. This
+driver implements the KLAP v2 handshake and session encryption while
+retaining the legacy IOT command schema those devices still use
+internally, so devices that stopped responding to older drivers after a
+firmware update work again. Devices still on the original firmware are
+also supported: the driver auto-detects the protocol and falls back to
+the port 9999 transport, so the same driver instance continues to work
+when TP-Link migrates the device to KLAP.
 
 Each output is exposed as a standard Control4 **relay binding**, along
 with per-output events, variables, and real-time power (wattage)
@@ -81,20 +80,20 @@ are expected to work; single-outlet devices appear as output 1.
 
 # <span style="color:#4ACBD6">Features</span>
 
-- **Local control** of each outlet — no TP-Link cloud dependency after
-  setup
+- **Local control** of each outlet with no TP-Link cloud dependency
+  after setup
 - **KLAP v2** encrypted transport (works on firmware that disabled port
   9999)
-- **Legacy protocol support** with automatic detection — devices on
-  original Kasa firmware work with no credentials required, and keep
-  working after TP-Link migrates them to KLAP (just add your account
+- **Legacy protocol support** with automatic detection. Devices on
+  original Kasa firmware work with no credentials required and keep
+  working after TP-Link migrates them to KLAP (add your account
   credentials)
 - Standard Control4 **relay bindings** for every output (bind
   relay-controlled devices, use in scenes, dashboards, etc.)
 - **Events**: `Output N Turned On` / `Output N Turned Off`, `Connected`,
   `Disconnected`
-- **Variables**: `OUTPUT_N_NAME`, `OUTPUT_N_STATE`, `OUTPUT_N_WATT`,
-  `VOLTAGE` — same names as the popular legacy Kasa outlet drivers so
+- **Variables**: `OUTPUT_N_NAME`, `OUTPUT_N_STATE`, `OUTPUT_N_WATT`, and
+  `VOLTAGE`, using the same names as the legacy Kasa outlet drivers so
   existing programming migrates 1:1
 - **Real-time energy monitoring** per outlet with configurable poll rate
 - **Programming commands**: Turn Output On / Turn Output Off / Toggle
@@ -151,12 +150,11 @@ automatic update from the GitHub repo releases.
 
 Displays the current status of the driver:
 
-- `Connected` — session established and the device is responding to
-  polls
-- `Connecting...` — handshake in progress
-- `Disconnected: <reason>` — the device is unreachable or rejected the
+- `Connected`: session established and the device is responding to polls
+- `Connecting...`: handshake in progress
+- `Disconnected: <reason>`: the device is unreachable or rejected the
   session
-- `Set the ... property` — required configuration is missing
+- `Set the ... property`: required configuration is missing
 
 ##### Driver Version (read-only)
 
@@ -192,7 +190,7 @@ or `Connected (Legacy)`.
 ##### TP-Link Username
 
 Sets the email address of the TP-Link (Kasa/Tapo) account the device is
-bound to. **Case sensitive** — enter it exactly as registered. Required
+bound to. **Case sensitive**, enter it exactly as registered. Required
 for KLAP firmware; may be left blank for legacy-firmware devices.
 
 ##### TP-Link Password
@@ -203,7 +201,7 @@ devices.
 
 > KLAP authentication is derived from the account credentials the device
 > was provisioned with in the Kasa/Tapo app. They are used only for the
-> local handshake — the driver never contacts TP-Link's cloud. Setting
+> local handshake; the driver never contacts TP-Link's cloud. Setting
 > them on a legacy-firmware device is harmless and recommended: when
 > TP-Link pushes the KLAP firmware update, the driver switches over
 > automatically.
@@ -238,7 +236,7 @@ Line voltage reported by the energy meter, when supported.
 ##### Output 1 ... Output 6 (read-only)
 
 Displays each output's name (as configured in the Kasa app), current
-state, and last power reading, e.g. `Espresso Machine — On — 1243.0 W`.
+state, and last power reading, e.g. `Espresso Machine - On - 1243.0 W`.
 Outputs that don't exist on the connected device remain blank.
 
 ## Driver Actions
@@ -268,18 +266,18 @@ supported.
 
 **Events:**
 
-- **Output N Turned On / Turned Off** — Fires when an output changes
+- **Output N Turned On / Turned Off**: Fires when an output changes
   state, whether from Control4, the Kasa app, or the physical button
-- **Connected / Disconnected** — Fires when the driver's connection to
+- **Connected / Disconnected**: Fires when the driver's connection to
   the device is established or lost
 
 **Conditionals:**
 
-- **Device Connected** — Check whether the device is currently connected
+- **Device Connected**: Check whether the device is currently connected
 
 **Commands:**
 
-- **Turn Output On / Turn Output Off / Toggle Output** — Control an
+- **Turn Output On / Turn Output Off / Toggle Output**: Control an
   output by number from programming
 
 **Variables (per output N):**
@@ -318,21 +316,21 @@ To migrate:
 
 # <span style="color:#4ACBD6">Troubleshooting</span>
 
-**`Disconnected: ... handshake1 auth mismatch ...`** — The device is
+**`Disconnected: ... handshake1 auth mismatch ...`**: The device is
 bound to a different TP-Link account (or the password is wrong). Enter
 the credentials for the account that owns the device in the Kasa/Tapo
 app, exactly as registered (the email is case sensitive).
 
-**`Driver Status` stuck at `Connecting...` or timeouts** — Verify the IP
+**`Driver Status` stuck at `Connecting...` or timeouts**: Verify the IP
 address, that the device is on a network reachable from the controller,
 and that nothing is blocking TCP port 80 to the device.
 
-**Device rejects commands with `module not support`** — The device
+**Device rejects commands with `module not support`**: The device
 firmware uses the newer SMART command schema rather than the legacy IOT
 schema this driver speaks. File a support request with the device model
 and firmware version.
 
-**Output states lag behind the Kasa app** — State changes made outside
+**Output states lag behind the Kasa app**: State changes made outside
 Control4 are picked up on the next poll; lower
 [`Poll Rate (Seconds)`](#poll-rate-seconds--2---300-) if you need faster
 convergence.

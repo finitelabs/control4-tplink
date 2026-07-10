@@ -2,7 +2,7 @@
 ---
 --- This is the original TP-Link Smart Home protocol used by Kasa devices
 --- before the KLAP firmware rollout (late 2024). The payload schema is the
---- same legacy IOT JSON that KLAP devices use — only the transport differs,
+--- same legacy IOT JSON that KLAP devices use; only the transport differs,
 --- so the two transports are interchangeable behind `request(payload)`.
 ---
 --- The "encryption" is a rolling XOR autokey cipher (initial key 171):

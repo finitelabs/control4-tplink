@@ -207,7 +207,7 @@ function Klap:connect()
 
       if expected ~= serverHash then
         return deferred.new():reject({
-          error = "Klap: handshake1 auth mismatch — device is bound to a different TP-Link account/password",
+          error = "Klap: handshake1 auth mismatch; device is bound to a different TP-Link account/password",
         })
       end
 
