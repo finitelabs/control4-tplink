@@ -6,6 +6,7 @@ DC_FILENAME = "tplink_outlet.c4z"
 DRIVER_GITHUB_REPO = "finitelabs/control4-tplink"
 DRIVER_FILENAMES = {
   "tplink_outlet.c4z",
+  "tplink_light.c4z",
 }
 --#endif
 
@@ -129,6 +130,9 @@ local function setDeviceOnline(online, reason)
     updateDriverStatus(transportName and ("Connected (" .. transportName .. ")") or "Connected")
   else
     updateDriverStatus(not IsEmpty(reason) and ("Disconnected: " .. reason) or "Disconnected")
+    for _, binding in pairs(bindings:getDynamicBindings("light")) do
+      SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", {}, "NOTIFY")
+    end
   end
 end
 
@@ -173,12 +177,69 @@ local function ensureRelayBinding(n)
   return binding.bindingId
 end
 
---- Re-wire RFP/OBC handlers for relay bindings restored from persistence.
+--- Push the current state of an output to a bound tplink_light driver.
+--- Uses the TPLINK_LIGHT binding protocol: UPDATE_STATE carries a serialized
+--- on/off entity and state in the same shape the light driver's direct mode
+--- synthesizes for real light devices.
+--- @param n number Output number (1-based).
+local function pushLightState(n)
+  local binding = bindings:getDynamicBinding("light", "output_" .. n)
+  if binding == nil or outputs[n] == nil or outputs[n].state == nil then
+    return
+  end
+  SendToProxy(binding.bindingId, "UPDATE_STATE", {
+    entity = SerializeSafe({ supported_color_modes = { constants.LightColorMode.COLOR_MODE_ON_OFF } }),
+    state = SerializeSafe({ state = outputs[n].state }),
+  }, "NOTIFY")
+end
+
+--- Get or create the dynamic light binding for an output and wire its handlers.
+--- @param n number Output number (1-based).
+local function ensureLightBinding(n)
+  local binding = bindings:getOrAddDynamicBinding(
+    "light",
+    "output_" .. n,
+    "CONTROL",
+    true,
+    "Output " .. n .. " Light",
+    "TPLINK_LIGHT"
+  )
+  if binding == nil then
+    return
+  end
+
+  RFP[binding.bindingId] = function(_, strCommand, tParams)
+    log:trace("RFP light output=%s strCommand=%s", n, strCommand)
+    if strCommand == "REFRESH_STATE" then
+      pushLightState(n)
+    elseif strCommand == "ENTITY_COMMAND" then
+      local opts = DeserializeSafe(Select(tParams, "body"))
+      if type(opts) == "table" and opts.has_state then
+        setOutput(n, opts.state and true or false)
+      end
+    end
+  end
+
+  OBC[binding.bindingId] = function(_, _, bIsBound)
+    if bIsBound then
+      pushLightState(n)
+    end
+  end
+end
+
+--- Re-wire RFP/OBC handlers for relay and light bindings restored from persistence.
 local function restoreRelayHandlers()
   for key, _ in pairs(bindings:getDynamicBindings("relay")) do
     local n = tointeger(string.match(key, "^output_(%d+)$"))
     if n then
       ensureRelayBinding(n)
+      outputs[n] = outputs[n] or {}
+    end
+  end
+  for key, _ in pairs(bindings:getDynamicBindings("light")) do
+    local n = tointeger(string.match(key, "^output_(%d+)$"))
+    if n then
+      ensureLightBinding(n)
       outputs[n] = outputs[n] or {}
     end
   end
@@ -196,6 +257,7 @@ local function applyOutputState(n, state)
     if binding then
       SendToProxy(binding.bindingId, state and "CLOSED" or "OPENED", {}, "NOTIFY")
     end
+    pushLightState(n)
     if gInitialized then
       C4:FireEventByID(state and n or (constants.EVENT_OFF_OFFSET + n))
     end
@@ -223,6 +285,7 @@ local function applySysinfo(sysinfo)
       outputs[n] = outputs[n] or {}
       outputs[n].childId = tostring(child.id)
       ensureRelayBinding(n)
+      ensureLightBinding(n)
       values:update("Output " .. n .. " Name", tostring(child.alias or ("Output " .. n)), "STRING")
       applyOutputState(n, tointeger(child.state) == 1)
     end
@@ -232,6 +295,7 @@ local function applySysinfo(sysinfo)
     outputs[1] = outputs[1] or {}
     outputs[1].childId = nil
     ensureRelayBinding(1)
+    ensureLightBinding(1)
     values:update("Output 1 Name", tostring(sysinfo.alias or "Output 1"), "STRING")
     applyOutputState(1, tointeger(sysinfo.relay_state) == 1)
   end

@@ -57,4 +57,29 @@ return {
   --- Binding ID of the relay connection for output 1 (output N is RELAY_BINDING_BASE + N).
   --- @type number
   RELAY_BINDING_BASE = 100,
+
+  --- Constant for virtual button identifiers (light_v2 BUTTON_ACTION).
+  --- @type table<string, number>
+  ButtonIds = {
+    TOP = 0,
+    BOTTOM = 1,
+    TOGGLE = 2,
+  },
+
+  --- Color modes shared across the TPLINK_LIGHT binding protocol between
+  --- tplink_outlet (state provider) and tplink_light (light_v2 proxy).
+  --- @type table<string, number>
+  LightColorMode = {
+    COLOR_MODE_UNKNOWN = 0,
+    COLOR_MODE_ON_OFF = 1,
+    COLOR_MODE_LEGACY_BRIGHTNESS = 2,
+    COLOR_MODE_BRIGHTNESS = 3,
+    COLOR_MODE_WHITE = 4,
+    COLOR_MODE_COLOR_TEMPERATURE = 5,
+    COLOR_MODE_COLD_WARM_WHITE = 6,
+    COLOR_MODE_RGB = 7,
+    COLOR_MODE_RGB_WHITE = 8,
+    COLOR_MODE_RGB_COLOR_TEMPERATURE = 9,
+    COLOR_MODE_RGB_COLD_WARM_WHITE = 10,
+  },
 }
