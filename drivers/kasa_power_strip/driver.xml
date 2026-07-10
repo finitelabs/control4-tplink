@@ -191,17 +191,28 @@
         <description>IP address of the Kasa device. Use a DHCP reservation so it does not change.</description>
       </property>
       <property>
+        <name>Protocol</name>
+        <type>LIST</type>
+        <items>
+          <item>Auto</item>
+          <item>KLAP</item>
+          <item>Legacy</item>
+        </items>
+        <default>Auto</default>
+        <description>Local protocol the device speaks. Auto tries KLAP (post-2024 firmware) and falls back to the legacy port 9999 protocol.</description>
+      </property>
+      <property>
         <name>TP-Link Username</name>
         <type>STRING</type>
         <default/>
-        <description>Email address of the TP-Link (Kasa/Tapo) account the device is bound to. Case sensitive.</description>
+        <description>Email address of the TP-Link (Kasa/Tapo) account the device is bound to. Case sensitive. Required for KLAP firmware; leave blank for legacy-firmware devices.</description>
       </property>
       <property>
         <name>TP-Link Password</name>
         <type>STRING</type>
         <password>true</password>
         <default/>
-        <description>Password of the TP-Link (Kasa/Tapo) account the device is bound to.</description>
+        <description>Password of the TP-Link (Kasa/Tapo) account the device is bound to. Required for KLAP firmware; leave blank for legacy-firmware devices.</description>
       </property>
       <property>
         <name>Poll Rate (Seconds)</name>

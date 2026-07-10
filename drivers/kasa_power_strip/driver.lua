@@ -21,6 +21,7 @@ local githubUpdater = require("lib.github-updater")
 --#endif
 local constants = require("constants")
 local Klap = require("lib.klap")
+local Legacy = require("lib.legacy")
 
 ---------------------------------------------------------------------------
 -- State
@@ -33,6 +34,18 @@ local gInitialized = false
 --- KLAP transport to the device.
 --- @type Klap
 local klap = Klap:new()
+
+--- Legacy (port 9999) transport to the device.
+--- @type Legacy
+local legacy = Legacy:new()
+
+--- The active transport (klap or legacy), set by connect-time detection.
+--- @type Klap|Legacy|nil
+local transport = nil
+
+--- Human-readable name of the active transport, for Driver Status.
+--- @type string?
+local transportName = nil
 
 --- @class Output
 --- @field childId string? The device-side child id ("" context id for single-outlet devices).
@@ -109,7 +122,7 @@ local function setDeviceOnline(online, reason)
     log:info("Device is %s", online and "online" or "offline")
   end
   if online then
-    updateDriverStatus("Connected")
+    updateDriverStatus(transportName and ("Connected (" .. transportName .. ")") or "Connected")
   else
     updateDriverStatus(not IsEmpty(reason) and ("Disconnected: " .. reason) or "Disconnected")
   end
@@ -224,12 +237,15 @@ end
 
 --- Poll output states and device info via get_sysinfo.
 local function pollSysinfo()
+  if transport == nil then
+    return
+  end
   if sysinfoInFlight then
     log:debug("Skipping sysinfo poll; previous poll still in flight")
     return
   end
   sysinfoInFlight = true
-  klap:request({ system = { get_sysinfo = {} } }):next(function(response)
+  transport:request({ system = { get_sysinfo = {} } }):next(function(response)
     sysinfoInFlight = false
     local sysinfo = Select(response, "system", "get_sysinfo")
     if type(sysinfo) ~= "table" or tointeger(sysinfo.err_code) ~= 0 then
@@ -248,7 +264,7 @@ end
 
 --- Poll per-output power usage via emeter get_realtime, one output after another.
 local function pollEnergy()
-  if energyInFlight or outputCount == 0 or not deviceOnline then
+  if transport == nil or energyInFlight or outputCount == 0 or not deviceOnline then
     return
   end
   energyInFlight = true
@@ -260,7 +276,7 @@ local function pollEnergy()
       energyInFlight = false
       return
     end
-    klap:request(forOutput(n, { emeter = { get_realtime = {} } })):next(function(response)
+    transport:request(forOutput(n, { emeter = { get_realtime = {} } })):next(function(response)
       local realtime = Select(response, "emeter", "get_realtime")
       if type(realtime) == "table" and tointeger(realtime.err_code) == 0 then
         -- Hardware v1 reports floats in base units (power/voltage); v2 reports
@@ -294,13 +310,23 @@ local function pollEnergy()
   pollOutput(1)
 end
 
+--- Forward declaration; defined below with the transport detection logic.
+local reconnect
+
 --- (Re)start the polling timers from the current property values.
 local function restartPollTimers()
   CancelTimer("SysinfoPoll")
   CancelTimer("EnergyPoll")
 
   local pollSeconds = tointeger(Properties["Poll Rate (Seconds)"]) or 10
-  SetTimer("SysinfoPoll", pollSeconds * 1000, pollSysinfo, true)
+  SetTimer("SysinfoPoll", pollSeconds * 1000, function()
+    if transport == nil then
+      -- Detection failed or never ran; keep retrying until the device answers.
+      reconnect()
+    else
+      pollSysinfo()
+    end
+  end, true)
 
   local energySeconds = tointeger(Properties["Energy Poll Rate (Seconds)"]) or 0
   if energySeconds > 0 then
@@ -308,23 +334,104 @@ local function restartPollTimers()
   end
 end
 
---- Reconfigure the transport from properties and poll immediately.
-local function reconnect()
+--- Select a transport and mark the device online from a successful probe.
+--- @param t Klap|Legacy
+--- @param name string
+--- @param sysinfo table The probe's get_sysinfo result.
+local function adoptTransport(t, name, sysinfo)
+  transport = t
+  transportName = name
+  log:info("Using %s transport", name)
+  applySysinfo(sysinfo)
+  setDeviceOnline(true)
+end
+
+--- Probe the legacy (port 9999) transport with a get_sysinfo request.
+--- @param onFail fun(reason: string)
+local function tryLegacy(onFail)
+  legacy:request({ system = { get_sysinfo = {} } }):next(function(response)
+    local sysinfo = Select(response, "system", "get_sysinfo")
+    if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
+      adoptTransport(legacy, "Legacy", sysinfo)
+    else
+      onFail("device rejected get_sysinfo over legacy protocol")
+    end
+  end, function(err)
+    onFail(Select(err, "error") or "no response over legacy protocol")
+  end)
+end
+
+--- Probe the KLAP transport (handshake + get_sysinfo).
+--- @param onFail fun(reason: string, authMismatch: boolean)
+local function tryKlap(onFail)
+  klap
+    :connect()
+    :next(function()
+      return klap:request({ system = { get_sysinfo = {} } })
+    end)
+    :next(function(response)
+      local sysinfo = Select(response, "system", "get_sysinfo")
+      if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
+        adoptTransport(klap, "KLAP", sysinfo)
+      else
+        onFail("device rejected get_sysinfo over KLAP", false)
+      end
+    end, function(err)
+      local reason = Select(err, "error") or "KLAP connection failed"
+      onFail(reason, string.find(reason, "auth mismatch", 1, true) ~= nil)
+    end)
+end
+
+--- Reconfigure the transports from properties, detect the right one, and poll.
+function reconnect()
+  transport = nil
+  transportName = nil
+
+  local ip = Properties["IP Address"] or ""
   klap:configure({
-    ip = Properties["IP Address"] or "",
+    ip = ip,
     username = Properties["TP-Link Username"] or "",
     password = Properties["TP-Link Password"] or "",
   })
-  if IsEmpty(Properties["IP Address"]) then
+  legacy:configure({ ip = ip })
+
+  if IsEmpty(ip) then
     updateDriverStatus("Set the IP Address property")
     return
   end
-  if IsEmpty(Properties["TP-Link Username"]) or IsEmpty(Properties["TP-Link Password"]) then
-    updateDriverStatus("Set the TP-Link Username and Password properties")
-    return
+
+  local mode = Properties["Protocol"] or "Auto"
+  local hasCredentials = not IsEmpty(Properties["TP-Link Username"]) and not IsEmpty(Properties["TP-Link Password"])
+
+  if mode == "KLAP" or (mode == "Auto" and hasCredentials) then
+    if not hasCredentials then
+      updateDriverStatus("Set the TP-Link Username and Password properties (required for KLAP)")
+      return
+    end
+    updateDriverStatus("Connecting (KLAP)...")
+    tryKlap(function(klapReason, authMismatch)
+      -- A verified auth mismatch means the device definitely speaks KLAP;
+      -- falling back to legacy would just mask the bad credentials.
+      if mode == "KLAP" or authMismatch then
+        setDeviceOnline(false, klapReason)
+        return
+      end
+      log:info("KLAP probe failed (%s); trying legacy protocol", klapReason)
+      updateDriverStatus("Connecting (Legacy)...")
+      tryLegacy(function(legacyReason)
+        setDeviceOnline(false, "KLAP: " .. klapReason .. " / Legacy: " .. legacyReason)
+      end)
+    end)
+  else
+    -- Legacy mode, or Auto without credentials.
+    updateDriverStatus("Connecting (Legacy)...")
+    tryLegacy(function(legacyReason)
+      if mode == "Auto" then
+        legacyReason = legacyReason .. " (set TP-Link credentials if this device is on KLAP firmware)"
+      end
+      setDeviceOnline(false, legacyReason)
+    end)
   end
-  updateDriverStatus("Connecting...")
-  pollSysinfo()
 end
 
 ---------------------------------------------------------------------------
@@ -340,18 +447,24 @@ local function setOutput(n, state)
     log:warn("setOutput: output %s does not exist on this device", n)
     return
   end
+  if transport == nil then
+    log:warn("setOutput: not connected")
+    return
+  end
   outputs[n] = outputs[n] or {}
-  klap:request(forOutput(n, { system = { set_relay_state = { state = state and 1 or 0 } } })):next(function(response)
-    local result = Select(response, "system", "set_relay_state")
-    if type(result) ~= "table" or tointeger(result.err_code) ~= 0 then
-      log:error("set_relay_state for output %d failed: %s", n, response)
-      return
-    end
-    applyOutputState(n, state)
-  end, function(err)
-    log:error("Failed to set output %d %s: %s", n, state and "on" or "off", Select(err, "error") or err)
-    setDeviceOnline(false, Select(err, "error"))
-  end)
+  transport
+    :request(forOutput(n, { system = { set_relay_state = { state = state and 1 or 0 } } }))
+    :next(function(response)
+      local result = Select(response, "system", "set_relay_state")
+      if type(result) ~= "table" or tointeger(result.err_code) ~= 0 then
+        log:error("set_relay_state for output %d failed: %s", n, response)
+        return
+      end
+      applyOutputState(n, state)
+    end, function(err)
+      log:error("Failed to set output %d %s: %s", n, state and "on" or "off", Select(err, "error") or err)
+      setDeviceOnline(false, Select(err, "error"))
+    end)
 end
 
 --- Toggle an output based on its last known state.
@@ -464,6 +577,14 @@ function OPC.TP_Link_Password()
 end
 
 --- @param propertyValue string
+function OPC.Protocol(propertyValue)
+  log:trace("OPC.Protocol('%s')", propertyValue)
+  if gInitialized then
+    reconnect()
+  end
+end
+
+--- @param propertyValue string
 function OPC.Poll_Rate_Seconds(propertyValue)
   log:trace("OPC.Poll_Rate_Seconds('%s')", propertyValue)
   if gInitialized then
@@ -523,6 +644,7 @@ end
 function EC.Reconnect()
   log:info("Action: Reconnect")
   klap:reset()
+  legacy:reset()
   reconnect()
 end
 

@@ -27,7 +27,8 @@
 <!-- #endif -->
 
 The TP-Link Kasa Power Strip driver provides local, cloud-free control of Kasa
-smart power strips (HS300/KP303/KP400) and smart plugs directly from Control4.
+smart power strips (HS300/KP303/KP400) and smart plugs directly from Control4,
+on **both** generations of TP-Link's local protocol.
 
 Unlike older Kasa drivers that rely on TP-Link's legacy plaintext protocol on
 port 9999, this driver speaks **KLAP** — the encrypted local protocol TP-Link
@@ -35,7 +36,10 @@ rolled out in firmware updates starting late 2024, which **disables the legacy
 protocol entirely**. If your Kasa device stopped responding to an existing
 Control4 driver after a firmware update, this driver is the fix: it implements
 the KLAP v2 handshake and session encryption while retaining the legacy IOT
-command schema those devices still use internally.
+command schema those devices still use internally. Devices still on the original
+firmware are supported too — the driver auto-detects the protocol and falls back
+to the legacy port 9999 transport, so the same driver keeps working across
+TP-Link's forced firmware migration.
 
 Each output is exposed as a standard Control4 **relay binding**, along with
 per-output events, variables, and real-time power (wattage) readings for
@@ -97,6 +101,9 @@ work; single-outlet devices appear as output 1.
 
 - **Local control** of each outlet — no TP-Link cloud dependency after setup
 - **KLAP v2** encrypted transport (works on firmware that disabled port 9999)
+- **Legacy protocol support** with automatic detection — devices on original
+  Kasa firmware work with no credentials required, and keep working after
+  TP-Link migrates them to KLAP (just add your account credentials)
 - Standard Control4 **relay bindings** for every output (bind relay-controlled
   devices, use in scenes, dashboards, etc.)
 - **Events**: `Output N Turned On` / `Output N Turned Off`, `Connected`,
@@ -244,18 +251,32 @@ Sets the IP address of the Kasa device (e.g. `192.168.1.50`).
 > ⚠️ You should ensure the address will not change by assigning a static IP or
 > creating a DHCP reservation for the device.
 
+##### Protocol [ **_Auto_** | KLAP | Legacy ]
+
+Selects the local protocol. `Auto` (default) tries KLAP first when credentials
+are set and falls back to the legacy port 9999 protocol; without credentials it
+connects over the legacy protocol directly. Pin it to `KLAP` or `Legacy` only if
+you need to skip detection.
+
+The active protocol is shown in `Driver Status`, e.g. `Connected (KLAP)` or
+`Connected (Legacy)`.
+
 ##### TP-Link Username
 
 Sets the email address of the TP-Link (Kasa/Tapo) account the device is bound
-to. **Case sensitive** — enter it exactly as registered.
+to. **Case sensitive** — enter it exactly as registered. Required for KLAP
+firmware; may be left blank for legacy-firmware devices.
 
 ##### TP-Link Password
 
-Sets the password of the TP-Link account the device is bound to.
+Sets the password of the TP-Link account the device is bound to. Required for
+KLAP firmware; may be left blank for legacy-firmware devices.
 
 > KLAP authentication is derived from the account credentials the device was
 > provisioned with in the Kasa/Tapo app. They are used only for the local
-> handshake — the driver never contacts TP-Link's cloud.
+> handshake — the driver never contacts TP-Link's cloud. Setting them on a
+> legacy-firmware device is harmless and recommended: when TP-Link pushes the
+> KLAP firmware update, the driver switches over automatically.
 
 ##### Poll Rate (Seconds) [ 2 - 300 ]
 
