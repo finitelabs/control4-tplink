@@ -107,9 +107,8 @@ work; single-outlet devices appear as output 1.
   devices, use in scenes, dashboards, etc.)
 - **Events**: `Output N Turned On` / `Output N Turned Off`, `Connected`,
   `Disconnected`
-- **Variables**: `OUTPUT_N_NAME`, `OUTPUT_N_STATE`, `OUTPUT_N_WATT`, and
-  `VOLTAGE`, using the same names as the legacy Kasa outlet drivers so existing
-  programming migrates 1:1
+- **Variables** per output (`Output N Name`, `Output N State`, `Output N Power`,
+  and `Voltage`) for use in programming
 - **Real-time energy monitoring** per outlet with configurable poll rate
 - **Programming commands**: Turn Output On / Turn Output Off / Toggle Output
 - Automatic session recovery (re-handshake) when the device restarts or drops
@@ -303,11 +302,11 @@ Line voltage reported by the energy meter, when supported.
 
 #### Outputs
 
-##### Output 1 ... Output 6 (read-only)
+##### Output N Name / State / Power (read-only)
 
 Displays each output's name (as configured in the Kasa app), current state, and
-last power reading, e.g. `Espresso Machine - On - 1243.0 W`. Outputs that don't
-exist on the connected device remain blank.
+last power reading. These properties are hidden until the device connects; only
+the outputs the device actually reports are shown.
 
 ## Driver Actions
 
@@ -330,10 +329,12 @@ of the current version.
 
 ## Connections
 
-Each output is exposed as a Control4 **relay** control binding (`Output 1 Relay`
-... `Output 6 Relay`). Bind any relay-consuming device or use the outputs
-directly from programming. Relay commands `ON`/`CLOSE`, `OFF`/`OPEN`, `TOGGLE`,
-and `TRIGGER` (pulse) are supported.
+Each output the device reports is exposed as a Control4 **relay** control
+binding (`Output 1 Relay`, `Output 2 Relay`, ...). Bindings are created
+dynamically after the driver connects, so only the outputs that exist on the
+device appear in Composer Connections. Bind any relay-consuming device or use
+the outputs directly from programming. Relay commands `ON`/`CLOSE`,
+`OFF`/`OPEN`, `TOGGLE`, and `TRIGGER` (pulse) are supported.
 
 ## Programming
 
@@ -357,14 +358,13 @@ and `TRIGGER` (pulse) are supported.
 
 | Variable         | Type   | Description                                 |
 | ---------------- | ------ | ------------------------------------------- |
-| `OUTPUT_N_NAME`  | STRING | Output alias as configured in the Kasa app  |
-| `OUTPUT_N_STATE` | BOOL   | Current relay state                         |
-| `OUTPUT_N_WATT`  | NUMBER | Current power draw in watts (energy models) |
-| `VOLTAGE`        | NUMBER | Line voltage (energy models)                |
+| `Output N Name`  | STRING | Output alias as configured in the Kasa app  |
+| `Output N State` | BOOL   | Current relay state                         |
+| `Output N Power` | NUMBER | Current power draw in watts (energy models) |
+| `Voltage`        | NUMBER | Line voltage (energy models)                |
 
-> The variable names intentionally match the legacy Kasa outlet drivers, so
-> watt-threshold or state-based programming can be re-pointed to this driver
-> without restructuring.
+Variables are created when the device connects, so only the outputs the device
+reports get variables.
 
 # <span style="color:#4ACBD6">Migrating from a Legacy Kasa Driver</span>
 
@@ -378,7 +378,7 @@ To migrate:
 1. Add this driver and configure the [Kasa Settings](#kasa-settings). Confirm
    `Driver Status` shows `Connected` and the outputs populate.
 2. Re-point programming from the old driver to this one. Events, commands, and
-   variables use the same names and output numbering as the legacy drivers.
+   variables follow the same output numbering as the legacy drivers.
 3. Move any relay bindings from the old driver's outputs to this driver's.
 4. Remove the old driver.
 

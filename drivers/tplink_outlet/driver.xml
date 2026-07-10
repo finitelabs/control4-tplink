@@ -277,37 +277,109 @@
         <default>Outputs</default>
       </property>
       <property>
-        <name>Output 1</name>
+        <name>Output 1 Name</name>
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
       </property>
       <property>
-        <name>Output 2</name>
+        <name>Output 1 State</name>
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
       </property>
       <property>
-        <name>Output 3</name>
+        <name>Output 1 Power</name>
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
       </property>
       <property>
-        <name>Output 4</name>
+        <name>Output 2 Name</name>
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
       </property>
       <property>
-        <name>Output 5</name>
+        <name>Output 2 State</name>
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
       </property>
       <property>
-        <name>Output 6</name>
+        <name>Output 2 Power</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 3 Name</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 3 State</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 3 Power</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 4 Name</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 4 State</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 4 Power</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 5 Name</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 5 State</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 5 Power</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 6 Name</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 6 State</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 6 Power</name>
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
@@ -371,96 +443,4 @@
       </command>
     </commands>
   </config>
-  <connections>
-    <connection>
-      <id>101</id>
-      <facing>6</facing>
-      <connectionname>Output 1 Relay</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>RELAY</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>102</id>
-      <facing>6</facing>
-      <connectionname>Output 2 Relay</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>RELAY</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>103</id>
-      <facing>6</facing>
-      <connectionname>Output 3 Relay</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>RELAY</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>104</id>
-      <facing>6</facing>
-      <connectionname>Output 4 Relay</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>RELAY</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>105</id>
-      <facing>6</facing>
-      <connectionname>Output 5 Relay</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>RELAY</classname>
-        </class>
-      </classes>
-    </connection>
-    <connection>
-      <id>106</id>
-      <facing>6</facing>
-      <connectionname>Output 6 Relay</connectionname>
-      <type>1</type>
-      <consumer>False</consumer>
-      <audiosource>False</audiosource>
-      <videosource>False</videosource>
-      <linelevel>True</linelevel>
-      <classes>
-        <class>
-          <classname>RELAY</classname>
-        </class>
-      </classes>
-    </connection>
-  </connections>
 </devicedata>

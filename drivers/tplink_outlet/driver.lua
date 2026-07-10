@@ -20,6 +20,8 @@ local log = require("lib.logging")
 local githubUpdater = require("lib.github-updater")
 --#endif
 local constants = require("constants")
+local bindings = require("lib.bindings")
+local values = require("lib.values")
 local Klap = require("lib.klap")
 local Legacy = require("lib.legacy")
 
@@ -48,10 +50,8 @@ local transport = nil
 local transportName = nil
 
 --- @class Output
---- @field childId string? The device-side child id ("" context id for single-outlet devices).
---- @field name string? The output alias reported by the device.
+--- @field childId string? The device-side child id (nil for single-outlet devices).
 --- @field state boolean? Last known relay state.
---- @field watts number? Last known power draw in watts.
 
 --- Last known state per output, keyed 1..MAX_OUTPUTS.
 --- @type table<number, Output>
@@ -72,6 +72,10 @@ local sysinfoInFlight = false
 --- Whether an energy poll is currently in flight.
 --- @type boolean
 local energyInFlight = false
+
+--- Properties that stay hidden until the device reports data for them.
+--- @type string[]
+local DEVICE_PROPERTIES = { "Device Information", "Model", "Device Name", "MAC Address", "Firmware", "WiFi RSSI" }
 
 --#ifndef DRIVERCENTRAL
 --- Get all device IDs for instances of this driver, sorted ascending.
@@ -128,88 +132,107 @@ local function setDeviceOnline(online, reason)
   end
 end
 
---- Update the "Output N" display property from the output's last known state.
+--- Forward declared; defined in the Control section.
+local setOutput, toggleOutput
+
+--- Get or create the dynamic relay binding for an output and wire its handlers.
 --- @param n number Output number (1-based).
-local function updateOutputProperty(n)
-  local output = outputs[n]
-  if not output then
-    return
+--- @return integer|nil bindingId
+local function ensureRelayBinding(n)
+  local binding =
+    bindings:getOrAddDynamicBinding("relay", "output_" .. n, "CONTROL", true, "Output " .. n .. " Relay", "RELAY")
+  if binding == nil then
+    return nil
   end
-  local parts = { output.name or ("Output " .. n) }
-  table.insert(parts, output.state and "On" or "Off")
-  if output.watts ~= nil then
-    table.insert(parts, string.format("%.1f W", output.watts))
+
+  RFP[binding.bindingId] = function(_, strCommand, tParams)
+    log:trace("RFP relay output=%s strCommand=%s", n, strCommand)
+    if strCommand == "ON" or strCommand == "CLOSE" then
+      setOutput(n, true)
+    elseif strCommand == "OFF" or strCommand == "OPEN" then
+      setOutput(n, false)
+    elseif strCommand == "TOGGLE" then
+      toggleOutput(n)
+    elseif strCommand == "TRIGGER" then
+      setOutput(n, true)
+      local pulseTime = tonumber_locale(tParams.TIME) or 0
+      if pulseTime > 0 then
+        SetTimer("FinishPulse" .. n, pulseTime, function()
+          setOutput(n, false)
+        end)
+      end
+    end
   end
-  UpdateProperty("Output " .. n, table.concat(parts, " - "))
+
+  OBC[binding.bindingId] = function(idBinding, _, bIsBound)
+    if bIsBound and outputs[n] and outputs[n].state ~= nil then
+      SendToProxy(idBinding, outputs[n].state and "CLOSED" or "OPENED", {}, "NOTIFY")
+    end
+  end
+
+  return binding.bindingId
 end
 
---- Apply a new relay state for an output: variables, events, relay proxy, property.
+--- Re-wire RFP/OBC handlers for relay bindings restored from persistence.
+local function restoreRelayHandlers()
+  for key, _ in pairs(bindings:getDynamicBindings("relay")) do
+    local n = tointeger(string.match(key, "^output_(%d+)$"))
+    if n then
+      ensureRelayBinding(n)
+      outputs[n] = outputs[n] or {}
+    end
+  end
+end
+
+--- Apply a new relay state for an output: value, events, relay proxy.
 --- @param n number Output number (1-based).
 --- @param state boolean New relay state.
---- @param forceNotify boolean? Notify even if the state did not change.
-local function applyOutputState(n, state, forceNotify)
-  local output = outputs[n]
-  local changed = output.state ~= state
-  output.state = state
+local function applyOutputState(n, state)
+  local changed = values:update("Output " .. n .. " State", state, "BOOL")
+  outputs[n].state = state
 
-  if changed or forceNotify then
-    SetVariable("OUTPUT_" .. n .. "_STATE", state and "1" or "0")
-    SendToProxy(constants.RELAY_BINDING_BASE + n, state and "CLOSED" or "OPENED", {}, "NOTIFY")
-    updateOutputProperty(n)
+  if changed then
+    local binding = bindings:getDynamicBinding("relay", "output_" .. n)
+    if binding then
+      SendToProxy(binding.bindingId, state and "CLOSED" or "OPENED", {}, "NOTIFY")
+    end
+    if gInitialized then
+      C4:FireEventByID(state and n or (constants.EVENT_OFF_OFFSET + n))
+    end
   end
-  if changed and gInitialized then
-    C4:FireEventByID(state and n or (constants.EVENT_OFF_OFFSET + n))
-  end
-end
-
---- Apply a new output name: variable and display property.
---- @param n number Output number (1-based).
---- @param name string
-local function applyOutputName(n, name)
-  local output = outputs[n]
-  if output.name ~= name then
-    output.name = name
-    SetVariable("OUTPUT_" .. n .. "_NAME", name)
-    updateOutputProperty(n)
-  end
-end
-
---- Apply a new power reading: variable and display property.
---- @param n number Output number (1-based).
---- @param watts number
-local function applyOutputWatts(n, watts)
-  local output = outputs[n]
-  output.watts = watts
-  -- OUTPUT_n_WATT is a NUMBER variable; report whole watts like the device app does.
-  SetVariable("OUTPUT_" .. n .. "_WATT", tostring(math.floor(watts + 0.5)))
-  updateOutputProperty(n)
 end
 
 --- Parse a get_sysinfo response body and update all output/device state.
 --- @param sysinfo table The `system.get_sysinfo` result.
 local function applySysinfo(sysinfo)
+  for _, property in ipairs(DEVICE_PROPERTIES) do
+    C4:SetPropertyAttribs(property, constants.SHOW_PROPERTY)
+  end
   UpdateProperty("Model", tostring(sysinfo.model or ""))
   UpdateProperty("Device Name", tostring(sysinfo.alias or ""))
   UpdateProperty("MAC Address", tostring(sysinfo.mac or ""))
   UpdateProperty("Firmware", tostring(sysinfo.sw_ver or ""))
   UpdateProperty("WiFi RSSI", tostring(sysinfo.rssi or ""))
+  C4:SetPropertyAttribs("Outputs", constants.SHOW_PROPERTY)
 
   local children = sysinfo.children
   if type(children) == "table" and #children > 0 then
     outputCount = math.min(#children, constants.MAX_OUTPUTS)
-    for i = 1, outputCount do
-      local child = children[i]
-      outputs[i] = outputs[i] or {}
-      outputs[i].childId = tostring(child.id)
-      applyOutputName(i, tostring(child.alias or ("Output " .. i)))
-      applyOutputState(i, tointeger(child.state) == 1)
+    for n = 1, outputCount do
+      local child = children[n]
+      outputs[n] = outputs[n] or {}
+      outputs[n].childId = tostring(child.id)
+      ensureRelayBinding(n)
+      values:update("Output " .. n .. " Name", tostring(child.alias or ("Output " .. n)), "STRING")
+      applyOutputState(n, tointeger(child.state) == 1)
     end
   else
     -- Single-outlet device (HS103/HS110/KP115/...): no children, top-level relay_state.
     outputCount = 1
     outputs[1] = outputs[1] or {}
     outputs[1].childId = nil
-    applyOutputName(1, tostring(sysinfo.alias or "Output 1"))
+    ensureRelayBinding(1)
+    values:update("Output 1 Name", tostring(sysinfo.alias or "Output 1"), "STRING")
     applyOutputState(1, tointeger(sysinfo.relay_state) == 1)
   end
 end
@@ -284,14 +307,13 @@ local function pollEnergy()
         local watts = realtime.power_mw ~= nil and (tonumber_locale(realtime.power_mw) or 0) / 1000
           or tonumber_locale(realtime.power)
         if watts ~= nil then
-          applyOutputWatts(n, watts)
+          values:update("Output " .. n .. " Power", string.format("%.1f", watts), "NUMBER", nil, " W")
         end
         local voltage = realtime.voltage_mv ~= nil and (tonumber_locale(realtime.voltage_mv) or 0) / 1000
           or tonumber_locale(realtime.voltage)
         if voltage ~= nil and not voltageReported then
           voltageReported = true
-          SetVariable("VOLTAGE", tostring(math.floor(voltage + 0.5)))
-          UpdateProperty("Voltage", string.format("%.0f V", voltage))
+          values:update("Voltage", string.format("%.0f", voltage), "NUMBER", nil, " V")
         end
       elseif n == 1 then
         -- Device without an energy meter; don't keep asking.
@@ -441,7 +463,7 @@ end
 --- Set the relay state of an output on the device.
 --- @param n number Output number (1-based).
 --- @param state boolean
-local function setOutput(n, state)
+function setOutput(n, state)
   log:debug("setOutput(%s, %s)", n, state)
   if n < 1 or (outputCount > 0 and n > outputCount) then
     log:warn("setOutput: output %s does not exist on this device", n)
@@ -469,42 +491,8 @@ end
 
 --- Toggle an output based on its last known state.
 --- @param n number Output number (1-based).
-local function toggleOutput(n)
+function toggleOutput(n)
   setOutput(n, not Select(outputs, n, "state"))
-end
-
----------------------------------------------------------------------------
--- Relay Bindings
----------------------------------------------------------------------------
-
-for n = 1, constants.MAX_OUTPUTS do
-  RFP[constants.RELAY_BINDING_BASE + n] = function(idBinding, strCommand, tParams)
-    log:trace("RFP relay idBinding=%s strCommand=%s", idBinding, strCommand)
-    if strCommand == "ON" or strCommand == "CLOSE" then
-      setOutput(n, true)
-    elseif strCommand == "OFF" or strCommand == "OPEN" then
-      setOutput(n, false)
-    elseif strCommand == "TOGGLE" then
-      toggleOutput(n)
-    elseif strCommand == "TRIGGER" then
-      setOutput(n, true)
-      local pulseTime = tonumber_locale(tParams.TIME) or 0
-      if pulseTime > 0 then
-        SetTimer("FinishPulse" .. n, pulseTime, function()
-          setOutput(n, false)
-        end)
-      end
-    end
-  end
-end
-
--- Report current state to relay proxies when they (re)bind.
-for n = 1, constants.MAX_OUTPUTS do
-  OBC[constants.RELAY_BINDING_BASE + n] = function(idBinding, _, bIsBound)
-    if bIsBound and outputs[n] and outputs[n].state ~= nil then
-      SendToProxy(idBinding, outputs[n].state and "CLOSED" or "OPENED", {}, "NOTIFY")
-    end
-  end
 end
 
 ---------------------------------------------------------------------------
@@ -702,15 +690,21 @@ function OnDriverLateInit()
   -- Set driver version
   UpdateProperty("Driver Version", C4:GetDeviceData(C4:GetDeviceID(), "version"))
 
-  -- Register variables with the same names the legacy Kasa outlet drivers used,
-  -- so existing programming can be re-pointed 1:1.
-  AddVariable("VOLTAGE", "0", "NUMBER", true)
-  for n = 1, constants.MAX_OUTPUTS do
-    AddVariable("OUTPUT_" .. n .. "_NAME", "", "STRING", true)
-    AddVariable("OUTPUT_" .. n .. "_STATE", "0", "BOOL", true)
-    AddVariable("OUTPUT_" .. n .. "_WATT", "0", "NUMBER", true)
-    outputs[n] = outputs[n] or {}
+  -- Hide device-shaped properties; sysinfo and values re-show the ones in use.
+  for _, property in ipairs(DEVICE_PROPERTIES) do
+    C4:SetPropertyAttribs(property, constants.HIDE_PROPERTY)
   end
+  C4:SetPropertyAttribs("Outputs", constants.HIDE_PROPERTY)
+  C4:SetPropertyAttribs("Voltage", constants.HIDE_PROPERTY)
+  for n = 1, constants.MAX_OUTPUTS do
+    C4:SetPropertyAttribs("Output " .. n .. " Name", constants.HIDE_PROPERTY)
+    C4:SetPropertyAttribs("Output " .. n .. " State", constants.HIDE_PROPERTY)
+    C4:SetPropertyAttribs("Output " .. n .. " Power", constants.HIDE_PROPERTY)
+  end
+
+  bindings:restoreBindings()
+  values:restoreValues()
+  restoreRelayHandlers()
 
   -- Fire OnPropertyChanged for all properties to ensure consistent state
   for p, _ in pairs(Properties) do
