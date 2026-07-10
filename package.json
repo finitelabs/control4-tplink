@@ -6,5 +6,11 @@
     "electron-pdf": "^40.1.0",
     "markdown-styles": "^3.2.0",
     "prettier": "^3.8.1"
+  },
+  "allowScripts": {
+    "electron@43.1.0": true,
+    "electron@40.1.0": true,
+    "highlight.js@9.18.5": true,
+    "highlight.js@10.7.3": true
   }
 }
