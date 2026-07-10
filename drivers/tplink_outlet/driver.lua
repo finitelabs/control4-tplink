@@ -1,11 +1,11 @@
 --#ifdef DRIVERCENTRAL
 DC_PID = 0 -- TODO: Assign DriverCentral product ID
 DC_X = nil
-DC_FILENAME = "kasa_outlet.c4z"
+DC_FILENAME = "tplink_outlet.c4z"
 --#else
-DRIVER_GITHUB_REPO = "finitelabs/control4-kasa"
+DRIVER_GITHUB_REPO = "finitelabs/control4-tplink"
 DRIVER_FILENAMES = {
-  "kasa_outlet.c4z",
+  "tplink_outlet.c4z",
 }
 --#endif
 
@@ -739,7 +739,7 @@ function OnDriverLateInit()
 end
 
 function OnDriverDestroyed()
-  log:info("Kasa Outlet driver shutting down")
+  log:info("TP-Link Outlet driver shutting down")
   CancelTimer("SysinfoPoll")
   CancelTimer("EnergyPoll")
 end

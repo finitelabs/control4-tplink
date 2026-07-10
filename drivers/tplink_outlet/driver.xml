@@ -1,8 +1,8 @@
 <devicedata>
-  <name>TP-Link Kasa Outlet</name>
+  <name>TP-Link Outlet</name>
   <version/>
   <manufacturer>TP-Link</manufacturer>
-  <model>Kasa Outlet</model>
+  <model>TP-Link Outlet</model>
   <creator>Derek Miller</creator>
   <small image_source="c4z">icons/device_sm.png</small>
   <large image_source="c4z">icons/device_lg.png</large>

@@ -7,9 +7,9 @@
 > DISCLAIMER: This software is neither affiliated with nor endorsed by
 > either Control4 or TP-Link.
 
-The TP-Link Kasa Outlet driver provides local, cloud-free control of
-Kasa smart power strips (HS300/KP303/KP400) and smart plugs directly
-from Control4, on **both** generations of TP-Link's local protocol.
+The TP-Link Outlet driver provides local, cloud-free control of Kasa
+smart power strips (HS300/KP303/KP400) and smart plugs directly from
+Control4, on **both** generations of TP-Link's local protocol.
 
 Unlike older Kasa drivers that rely on TP-Link's legacy plaintext
 protocol on port 9999, this driver speaks **KLAP** — the encrypted local
@@ -109,15 +109,15 @@ are expected to work; single-outlet devices appear as output 1.
 Driver installation and setup are similar to most other ip-based
 drivers. Below is an outline of the basic steps for your convenience.
 
-1.  Download the latest `control4-kasa.zip` from
-    [Github](https://github.com/finitelabs/control4-kasa/releases/latest).
+1.  Download the latest `control4-tplink.zip` from
+    [Github](https://github.com/finitelabs/control4-tplink/releases/latest).
 
 2.  Extract and
     [install]((https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm))
-    the `kasa_outlet.c4z` driver.
+    the `tplink_outlet.c4z` driver.
 
-3.  Use the "Search" tab to find the "TP-Link Kasa Outlet" driver and
-    add it to your project (one instance per physical device).
+3.  Use the "Search" tab to find the "TP-Link Outlet" driver and add it
+    to your project (one instance per physical device).
 
     ![Search Drivers](images/search-drivers.png)
 
@@ -344,7 +344,7 @@ convergence.
 If you have any questions or issues integrating this driver with
 Control4, you can file an issue on GitHub:
 
-<https://github.com/finitelabs/control4-kasa/issues/new>
+<https://github.com/finitelabs/control4-tplink/issues/new>
 
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
@@ -356,8 +356,9 @@ Control4, you can file an issue on GitHub:
 
 ### Added
 
-- Initial release: local control of TP-Link Kasa power strips and smart
-  plugs on KLAP firmware (KLAP v2 transport, legacy IOT command schema).
+- Initial release: local control of TP-Link (Kasa) power strips and
+  smart plugs on KLAP firmware (KLAP v2 transport, legacy IOT command
+  schema).
 - Legacy port 9999 transport with automatic protocol detection, covering
   devices still on original Kasa firmware (no credentials required) and
   surviving TP-Link's forced migration to KLAP.

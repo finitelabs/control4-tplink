@@ -26,9 +26,9 @@
 
 <!-- #endif -->
 
-The TP-Link Kasa Outlet driver provides local, cloud-free control of Kasa smart
-power strips (HS300/KP303/KP400) and smart plugs directly from Control4, on
-**both** generations of TP-Link's local protocol.
+The TP-Link Outlet driver provides local, cloud-free control of Kasa smart power
+strips (HS300/KP303/KP400) and smart plugs directly from Control4, on **both**
+generations of TP-Link's local protocol.
 
 Unlike older Kasa drivers that rely on TP-Link's legacy plaintext protocol on
 port 9999, this driver speaks **KLAP** — the encrypted local protocol TP-Link
@@ -141,13 +141,13 @@ is an outline of the basic steps for your convenience.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-1. Download the latest `control4-kasa.zip` from
+1. Download the latest `control4-tplink.zip` from
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/).
 2. Extract and
    [install](<(https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)>)
-   the `kasa_outlet.c4z` driver.
-3. Use the "Search" tab to find the "TP-Link Kasa Outlet" driver and add it to
-   your project (one instance per physical device).
+   the `tplink_outlet.c4z` driver.
+3. Use the "Search" tab to find the "TP-Link Outlet" driver and add it to your
+   project (one instance per physical device).
 
    ![Search Drivers](images/search-drivers.png)
 
@@ -168,13 +168,13 @@ is an outline of the basic steps for your convenience.
 
 <!-- #else -->
 
-1. Download the latest `control4-kasa.zip` from
-   [Github](https://github.com/finitelabs/control4-kasa/releases/latest).
+1. Download the latest `control4-tplink.zip` from
+   [Github](https://github.com/finitelabs/control4-tplink/releases/latest).
 2. Extract and
    [install](<(https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)>)
-   the `kasa_outlet.c4z` driver.
-3. Use the "Search" tab to find the "TP-Link Kasa Outlet" driver and add it to
-   your project (one instance per physical device).
+   the `tplink_outlet.c4z` driver.
+3. Use the "Search" tab to find the "TP-Link Outlet" driver and add it to your
+   project (one instance per physical device).
 
    ![Search Drivers](images/search-drivers.png)
 
@@ -442,7 +442,7 @@ call/text us at [+1 (949) 371-5805](tel:+19493715805).
 If you have any questions or issues integrating this driver with Control4, you
 can file an issue on GitHub:
 
-https://github.com/finitelabs/control4-kasa/issues/new
+https://github.com/finitelabs/control4-tplink/issues/new
 
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 

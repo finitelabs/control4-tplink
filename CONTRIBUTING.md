@@ -1,4 +1,4 @@
-# Contributing to control4-kasa
+# Contributing to control4-tplink
 
 ## Project Structure
 
@@ -131,7 +131,7 @@ XML, and Markdown:
 DC_PID = 1234
 DC_FILENAME = "driver.c4z"
 --#else
-DRIVER_GITHUB_REPO = "finitelabs/control4-kasa"
+DRIVER_GITHUB_REPO = "finitelabs/control4-tplink"
 --#endif
 ```
 
