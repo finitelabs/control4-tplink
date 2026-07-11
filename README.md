@@ -112,6 +112,11 @@ can file an issue on GitHub:
 
 ## Unreleased
 
+### Fixed
+
+- Restore dynamic bindings and output variables in OnDriverInit so programming
+  attached to them keeps working after a Director restart.
+
 ### Changed
 
 - Restructured the repository README as a suite overview covering both the
