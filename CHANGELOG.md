@@ -19,6 +19,12 @@
 - Restore dynamic bindings and output variables in OnDriverInit so programming
   attached to them keeps working after a Director restart.
 
+### Changed
+
+- Restructured the repository README as a suite overview covering both the
+  TP-Link Outlet and TP-Link Light drivers, instead of embedding the outlet
+  driver's documentation.
+
 ## v20260710 - 2026-07-10
 
 ### Added

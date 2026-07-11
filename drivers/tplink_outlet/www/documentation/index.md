@@ -335,6 +335,15 @@ device appear in Composer Connections. Bind any relay-consuming device or use
 the outputs directly from programming. Relay commands `ON`/`CLOSE`,
 `OFF`/`OPEN`, `TOGGLE`, and `TRIGGER` (pulse) are supported.
 
+Each output is also exposed as a **light** control binding (`Output 1 Light`,
+`Output 2 Light`, ...). Bind an instance of the **TP-Link Light** driver here to
+present the output as a Control4 light: the light driver runs in proxy mode and
+mirrors the output's on/off state, so a lamp plugged into a smart outlet appears
+and behaves as a real light in Navigator, scenes, and programming. Add a TP-Link
+Light driver, connect its **TP-Link Outlet** binding to the output's Light
+binding here, and leave the light driver's IP Address blank. See the TP-Link
+Light documentation for the full walkthrough.
+
 ## Programming
 
 **Events:**

@@ -2,7 +2,7 @@
 # Run `make help` for available targets.
 
 DISTRIBUTIONS := drivercentral oss
-README_DRIVER := tplink_outlet
+README_DRIVER := root
 README_BUILD  := oss
 
 # Paths
@@ -113,10 +113,10 @@ update-xml-modified:
 docs: docs-readme docs-html docs-pdf ## Generate all documentation
 
 
-docs-readme:
+docs-readme: preprocess
 	rm -rf ./images
-	@if [ -d drivers/$(README_DRIVER)/www/documentation/images ]; then cp -r drivers/$(README_DRIVER)/www/documentation/images .; fi
-	pandoc build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/index.md \
+	@if [ -d documentation/images ]; then cp -r documentation/images .; fi
+	pandoc build/$(README_BUILD)/documentation/index.md \
 		-f gfm -t gfm --lua-filter=tools/pandoc-remove-style.lua -o README.md
 
 
