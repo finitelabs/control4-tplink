@@ -9,5 +9,5 @@ project_description: Control4 drivers for TP-Link Kasa/Tapo smart home devices (
     and legacy protocols)
 project_name: control4-tplink
 readme_build: oss
-readme_driver_slug: tplink_outlet
+readme_driver_slug: root
 vendor_modules: json deferred drivers-common-public xml
