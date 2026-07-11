@@ -2681,9 +2681,10 @@ local function directPoll()
 end
 
 --- Translate an internal light command (ESPHome light_command shape) to a
---- SMART set_device_info request. Device-side transitions are not supported
---- by the SMART schema, so transition_length is ignored; the proxy layer's
---- local ramp tracking still drives CHANGING/CHANGED notification timing.
+--- SMART set_device_info request. When the command carries a ramp rate it is
+--- forwarded as the SMART transition_period (milliseconds) so the bulb fades
+--- brightness, color, and on/off itself; the proxy layer's local ramp tracking
+--- still drives CHANGING/CHANGED notification timing.
 --- @param opts table
 local function directExecute(opts)
   local params = {}
@@ -2711,6 +2712,16 @@ local function directExecute(opts)
   end
   if IsEmpty(params) then
     return
+  end
+  -- The SMART firmware honors an inline transition_period (milliseconds) on
+  -- set_device_info, fading the change over that span. Mirror the proxy ramp's
+  -- rate so device-side transitions match programmed ramp rates. Cap at the
+  -- 60s gradual-transition ceiling the firmware advertises.
+  if opts.has_transition_length then
+    local ms = tointeger(opts.transition_length) or 0
+    if ms > 0 then
+      params.transition_period = math.min(ms, 60000)
+    end
   end
   klap:request({ method = "set_device_info", params = params }):next(function(response)
     local code = tointeger(Select(response, "error_code")) or -1
