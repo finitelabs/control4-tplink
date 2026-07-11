@@ -14,6 +14,12 @@
 
 ## Unreleased
 
+### Added
+
+- Forward Control4 ramp rates to the bulb as a native SMART transition, so
+  brightness, color, and on/off changes fade over the programmed rate instead of
+  snapping in direct mode.
+
 ### Fixed
 
 - Restore dynamic bindings and output variables in OnDriverInit so programming
