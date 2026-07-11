@@ -749,17 +749,6 @@ function OnDriverInit()
   log:setLogLevel(Properties["Log Level"])
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
-end
-
-function OnDriverLateInit()
-  log:trace("OnDriverLateInit()")
-  if not CheckMinimumVersion("Driver Status") then
-    return
-  end
-  C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
-
-  -- Set driver version
-  UpdateProperty("Driver Version", C4:GetDeviceData(C4:GetDeviceID(), "version"))
 
   -- Hide device-shaped properties; sysinfo and values re-show the ones in use.
   for _, property in ipairs(DEVICE_PROPERTIES) do
@@ -773,9 +762,23 @@ function OnDriverLateInit()
     C4:SetPropertyAttribs("Output " .. n .. " Power", constants.HIDE_PROPERTY)
   end
 
+  -- Restore dynamic bindings and output variables here: programming attached
+  -- to variables added after OnDriverInit may not work after a Director
+  -- restart.
   bindings:restoreBindings()
   values:restoreValues()
   restoreRelayHandlers()
+end
+
+function OnDriverLateInit()
+  log:trace("OnDriverLateInit()")
+  if not CheckMinimumVersion("Driver Status") then
+    return
+  end
+  C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
+
+  -- Set driver version
+  UpdateProperty("Driver Version", C4:GetDeviceData(C4:GetDeviceID(), "version"))
 
   -- Fire OnPropertyChanged for all properties to ensure consistent state
   for p, _ in pairs(Properties) do
