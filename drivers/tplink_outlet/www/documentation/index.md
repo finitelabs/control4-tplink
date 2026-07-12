@@ -27,18 +27,21 @@
 <!-- #endif -->
 
 The TP-Link Outlet driver provides local, cloud-free control of Kasa smart power
-strips (HS300/KP303/KP400) and smart plugs directly from Control4, on **both**
-generations of TP-Link's local protocol.
+strips (HS300/KP303/KP400) and smart plugs directly from Control4, across the
+generations of TP-Link's local protocols.
 
 Older Kasa drivers rely on TP-Link's plaintext protocol on port 9999. TP-Link
 firmware updates rolled out since late 2024 disable that protocol and replace it
-with KLAP, an encrypted local protocol. This driver implements the KLAP v2
-handshake and session encryption while retaining the legacy IOT command schema
-those devices still use internally, so devices that stopped responding to older
-drivers after a firmware update work again. Devices still on the original
-firmware are also supported: the driver auto-detects the protocol and falls back
-to the port 9999 transport, so the same driver instance continues to work when
-TP-Link migrates the device to KLAP.
+with KLAP, an encrypted local protocol. Newer Kasa hardware (e.g. the EP25 v2.6)
+goes a step further and also replaces the legacy IOT command schema with the
+SMART schema that Tapo devices speak. This driver implements the KLAP handshake
+and session encryption (both hash generations) and both command schemas,
+auto-detecting the combination the device uses, so devices that stopped
+responding to older drivers after a firmware update — and plugs that never spoke
+the legacy protocol at all — work from the same driver. Devices still on the
+original firmware are also supported: the driver falls back to the port 9999
+transport, so the same driver instance continues to work when TP-Link migrates
+the device to KLAP.
 
 Each output is exposed as a standard Control4 **relay binding**, along with
 per-output events, variables, and real-time power (wattage) readings for
@@ -68,9 +71,7 @@ programming.
 - [Troubleshooting](#troubleshooting)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
-
-<!-- #endif -->
-
+  <!-- #endif -->
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -87,18 +88,35 @@ programming.
 
 **Verified hardware:**
 
-| Device | Type        | Outputs | Energy Metering  |
-| ------ | ----------- | ------- | ---------------- |
-| HS300  | Power strip | 6       | Yes (per outlet) |
+| Device | Type        | Outputs | Energy Metering  | Verified Transport  |
+| ------ | ----------- | ------- | ---------------- | ------------------- |
+| HS300  | Power strip | 6       | Yes (per outlet) | KLAP (IOT schema)   |
+| EP25   | Smart plug  | 1       | Yes              | KLAP (SMART schema) |
+| KP115  | Smart plug  | 1       | Yes              | Legacy              |
+| HS110  | Smart plug  | 1       | Yes              | Legacy              |
 
-Other Kasa devices that use KLAP transport with the legacy IOT command schema
-(e.g. KP303, KP400, HS103, HS110, KP115 on post-2024 firmware) are expected to
-work; single-outlet devices appear as output 1.
+The SMART schema over KLAP is also verified against a Tapo L930 light strip via
+the shared transport stack.
+
+Other Kasa and Tapo devices are expected to work across firmware generations:
+
+- Legacy-schema devices (e.g. KP200, KP303, KP400, KP401, HS103), on original
+  port 9999 firmware or after their post-2024 KLAP firmware update
+- SMART-schema devices (e.g. KP125M, and Tapo plugs such as the P110), which
+  require the TP-Link account credentials
+- Multi-outlet SMART-schema devices (Tapo power strips such as the P300, and the
+  EP40M), controlled through their child outlets
+
+Single-outlet devices appear as output 1.
 
 # <span style="color:#4ACBD6">Features</span>
 
 - **Local control** of each outlet with no TP-Link cloud dependency after setup
-- **KLAP v2** encrypted transport (works on firmware that disabled port 9999)
+- **KLAP** encrypted transport (works on firmware that disabled port 9999), with
+  both hash generations of the handshake
+- **SMART command schema** support for newer Kasa plugs (EP25 v2.6, KP125M) and
+  Tapo plugs and power strips, auto-detected during connect; strip outlets are
+  controlled through their child devices
 - **Legacy protocol support** with automatic detection. Devices on original Kasa
   firmware work with no credentials required and keep working after TP-Link
   migrates them to KLAP (add your account credentials)
@@ -252,11 +270,15 @@ Sets the IP address of the Kasa device (e.g. `192.168.1.50`).
 
 Selects the local protocol. `Auto` (default) tries KLAP first when credentials
 are set and falls back to the legacy port 9999 protocol; without credentials it
-connects over the legacy protocol directly. Pin it to `KLAP` or `Legacy` only if
-you need to skip detection.
+connects over the legacy protocol directly. Over KLAP the driver probes the
+SMART command schema first (newer Kasa plugs like the EP25 v2.6, and Tapo
+plugs), then the legacy IOT schema, and retries the handshake with v1 hashing
+for original Kasa devices that were firmware-updated to KLAP. Pin it to `KLAP`
+or `Legacy` only if you need to skip detection.
 
-The active protocol is shown in `Driver Status`, e.g. `Connected (KLAP)` or
-`Connected (Legacy)`.
+The detected combination is shown in `Driver Status`: `Connected (SMART)` (KLAP
+transport, SMART schema), `Connected (KLAP)` (KLAP transport, legacy IOT
+schema), or `Connected (Legacy)` (port 9999).
 
 ##### TP-Link Username
 
@@ -379,15 +401,27 @@ reports get variables.
 **`Disconnected: ... handshake1 auth mismatch ...`**: The device is bound to a
 different TP-Link account (or the password is wrong). Enter the credentials for
 the account that owns the device in the Kasa/Tapo app, exactly as registered
-(the email is case sensitive).
+(the email is case sensitive). Note that in `Auto` mode a mismatch alone does
+not take the device offline — some transitional Kasa firmware answers KLAP with
+unrecognized credentials while still serving the legacy protocol, and the driver
+falls back to it automatically; the mismatch only shows when the legacy probe
+also failed.
 
 **`Driver Status` stuck at `Connecting...` or timeouts**: Verify the IP address,
 that the device is on a network reachable from the controller, and that nothing
 is blocking TCP port 80 to the device.
 
-**Device rejects commands with `module not support`**: The device firmware uses
-the newer SMART command schema rather than the legacy IOT schema this driver
-speaks. File a support request with the device model and firmware version.
+**A newer Kasa plug (e.g. EP25 v2.6) or Tapo plug won't connect on any
+protocol**: SMART-schema devices on early firmware use an AES secure-passthrough
+transport this driver does not implement (on the EP25 v2.6 that is firmware
+1.0.2 and older). Update the device firmware in the Kasa/Tapo app — TP-Link's
+updates move these devices to KLAP — then run the [`Reconnect`](#reconnect)
+action. Make sure the TP-Link account credentials are set; SMART-schema devices
+always require them.
+
+**`Disconnected: device rejected get_sysinfo over KLAP`**: The device answered
+the KLAP handshake but rejected both the SMART and legacy IOT command schemas.
+File a support request with the device model and firmware version.
 
 **Output states lag behind the Kasa app**: State changes made outside Control4
 are picked up on the next poll; lower

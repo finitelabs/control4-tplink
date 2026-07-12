@@ -8,13 +8,15 @@
 > Control4 or TP-Link.
 
 This suite provides local, cloud-free control of TP-Link Kasa and Tapo smart
-home devices from Control4, on **both** generations of TP-Link's local protocol.
+home devices from Control4, across the generations of TP-Link's local protocols.
 Older Kasa integrations rely on TP-Link's plaintext protocol on port 9999;
 firmware updates rolled out since late 2024 disable that protocol and replace it
-with KLAP, an encrypted local protocol. These drivers implement the KLAP v2
-handshake and session encryption and auto-detect devices still on the original
-firmware, so the same driver instance keeps working when TP-Link migrates a
-device.
+with KLAP, an encrypted local protocol, and newer Kasa hardware (e.g. the EP25
+v2.6) also swaps the legacy command schema for the SMART schema that Tapo
+devices speak. These drivers implement the KLAP handshake and session encryption
+(both hash generations) and both command schemas, and auto-detect devices still
+on the original firmware, so the same driver instance keeps working when TP-Link
+migrates a device.
 
 # <span style="color:#4ACBD6">Index</span>
 
@@ -50,7 +52,10 @@ variables, and real-time power readings.
 **Key features:**
 
 - Local control of each output with no TP-Link cloud dependency after setup
-- KLAP v2 encrypted transport plus automatic legacy protocol detection
+- KLAP encrypted transport plus automatic legacy protocol detection
+- Speaks both the legacy IOT and the newer SMART command schemas, so
+  SMART-firmware plugs and power strips (Kasa EP25 v2.6/KP125M/EP40M, Tapo
+  P-series) work alongside classic Kasa hardware
 - Standard Control4 relay binding per output
 - `Output N Turned On` / `Output N Turned Off`, `Connected`, and `Disconnected`
   events
@@ -109,6 +114,28 @@ can file an issue on GitHub:
 <div style="page-break-after: always"></div>
 
 # <span style="color:#4ACBD6">Changelog</span>
+
+## Unreleased
+
+### Added
+
+- TP-Link Outlet: SMART command schema support for newer Kasa and Tapo plugs
+  (e.g. EP25 hardware v2.6, KP125M, Tapo P-series), auto-detected over KLAP and
+  shown as `Connected (SMART)`. TP-Link account credentials are required, and
+  SMART devices on very early firmware (EP25 v2.6 firmware 1.0.2 and older) need
+  a firmware update through the Kasa app.
+- TP-Link Outlet: multi-outlet SMART devices (Tapo power strips, EP40M) are
+  controlled through their child outlets, including per-outlet energy readings
+  where the hardware reports them.
+- TP-Link Outlet: KLAP v1 handshake hashing for original Kasa devices whose KLAP
+  firmware uses MD5-based hashes instead of the SHA-based v2 hashes.
+- TP-Link Outlet: Auto mode falls back to the legacy protocol even when the KLAP
+  handshake reports an auth mismatch, so transitional Kasa firmware (seen on
+  KP115 1.1.1) that answers KLAP with credentials matching no known scheme stays
+  reachable over the legacy protocol it still serves on port 9999.
+- Verified hardware documented from live systems: EP25 over KLAP + SMART, HS300
+  on KLAP firmware, KP115 and HS110 on legacy firmware, and a Tapo L930 over
+  KLAP + SMART.
 
 ## v20260711 - 2026-07-11
 

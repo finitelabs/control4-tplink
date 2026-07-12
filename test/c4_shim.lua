@@ -402,6 +402,204 @@ else
   function runEventLoop() end
 end
 
+---------------------------------------------------------------------------
+-- Crypto (C4:Hash, C4:Encrypt, C4:Decrypt)
+-- Backed by CommonCrypto (macOS) or libcrypto (Linux) via LuaJIT FFI.
+-- Unavailable under plain Lua (gen-squishy); calls then return nil + error.
+---------------------------------------------------------------------------
+
+local has_ffi, ffi = pcall(require, "ffi")
+local crypto_backend = nil
+
+if has_ffi then
+  if ffi.os == "OSX" then
+    local ok = pcall(function()
+      ffi.cdef([[
+        unsigned char *CC_MD5(const void *data, uint32_t len, unsigned char *md);
+        unsigned char *CC_SHA1(const void *data, uint32_t len, unsigned char *md);
+        unsigned char *CC_SHA256(const void *data, uint32_t len, unsigned char *md);
+        int CCCrypt(uint32_t op, uint32_t alg, uint32_t options,
+                    const void *key, size_t keyLength, const void *iv,
+                    const void *dataIn, size_t dataInLength,
+                    void *dataOut, size_t dataOutAvailable, size_t *dataOutMoved);
+      ]])
+    end)
+    if ok then
+      local C = ffi.C
+      local digests = {
+        MD5 = { fn = C.CC_MD5, len = 16 },
+        SHA1 = { fn = C.CC_SHA1, len = 20 },
+        SHA256 = { fn = C.CC_SHA256, len = 32 },
+      }
+      crypto_backend = {
+        hash = function(algorithm, data)
+          local digest = digests[string.upper(algorithm)]
+          if not digest then
+            return nil, "unsupported hash: " .. tostring(algorithm)
+          end
+          local buf = ffi.new("unsigned char[?]", digest.len)
+          digest.fn(data, #data, buf)
+          return ffi.string(buf, digest.len)
+        end,
+        -- AES-128-CBC with PKCS7 padding (kCCAlgorithmAES128=0, kCCOptionPKCS7Padding=1)
+        aes128cbc = function(encrypt, key, iv, data)
+          local outLen = #data + 16
+          local buf = ffi.new("unsigned char[?]", outLen)
+          local moved = ffi.new("size_t[1]")
+          local status = C.CCCrypt(encrypt and 0 or 1, 0, 1, key, 16, iv, data, #data, buf, outLen, moved)
+          if status ~= 0 then
+            return nil, "CCCrypt failed: " .. tonumber(status)
+          end
+          return ffi.string(buf, tonumber(moved[0]))
+        end,
+      }
+    end
+  else
+    local ok, libcrypto = pcall(ffi.load, "crypto")
+    if ok then
+      local declared = pcall(function()
+        ffi.cdef([[
+          unsigned char *MD5(const unsigned char *d, size_t n, unsigned char *md);
+          unsigned char *SHA1(const unsigned char *d, size_t n, unsigned char *md);
+          unsigned char *SHA256(const unsigned char *d, size_t n, unsigned char *md);
+          typedef struct evp_cipher_ctx_st EVP_CIPHER_CTX;
+          const void *EVP_aes_128_cbc(void);
+          EVP_CIPHER_CTX *EVP_CIPHER_CTX_new(void);
+          void EVP_CIPHER_CTX_free(EVP_CIPHER_CTX *ctx);
+          int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const void *cipher, void *impl,
+                                const unsigned char *key, const unsigned char *iv, int enc);
+          int EVP_CipherUpdate(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl,
+                               const unsigned char *in, int inl);
+          int EVP_CipherFinal_ex(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl);
+        ]])
+      end)
+      if declared then
+        local digests = {
+          MD5 = { fn = libcrypto.MD5, len = 16 },
+          SHA1 = { fn = libcrypto.SHA1, len = 20 },
+          SHA256 = { fn = libcrypto.SHA256, len = 32 },
+        }
+        crypto_backend = {
+          hash = function(algorithm, data)
+            local digest = digests[string.upper(algorithm)]
+            if not digest then
+              return nil, "unsupported hash: " .. tostring(algorithm)
+            end
+            local buf = ffi.new("unsigned char[?]", digest.len)
+            digest.fn(data, #data, buf)
+            return ffi.string(buf, digest.len)
+          end,
+          aes128cbc = function(encrypt, key, iv, data)
+            local ctx = libcrypto.EVP_CIPHER_CTX_new()
+            if ctx == nil then
+              return nil, "EVP_CIPHER_CTX_new failed"
+            end
+            local out = ffi.new("unsigned char[?]", #data + 16)
+            local outl = ffi.new("int[1]")
+            local finl = ffi.new("int[1]")
+            local result = nil
+            if libcrypto.EVP_CipherInit_ex(ctx, libcrypto.EVP_aes_128_cbc(), nil, key, iv, encrypt and 1 or 0) == 1 then
+              if libcrypto.EVP_CipherUpdate(ctx, out, outl, data, #data) == 1 then
+                if libcrypto.EVP_CipherFinal_ex(ctx, out + outl[0], finl) == 1 then
+                  result = ffi.string(out, outl[0] + finl[0])
+                end
+              end
+            end
+            libcrypto.EVP_CIPHER_CTX_free(ctx)
+            if not result then
+              return nil, "EVP cipher failed"
+            end
+            return result
+          end,
+        }
+      end
+    end
+  end
+end
+
+local function to_hex(s)
+  return (s:gsub(".", function(c)
+    return string.format("%02X", c:byte())
+  end))
+end
+
+--- C4:Hash(algorithm, data, options) — supports raw ("NONE") and hex returns.
+function C4:Hash(algorithm, data, options)
+  if not crypto_backend then
+    return nil, "C4 shim: no crypto backend (requires LuaJIT + CommonCrypto/libcrypto)"
+  end
+  local raw, err = crypto_backend.hash(algorithm, data or "")
+  if not raw then
+    return nil, err
+  end
+  if type(options) == "table" and string.upper(options.return_encoding or "") == "NONE" then
+    return raw
+  end
+  return to_hex(raw)
+end
+
+local function aes_options_ok(cipher, key, iv)
+  return string.upper(cipher or "") == "AES-128-CBC" and type(key) == "string" and #key == 16 and type(iv) == "string"
+end
+
+--- C4:Encrypt(cipher, key, iv, data, options) — AES-128-CBC/PKCS7, raw in/out.
+function C4:Encrypt(cipher, key, iv, data, options)
+  if not crypto_backend then
+    return nil, "C4 shim: no crypto backend"
+  end
+  if not aes_options_ok(cipher, key, iv) then
+    return nil, "C4 shim: only raw AES-128-CBC is supported"
+  end
+  return crypto_backend.aes128cbc(true, key, iv, data or "")
+end
+
+--- C4:Decrypt(cipher, key, iv, data, options) — AES-128-CBC/PKCS7, raw in/out.
+function C4:Decrypt(cipher, key, iv, data, options)
+  if not crypto_backend then
+    return nil, "C4 shim: no crypto backend"
+  end
+  if not aes_options_ok(cipher, key, iv) then
+    return nil, "C4 shim: only raw AES-128-CBC is supported"
+  end
+  return crypto_backend.aes128cbc(false, key, iv, data or "")
+end
+
+---------------------------------------------------------------------------
+-- urlDo (HTTP client used by lib/http.lua)
+-- Synchronous implementation over luasocket. Tests can override the global
+-- with a fake (e.g. an in-process KLAP device) before loading modules.
+---------------------------------------------------------------------------
+
+if has_socket then
+  local http_client = require("socket.http")
+  local ltn12 = require("ltn12")
+
+  function urlDo(method, url, data, headers, callback, context, options)
+    local chunks = {}
+    local requestHeaders = {}
+    for name, value in pairs(headers or {}) do
+      requestHeaders[name] = value
+    end
+    if data and #data > 0 then
+      requestHeaders["content-length"] = tostring(#data)
+    end
+    http_client.TIMEOUT = (type(options) == "table" and tonumber(options.timeout)) or 30
+    local ok, code, responseHeaders = http_client.request({
+      method = method,
+      url = url,
+      headers = requestHeaders,
+      source = data and ltn12.source.string(data) or nil,
+      sink = ltn12.sink.table(chunks),
+    })
+    local body = table.concat(chunks)
+    if not ok then
+      callback(tostring(code or "request failed"), 0, {}, "", nil, url)
+    else
+      callback(nil, tonumber(code) or 0, responseHeaders or {}, body, nil, url)
+    end
+  end
+end
+
 print("C4 shim layer loaded" .. (has_socket and " (with luasocket)" or " (stubs only)"))
 
 return C4
