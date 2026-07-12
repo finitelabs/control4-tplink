@@ -1,18 +1,26 @@
---- KLAP v2 transport for TP-Link Kasa/Tapo devices.
+--- KLAP transport for TP-Link Kasa/Tapo devices.
 ---
 --- Implements the KLAP handshake and encrypted request cycle used by Kasa
 --- devices on post-2024 firmware. The transport is schema-agnostic: callers
 --- provide the JSON payload (e.g. legacy IOT `{"system":{"get_sysinfo":{}}}`)
 --- and receive the decoded JSON response.
 ---
+--- Two hash flavors exist in the field, selected with `authVersion`:
+---   v1: legacy IOT-schema Kasa devices that were firmware-updated to KLAP.
+---       auth_hash = MD5(MD5(username) .. MD5(password))
+---       handshake1 verify = SHA256(local_seed .. auth_hash)
+---       handshake2 payload = SHA256(remote_seed .. auth_hash)
+---   v2 (default): SMART-schema devices (Tapo, Kasa EP25 v2.6/KP125M/...).
+---       auth_hash = SHA256(SHA1(username) .. SHA1(password))
+---       handshake1 verify = SHA256(local_seed .. remote_seed .. auth_hash)
+---       handshake2 payload = SHA256(remote_seed .. local_seed .. auth_hash)
+---
 --- Protocol summary:
 ---   1. POST /app/handshake1 with 16 random bytes (local_seed). The device
----      responds with 16 bytes (remote_seed) + 32 bytes
----      SHA256(local_seed .. remote_seed .. auth_hash), proving which
----      credentials it was provisioned with. auth_hash (v2) is
----      SHA256(SHA1(username) .. SHA1(password)).
----   2. POST /app/handshake2 with SHA256(remote_seed .. local_seed .. auth_hash).
----   3. Derive session keys:
+---      responds with 16 bytes (remote_seed) + 32 bytes of the handshake1
+---      verify hash, proving which credentials it was provisioned with.
+---   2. POST /app/handshake2 with the handshake2 payload hash.
+---   3. Derive session keys (same for both versions):
 ---        key     = SHA256("lsk" .. seeds .. auth)[1..16]   (AES-128-CBC key)
 ---        iv/seq  = SHA256("iv"  .. seeds .. auth)          (iv = [1..12], seq = last 4 bytes as int32)
 ---        sig     = SHA256("ldk" .. seeds .. auth)[1..28]   (signature key)
@@ -26,6 +34,7 @@ local log = require("lib.logging")
 local http = require("lib.http")
 
 --- @class Klap
+--- @field _authVersion number KLAP hash version (1 or 2).
 --- @field _ip string Device IP address.
 --- @field _username string TP-Link account username (email, case sensitive).
 --- @field _password string TP-Link account password.
@@ -104,11 +113,14 @@ local function extractSessionCookie(headers)
 end
 
 --- Creates a new Klap transport.
+--- @param opts { authVersion: number? }? authVersion 1 for firmware-updated
+---   legacy Kasa devices, 2 (default) for SMART-schema devices.
 --- @return Klap
-function Klap:new()
-  log:trace("Klap:new()")
+function Klap:new(opts)
+  log:trace("Klap:new(%s)", opts)
   local instance = setmetatable({}, self)
   instance._connected = false
+  instance._authVersion = Select(opts or {}, "authVersion") or 2
   return instance
 end
 
@@ -145,17 +157,21 @@ function Klap:reset()
   self._seq = nil
 end
 
---- Computes the KLAP v2 auth hash: SHA256(SHA1(username) .. SHA1(password)).
+--- Computes the KLAP auth hash for the configured version:
+---   v1: MD5(MD5(username) .. MD5(password))
+---   v2: SHA256(SHA1(username) .. SHA1(password))
 --- @private
---- @return string? authHash 32 raw bytes, or nil on error.
+--- @return string? authHash 16 (v1) or 32 (v2) raw bytes, or nil on error.
 function Klap:_authHash()
-  local userHash, err1 = C4:Hash("SHA1", self._username or "", RAW)
-  local passHash, err2 = C4:Hash("SHA1", self._password or "", RAW)
+  local credentialHash = self._authVersion == 1 and "MD5" or "SHA1"
+  local outerHash = self._authVersion == 1 and "MD5" or "SHA256"
+  local userHash, err1 = C4:Hash(credentialHash, self._username or "", RAW)
+  local passHash, err2 = C4:Hash(credentialHash, self._password or "", RAW)
   if not userHash or not passHash then
     log:error("Klap: hashing credentials failed: %s %s", err1, err2)
     return nil
   end
-  return C4:Hash("SHA256", userHash .. passHash, RAW)
+  return C4:Hash(outerHash, userHash .. passHash, RAW)
 end
 
 --- Base URL for the device.
@@ -203,7 +219,9 @@ function Klap:connect()
 
       local remoteSeed = string.sub(body, 1, 16)
       local serverHash = string.sub(body, 17, 48)
-      local expected = C4:Hash("SHA256", localSeed .. remoteSeed .. auth, RAW)
+      -- v1 leaves the remote seed out of the handshake hashes.
+      local expected = self._authVersion == 1 and C4:Hash("SHA256", localSeed .. auth, RAW)
+        or C4:Hash("SHA256", localSeed .. remoteSeed .. auth, RAW)
 
       if expected ~= serverHash then
         return deferred.new():reject({
@@ -212,7 +230,8 @@ function Klap:connect()
       end
 
       self._cookie = extractSessionCookie(response.headers)
-      local payload = C4:Hash("SHA256", remoteSeed .. localSeed .. auth, RAW)
+      local payload = self._authVersion == 1 and C4:Hash("SHA256", remoteSeed .. auth, RAW)
+        or C4:Hash("SHA256", remoteSeed .. localSeed .. auth, RAW)
 
       return http
         :post(
@@ -229,7 +248,7 @@ function Klap:connect()
           self._seq = unpackInt32BE(string.sub(ivFull, 29, 32))
           self._sig = string.sub(C4:Hash("SHA256", "ldk" .. seeds, RAW), 1, 28)
           self._connected = true
-          log:info("Klap: session established with %s", self._ip)
+          log:info("Klap: session established with %s (v%d hashing)", self._ip, self._authVersion)
           return self
         end)
     end)

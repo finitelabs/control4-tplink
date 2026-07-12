@@ -199,7 +199,7 @@
           <item>Legacy</item>
         </items>
         <default>Auto</default>
-        <description>Local protocol the device speaks. Auto tries KLAP (post-2024 firmware) and falls back to the legacy port 9999 protocol.</description>
+        <description>Local protocol the device speaks. Auto tries KLAP (post-2024 firmware; SMART and legacy command schemas are auto-detected) and falls back to the legacy port 9999 protocol.</description>
       </property>
       <property>
         <name>TP-Link Username</name>

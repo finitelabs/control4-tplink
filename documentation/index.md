@@ -27,13 +27,15 @@
 <!-- #endif -->
 
 This suite provides local, cloud-free control of TP-Link Kasa and Tapo smart
-home devices from Control4, on **both** generations of TP-Link's local
-protocol. Older Kasa integrations rely on TP-Link's plaintext protocol on port
-9999; firmware updates rolled out since late 2024 disable that protocol and
-replace it with KLAP, an encrypted local protocol. These drivers implement the
-KLAP v2 handshake and session encryption and auto-detect devices still on the
-original firmware, so the same driver instance keeps working when TP-Link
-migrates a device.
+home devices from Control4, across the generations of TP-Link's local
+protocols. Older Kasa integrations rely on TP-Link's plaintext protocol on
+port 9999; firmware updates rolled out since late 2024 disable that protocol
+and replace it with KLAP, an encrypted local protocol, and newer Kasa hardware
+(e.g. the EP25 v2.6) also swaps the legacy command schema for the SMART schema
+that Tapo devices speak. These drivers implement the KLAP handshake and
+session encryption (both hash generations) and both command schemas, and
+auto-detect devices still on the original firmware, so the same driver
+instance keeps working when TP-Link migrates a device.
 
 # <span style="color:#4ACBD6">Index</span>
 
@@ -50,7 +52,7 @@ migrates a device.
   - [Installing the Drivers](#installing-the-drivers)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
-<!-- #endif -->
+  <!-- #endif -->
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -75,7 +77,10 @@ variables, and real-time power readings.
 **Key features:**
 
 - Local control of each output with no TP-Link cloud dependency after setup
-- KLAP v2 encrypted transport plus automatic legacy protocol detection
+- KLAP encrypted transport plus automatic legacy protocol detection
+- Speaks both the legacy IOT and the newer SMART command schemas, so
+  SMART-firmware plugs and power strips (Kasa EP25 v2.6/KP125M/EP40M, Tapo
+  P-series) work alongside classic Kasa hardware
 - Standard Control4 relay binding per output
 - `Output N Turned On` / `Output N Turned Off`, `Connected`, and `Disconnected`
   events

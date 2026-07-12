@@ -25,6 +25,7 @@ local bindings = require("lib.bindings")
 local values = require("lib.values")
 local Klap = require("lib.klap")
 local Legacy = require("lib.legacy")
+local Smart = require("lib.smart")
 
 ---------------------------------------------------------------------------
 -- State
@@ -34,16 +35,24 @@ local Legacy = require("lib.legacy")
 --- @type boolean
 local gInitialized = false
 
---- KLAP transport to the device.
+--- KLAP transport to the device (v2 hashing: SMART-firmware devices).
 --- @type Klap
 local klap = Klap:new()
+
+--- KLAP transport with v1 hashing (legacy Kasa devices updated to KLAP firmware).
+--- @type Klap
+local klapV1 = Klap:new({ authVersion = 1 })
+
+--- SMART-schema adapter over the KLAP v2 transport (Kasa EP25 v2.6/KP125M, Tapo plugs).
+--- @type Smart
+local smart = Smart:new(klap)
 
 --- Legacy (port 9999) transport to the device.
 --- @type Legacy
 local legacy = Legacy:new()
 
---- The active transport (klap or legacy), set by connect-time detection.
---- @type Klap|Legacy|nil
+--- The active transport, set by connect-time detection.
+--- @type Klap|Legacy|Smart|nil
 local transport = nil
 
 --- Human-readable name of the active transport, for Driver Status.
@@ -454,25 +463,62 @@ local function tryLegacy(onFail)
   end)
 end
 
---- Probe the KLAP transport (handshake + get_sysinfo).
---- @param onFail fun(reason: string, authMismatch: boolean)
+--- Probe an established KLAP session with an IOT-schema get_sysinfo.
+--- @param t Klap
+--- @param onFail fun(reason: string)
+local function tryKlapIot(t, onFail)
+  t:request({ system = { get_sysinfo = {} } }):next(function(response)
+    local sysinfo = Select(response, "system", "get_sysinfo")
+    if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
+      adoptTransport(t, "KLAP", sysinfo)
+    else
+      onFail("device rejected get_sysinfo over KLAP")
+    end
+  end, function(err)
+    onFail(Select(err, "error") or "KLAP request failed")
+  end)
+end
+
+--- Probe an established KLAP v2 session with a SMART-schema get_device_info
+--- (the smart adapter translates it to/from the IOT shapes the driver reads).
+--- @param onFail fun(reason: string)
+local function trySmart(onFail)
+  smart:request({ system = { get_sysinfo = {} } }):next(function(response)
+    local sysinfo = Select(response, "system", "get_sysinfo")
+    if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
+      adoptTransport(smart, "SMART", sysinfo)
+    else
+      onFail("device rejected get_device_info over KLAP")
+    end
+  end, function(err)
+    onFail(Select(err, "error") or "SMART request failed")
+  end)
+end
+
+--- Probe the KLAP transports: v2 handshake, then the SMART schema (EP25
+--- v2.6/KP125M/Tapo), then the legacy IOT schema over the same session. A v2
+--- auth mismatch retries the handshake with v1 hashing, which legacy Kasa
+--- devices use after their KLAP firmware update.
+--- @param onFail fun(reason: string)
 local function tryKlap(onFail)
-  klap
-    :connect()
-    :next(function()
-      return klap:request({ system = { get_sysinfo = {} } })
+  klap:connect():next(function()
+    trySmart(function(smartReason)
+      log:info("SMART probe failed (%s); trying legacy IOT schema over KLAP", smartReason)
+      tryKlapIot(klap, onFail)
     end)
-    :next(function(response)
-      local sysinfo = Select(response, "system", "get_sysinfo")
-      if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
-        adoptTransport(klap, "KLAP", sysinfo)
-      else
-        onFail("device rejected get_sysinfo over KLAP", false)
-      end
-    end, function(err)
-      local reason = Select(err, "error") or "KLAP connection failed"
-      onFail(reason, string.find(reason, "auth mismatch", 1, true) ~= nil)
+  end, function(err)
+    local reason = Select(err, "error") or "KLAP connection failed"
+    if string.find(reason, "auth mismatch", 1, true) == nil then
+      onFail(reason)
+      return
+    end
+    log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
+    klapV1:connect():next(function()
+      tryKlapIot(klapV1, onFail)
+    end, function(v1Err)
+      onFail(Select(v1Err, "error") or "KLAP connection failed")
     end)
+  end)
 end
 
 --- Reconfigure the transports from properties, detect the right one, and poll.
@@ -481,11 +527,14 @@ function reconnect()
   transportName = nil
 
   local ip = Properties["IP Address"] or ""
-  klap:configure({
+  local config = {
     ip = ip,
     username = Properties["TP-Link Username"] or "",
     password = Properties["TP-Link Password"] or "",
-  })
+  }
+  klap:configure(config)
+  klapV1:configure(config)
+  smart:reset()
   legacy:configure({ ip = ip })
 
   if IsEmpty(ip) then
@@ -502,13 +551,15 @@ function reconnect()
       return
     end
     updateDriverStatus("Connecting (KLAP)...")
-    tryKlap(function(klapReason, authMismatch)
-      -- A verified auth mismatch means the device definitely speaks KLAP;
-      -- falling back to legacy would just mask the bad credentials.
-      if mode == "KLAP" or authMismatch then
+    tryKlap(function(klapReason)
+      if mode == "KLAP" then
         setDeviceOnline(false, klapReason)
         return
       end
+      -- Always fall back to legacy, even on an auth mismatch: transitional
+      -- Kasa firmware (e.g. KP115 1.1.1) answers KLAP with credentials that
+      -- match no known scheme while still serving the legacy protocol. If
+      -- legacy also fails, the combined reason still surfaces the mismatch.
       log:info("KLAP probe failed (%s); trying legacy protocol", klapReason)
       updateDriverStatus("Connecting (Legacy)...")
       tryLegacy(function(legacyReason)
@@ -703,6 +754,8 @@ end
 function EC.Reconnect()
   log:info("Action: Reconnect")
   klap:reset()
+  klapV1:reset()
+  smart:reset()
   legacy:reset()
   reconnect()
 end

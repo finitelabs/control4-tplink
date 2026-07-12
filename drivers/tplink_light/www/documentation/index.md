@@ -61,9 +61,7 @@ presets, and dim-to-warm color on-mode.
 - [Troubleshooting](#troubleshooting)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
-
-<!-- #endif -->
-
+  <!-- #endif -->
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -84,6 +82,7 @@ presets, and dim-to-warm color on-mode.
 | Device | Type        | Features                      | Mode   |
 | ------ | ----------- | ----------------------------- | ------ |
 | L930-5 | Light strip | Brightness, color, color temp | Direct |
+| HS110  | Smart plug  | On/off via outlet binding     | Proxy  |
 | KP115  | Smart plug  | On/off via outlet binding     | Proxy  |
 
 # <span style="color:#4ACBD6">Installer Setup</span>
