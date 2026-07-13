@@ -24,6 +24,8 @@ local githubUpdater = require("lib.github-updater")
 local persist = require("lib.persist")
 local constants = require("constants")
 local Klap = require("lib.klap")
+local Legacy = require("lib.legacy")
+local IotBulb = require("lib.iotbulb")
 
 --- Color mode identifiers shared with tplink_outlet over the TPLINK_LIGHT
 --- binding protocol. The internal proxy logic keys off these the same way
@@ -43,16 +45,35 @@ local PROXY_BINDING = 5001
 --- driver connects directly to a light device using its properties.
 local OUTLET_BINDING = 1
 
---- KLAP transport for direct mode.
+--- KLAP transport for direct mode (v2 hashing: SMART-firmware devices and
+--- KL-series bulbs on newer KLAP firmware).
 --- @type Klap
 local klap = Klap:new()
+
+--- KLAP transport with v1 hashing (KL-series bulbs whose KLAP firmware uses
+--- the MD5-based hashes).
+--- @type Klap
+local klapV1 = Klap:new({ authVersion = 1 })
+
+--- Legacy (port 9999) transport for KL-series bulbs on original firmware.
+--- @type Legacy
+local legacy = Legacy:new()
+
+--- The direct-mode command schema, set by connect-time detection:
+--- "smart" (Tapo-class get_device_info/set_device_info over KLAP) or "iot"
+--- (KL-series sysinfo/transition_light_state via the iotBulb adapter).
+--- @type string?
+local directSchema = nil
+
+--- IOT bulb adapter over the adopted transport, when directSchema is "iot".
+--- @type IotBulb?
+local iotBulb = nil
 
 -- Forward declarations; assigned in the Backends section near the end.
 local backendStart, backendSendCommand
 
---- Human-readable name of the active transport ("Outlet" or "KLAP"), for
---- Driver Status. A legacy (port 9999) transport with the IOT bulb schema
---- can slot in here for Kasa KL-series bulbs on original firmware.
+--- Human-readable name of the active transport ("Outlet", "SMART", "KLAP", or
+--- "Legacy"), for Driver Status.
 --- @type string?
 local transportName = nil
 
@@ -527,51 +548,17 @@ end
 -- Helpers: color conversions
 ---------------------------------------------------------------------------
 
--- HSV (h: 0-360, s: 0-100, v: 0-100) -> normalized RGB (each 0-1)
+-- HSV (h: 0-360, s: 0-100, v: 0-100) -> normalized RGB (each 0-1).
+-- C4:ColorHSVtoRGB works on the 0-255 RGB scale.
 local function hsvToRGB(h, s, v)
-  local sf, vf = (s or 0) / 100, (v or 0) / 100
-  local c = vf * sf
-  local hh = ((h or 0) / 60) % 6
-  local x = c * (1 - math.abs((hh % 2) - 1))
-  local m = vf - c
-  local r, g, b = 0, 0, 0
-  if hh < 1 then
-    r, g, b = c, x, 0
-  elseif hh < 2 then
-    r, g, b = x, c, 0
-  elseif hh < 3 then
-    r, g, b = 0, c, x
-  elseif hh < 4 then
-    r, g, b = 0, x, c
-  elseif hh < 5 then
-    r, g, b = x, 0, c
-  else
-    r, g, b = c, 0, x
-  end
-  return r + m, g + m, b + m
+  local r, g, b = C4:ColorHSVtoRGB(h or 0, s or 0, v or 0)
+  return (r or 0) / 255, (g or 0) / 255, (b or 0) / 255
 end
 
--- normalized RGB (0-1) -> HSV (h: 0-360, s: 0-100, v: 0-100)
+-- normalized RGB (0-1) -> HSV (h: 0-360, s: 0-100, v: 0-100).
+-- C4:ColorRGBtoHSV works on the 0-255 RGB scale.
 local function rgbToHSV(r, g, b)
-  r, g, b = r or 0, g or 0, b or 0
-  local mx = math.max(r, g, b)
-  local mn = math.min(r, g, b)
-  local d = mx - mn
-  local h = 0
-  if d > 0 then
-    if mx == r then
-      h = 60 * (((g - b) / d) % 6)
-    elseif mx == g then
-      h = 60 * ((b - r) / d + 2)
-    else
-      h = 60 * ((r - g) / d + 4)
-    end
-  end
-  if h < 0 then
-    h = h + 360
-  end
-  local s = mx > 0 and (d / mx) * 100 or 0
-  return h, s, mx * 100
+  return C4:ColorRGBtoHSV((r or 0) * 255, (g or 0) * 255, (b or 0) * 255)
 end
 
 -- CIE 1931 xy chromaticity -> normalized RGB at full intensity.
@@ -2659,6 +2646,20 @@ end
 
 --- Poll the direct-mode device and feed the result into applyUpdate.
 local function directPoll()
+  if directSchema == "iot" and iotBulb ~= nil then
+    iotBulb:poll():next(function(result)
+      directConnected = true
+      applyUpdate(result.entity, result.state)
+    end, function(err)
+      log:warn("IOT bulb poll failed: %s", Select(err, "error") or err)
+      if directConnected then
+        directConnected = false
+        handleDisconnect()
+      end
+    end)
+    return
+  end
+
   klap:request({ method = "get_device_info", params = {} }):next(function(response)
     if tointeger(Select(response, "error_code")) ~= 0 then
       log:warn("get_device_info failed: %s", response)
@@ -2687,6 +2688,14 @@ end
 --- still drives CHANGING/CHANGED notification timing.
 --- @param opts table
 local function directExecute(opts)
+  if directSchema == "iot" and iotBulb ~= nil then
+    iotBulb:execute(opts):next(nil, function(err)
+      -- Command failures are logged only; the poll loop decides connectivity.
+      log:error("IOT bulb command failed: %s", Select(err, "error") or err)
+    end)
+    return
+  end
+
   local params = {}
   if opts.has_state then
     params.device_on = opts.state and true or false
@@ -2756,6 +2765,7 @@ end
 local function setNetworkPropertiesAttribs(attrib)
   C4:SetPropertyAttribs("TP-Link Settings", attrib)
   C4:SetPropertyAttribs("IP Address", attrib)
+  C4:SetPropertyAttribs("Protocol", attrib)
   C4:SetPropertyAttribs("TP-Link Username", attrib)
   C4:SetPropertyAttribs("TP-Link Password", attrib)
   C4:SetPropertyAttribs("Poll Rate (Seconds)", attrib)
@@ -2788,28 +2798,141 @@ backendStart = function()
   end
 
   setNetworkPropertiesAttribs(constants.SHOW_PROPERTY)
+  directSchema = nil
+  iotBulb = nil
 
   local ip = Properties["IP Address"] or ""
   if IsEmpty(ip) then
     UpdateProperty("Driver Status", "Bind to an outlet or set the IP Address property")
     return
   end
-  if IsEmpty(Properties["TP-Link Username"]) or IsEmpty(Properties["TP-Link Password"]) then
-    UpdateProperty("Driver Status", "Set the TP-Link Username and Password properties")
-    return
-  end
 
-  klap:configure({
+  local config = {
     ip = ip,
     username = Properties["TP-Link Username"] or "",
     password = Properties["TP-Link Password"] or "",
-  })
+  }
+  klap:configure(config)
+  klapV1:configure(config)
+  legacy:configure({ ip = ip })
 
-  transportName = "KLAP"
-  UpdateProperty("Driver Status", "Connecting (KLAP)...")
-  directPoll()
+  local mode = Properties["Protocol"] or "Auto"
+  local hasCredentials = not IsEmpty(Properties["TP-Link Username"]) and not IsEmpty(Properties["TP-Link Password"])
+
+  --- Adopt a probed schema/transport and apply its first poll result.
+  --- @param schema string "smart" or "iot"
+  --- @param bulb IotBulb? The adapter, for the "iot" schema.
+  --- @param name string Transport name for Driver Status.
+  --- @param entity table
+  --- @param state table
+  local function adopt(schema, bulb, name, entity, state)
+    directSchema = schema
+    iotBulb = bulb
+    transportName = name
+    directConnected = true
+    log:info("Using %s transport for direct control", name)
+    applyUpdate(entity, state)
+  end
+
+  --- Probe a transport with the IOT bulb schema.
+  --- @param transport Legacy|Klap
+  --- @param name string
+  --- @param onFail fun(reason: string)
+  local function tryIotBulb(transport, name, onFail)
+    local bulb = IotBulb:new(transport)
+    bulb:poll():next(function(result)
+      adopt("iot", bulb, name, result.entity, result.state)
+    end, function(err)
+      onFail(Select(err, "error") or "no response")
+    end)
+  end
+
+  --- Probe the established KLAP v2 session with the SMART schema.
+  --- @param onFail fun(reason: string)
+  local function trySmart(onFail)
+    klap:request({ method = "get_device_info", params = {} }):next(function(response)
+      if tointeger(Select(response, "error_code")) == 0 then
+        local info = Select(response, "result") or {}
+        adopt("smart", nil, "SMART", synthesizeEntity(info), synthesizeState(info))
+      else
+        onFail("device rejected get_device_info over KLAP")
+      end
+    end, function(err)
+      onFail(Select(err, "error") or "SMART request failed")
+    end)
+  end
+
+  --- Probe the legacy port 9999 transport, the last resort in Auto mode.
+  --- @param klapReason string? The KLAP failure that led here, for the status.
+  local function tryLegacy(klapReason)
+    UpdateProperty("Driver Status", "Connecting (Legacy)...")
+    tryIotBulb(legacy, "Legacy", function(legacyReason)
+      if mode == "Auto" and not hasCredentials then
+        legacyReason = legacyReason .. " (set TP-Link credentials if this device is on KLAP firmware)"
+      end
+      local reason = klapReason and ("KLAP: " .. klapReason .. " / Legacy: " .. legacyReason) or legacyReason
+      UpdateProperty("Driver Status", "Disconnected: " .. reason)
+    end)
+  end
+
+  --- Route a KLAP-side failure to legacy fallback or a final status.
+  --- @param reason string
+  local function onKlapFail(reason)
+    if mode == "KLAP" then
+      UpdateProperty("Driver Status", "Disconnected: " .. reason)
+    else
+      log:info("KLAP probe failed (%s); trying legacy protocol", reason)
+      tryLegacy(reason)
+    end
+  end
+
+  --- Probe the KLAP transports: v2 handshake, then the SMART schema (Tapo,
+  --- newer Kasa), then the IOT bulb schema over the same session (KL-series
+  --- on KLAP firmware). A v2 auth mismatch retries the handshake with v1
+  --- hashing before falling back.
+  local function tryKlap()
+    UpdateProperty("Driver Status", "Connecting (KLAP)...")
+    klap:connect():next(function()
+      trySmart(function(smartReason)
+        log:info("SMART probe failed (%s); trying IOT bulb schema over KLAP", smartReason)
+        tryIotBulb(klap, "KLAP", onKlapFail)
+      end)
+    end, function(err)
+      local reason = Select(err, "error") or "KLAP connection failed"
+      if string.find(reason, "auth mismatch", 1, true) == nil then
+        onKlapFail(reason)
+        return
+      end
+      log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
+      klapV1:connect():next(function()
+        tryIotBulb(klapV1, "KLAP", onKlapFail)
+      end, function(v1Err)
+        onKlapFail(Select(v1Err, "error") or "KLAP connection failed")
+      end)
+    end)
+  end
+
+  if mode == "KLAP" or (mode == "Auto" and hasCredentials) then
+    if not hasCredentials then
+      UpdateProperty("Driver Status", "Set the TP-Link Username and Password properties (required for KLAP)")
+      return
+    end
+    tryKlap()
+  else
+    -- Legacy mode, or Auto without credentials (KL-series bulbs on original
+    -- firmware need none).
+    tryLegacy(nil)
+  end
+
   local pollSeconds = tointeger(Properties["Poll Rate (Seconds)"]) or 5
-  SetTimer(DIRECT_POLL_TIMER, pollSeconds * 1000, directPoll, true)
+  SetTimer(DIRECT_POLL_TIMER, pollSeconds * 1000, function()
+    if directSchema == nil then
+      -- Detection failed or never ran; keep retrying until the device answers.
+      backendStart()
+    else
+      directPoll()
+    end
+  end, true)
 end
 
 ---------------------------------------------------------------------------
@@ -2822,6 +2945,23 @@ function OPC.IP_Address(propertyValue)
   if gInitialized then
     backendStart()
   end
+end
+
+--- @param propertyValue string
+function OPC.Protocol(propertyValue)
+  log:trace("OPC.Protocol('%s')", propertyValue)
+  if gInitialized then
+    backendStart()
+  end
+end
+
+--- Reconnect action: discard any established sessions and re-detect.
+function EC.Reconnect()
+  log:info("Action: Reconnect")
+  klap:reset()
+  klapV1:reset()
+  legacy:reset()
+  backendStart()
 end
 
 function OPC.TP_Link_Username(propertyValue)

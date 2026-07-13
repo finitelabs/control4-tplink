@@ -109,17 +109,28 @@
         <description>IP address of the light device for direct control. Leave blank when this driver is bound to a TP-Link Outlet output. Use a DHCP reservation so it does not change.</description>
       </property>
       <property>
+        <name>Protocol</name>
+        <type>LIST</type>
+        <items>
+          <item>Auto</item>
+          <item>KLAP</item>
+          <item>Legacy</item>
+        </items>
+        <default>Auto</default>
+        <description>Local protocol the device speaks. Auto tries KLAP (post-2024 firmware; SMART and IOT bulb command schemas are auto-detected) and falls back to the legacy port 9999 protocol used by KL-series bulbs on original firmware.</description>
+      </property>
+      <property>
         <name>TP-Link Username</name>
         <type>STRING</type>
         <default/>
-        <description>Email address of the TP-Link (Kasa/Tapo) account the device is bound to. Case sensitive. Only used for direct control.</description>
+        <description>Email address of the TP-Link (Kasa/Tapo) account the device is bound to. Case sensitive. Only used for direct control; required for KLAP firmware, leave blank for legacy-firmware bulbs.</description>
       </property>
       <property>
         <name>TP-Link Password</name>
         <type>STRING</type>
         <password>true</password>
         <default/>
-        <description>Password of the TP-Link (Kasa/Tapo) account the device is bound to. Only used for direct control.</description>
+        <description>Password of the TP-Link (Kasa/Tapo) account the device is bound to. Only used for direct control; required for KLAP firmware, leave blank for legacy-firmware bulbs.</description>
       </property>
       <property>
         <name>Poll Rate (Seconds)</name>
@@ -132,6 +143,10 @@
     </properties>
     <commands/>
     <actions>
+      <action>
+        <name>Reconnect</name>
+        <command>Reconnect</command>
+      </action>
       <!-- #ifndef DRIVERCENTRAL -->
       <action>
         <name>Update Drivers</name>
