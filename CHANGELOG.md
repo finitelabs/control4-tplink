@@ -12,7 +12,7 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
-## Unreleased
+## v20260713 - 2026-07-13
 
 ### Added
 

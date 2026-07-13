@@ -117,7 +117,7 @@ can file an issue on GitHub:
 
 # <span style="color:#4ACBD6">Changelog</span>
 
-## Unreleased
+## v20260713 - 2026-07-13
 
 ### Added
 
