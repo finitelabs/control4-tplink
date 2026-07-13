@@ -29,10 +29,12 @@
 The TP-Link Light driver presents a Control4 light (light_v2) backed by a
 TP-Link device. It operates in one of two modes:
 
-- **Direct mode**: the driver connects to a TP-Link light (such as a Tapo
-  L900/L920/L930 light strip or Tapo bulb) over the local network using the KLAP
-  protocol and the SMART command schema. Brightness, color, and color
-  temperature are supported when the device reports them.
+- **Direct mode**: the driver connects to a TP-Link light over the local network
+  — a Tapo L900/L920/L930 light strip or Tapo bulb speaking the SMART command
+  schema over KLAP, or a legacy Kasa KL/LB-series bulb or light strip speaking
+  the IOT schema over KLAP or the original port 9999 protocol. The transport and
+  schema are auto-detected. Brightness, color, and color temperature are
+  supported when the device reports them.
 - **Proxy mode**: the driver's TP-Link Outlet connection is bound to an output
   of the TP-Link Outlet driver. The light is then an on/off switch light backed
   by that outlet, useful for lamps and fixtures plugged into a smart outlet.
@@ -72,9 +74,10 @@ presets, and dim-to-warm color on-mode.
 # <span style="color:#4ACBD6">System Requirements</span>
 
 - Control4 OS 3.3+
-- Direct mode: a TP-Link light on KLAP firmware using the SMART command schema
-  (Tapo bulbs and light strips), on a network reachable from the controller,
-  plus the TP-Link account credentials the device is bound to
+- Direct mode: a TP-Link light on a network reachable from the controller.
+  Devices on KLAP firmware (Tapo bulbs and light strips, and firmware-updated
+  Kasa bulbs) also need the TP-Link account credentials they are bound to; Kasa
+  KL/LB-series bulbs on original firmware need no credentials
 - Proxy mode: a configured TP-Link Outlet driver instance
 
 **Verified hardware:**
@@ -82,8 +85,17 @@ presets, and dim-to-warm color on-mode.
 | Device | Type        | Features                      | Mode   |
 | ------ | ----------- | ----------------------------- | ------ |
 | L930-5 | Light strip | Brightness, color, color temp | Direct |
+| KL130  | Bulb        | Brightness, color, color temp | Direct |
 | HS110  | Smart plug  | On/off via outlet binding     | Proxy  |
 | KP115  | Smart plug  | On/off via outlet binding     | Proxy  |
+
+Other Kasa KL/LB-series bulbs (e.g. KL110, KL120, KL125, KL135, LB-series) and
+Kasa light strips (KL400/KL420/KL430) speak the same IOT schema — strips take
+commands through their own lighting module, which the driver selects
+automatically — and are expected to work in direct mode across firmware
+generations. Starting any light command from Control4 takes over from a lighting
+effect running on a strip; effects themselves are not controllable from
+Control4.
 
 # <span style="color:#4ACBD6">Installer Setup</span>
 
@@ -109,13 +121,15 @@ for setting it up.
    TP-Link Outlet driver).
 2. Use the "Search" tab to find the "TP-Link Light" driver and add it to the
    room the light lives in.
-3. For direct mode, set the [IP Address](#ip-address) and TP-Link credential
-   properties. For proxy mode, bind the driver's TP-Link Outlet connection to an
-   output of a TP-Link Outlet driver instead.
-4. `Driver Status` shows the connection and active protocol, e.g.
-   `Connected (KLAP)` in direct mode or `Connected (Outlet)` in proxy mode. If
-   the driver fails to connect, set `Log Mode` to `Print` and check the lua
-   output window.
+3. For direct mode, set the [IP Address](#ip-address) property, plus the TP-Link
+   credential properties for devices on KLAP firmware. For proxy mode, bind the
+   driver's TP-Link Outlet connection to an output of a TP-Link Outlet driver
+   instead.
+4. `Driver Status` shows the connection and the detected transport/schema:
+   `Connected (SMART)` (KLAP, Tapo-class), `Connected (KLAP)` (KLAP, KL-series
+   bulb), `Connected (Legacy)` (port 9999), or `Connected (Outlet)` in proxy
+   mode. If the driver fails to connect, set `Log Mode` to `Print`, run the
+   `Reconnect` action, and check the lua output window.
 
 ## Driver Properties
 
@@ -132,15 +146,30 @@ Standard logging controls. Log mode expires after 3 hours.
 IP address of the light device for direct mode. Leave blank when bound to an
 outlet. Use a DHCP reservation so it does not change.
 
+### Protocol [ **_Auto_** | KLAP | Legacy ]
+
+Selects the local protocol for direct mode. `Auto` (default) tries KLAP first
+when credentials are set — probing the SMART schema, then the IOT bulb schema,
+with both KLAP hash generations — and falls back to the legacy port 9999
+protocol; without credentials it connects over the legacy protocol directly. Pin
+it to `KLAP` or `Legacy` only if you need to skip detection.
+
 ### TP-Link Username / TP-Link Password
 
 Credentials of the TP-Link (Kasa/Tapo) account the device is bound to. The email
 is case sensitive. Used only for the local KLAP handshake in direct mode; the
-driver never contacts TP-Link's cloud.
+driver never contacts TP-Link's cloud. Required for KLAP firmware; may be left
+blank for KL-series bulbs on original firmware.
 
 ### Poll Rate (Seconds) [ 2 - 300 ]
 
 How often the light state is polled in direct mode. Default is `5`.
+
+## Driver Actions
+
+### Reconnect
+
+Discard any established sessions, re-run protocol detection, and reconnect.
 
 ## Connections
 
@@ -162,10 +191,15 @@ collapses to 0/100.
 **`Driver Status` shows `Bind to an outlet or set the IP Address property`**:
 the driver has neither an outlet binding nor a direct-mode configuration.
 
-**Direct mode never connects**: verify the IP address, that TCP port 80 is
-reachable from the controller, and that the credentials match the account the
-device is bound to in the Tapo/Kasa app (auth mismatches are reported in the lua
-output window with `Log Mode` set to `Print`).
+**Direct mode never connects**: verify the IP address, that TCP port 80 (KLAP)
+or UDP port 9999 (legacy) is reachable from the controller, and — for devices on
+KLAP firmware — that the credentials match the account the device is bound to in
+the Tapo/Kasa app (auth mismatches are reported in the lua output window with
+`Log Mode` set to `Print`).
+
+**A Kasa light strip shows the wrong brightness while an app effect runs**: the
+strip reports the effect's brightness while a lighting effect is active; any
+light command from Control4 stops the effect and takes over.
 
 **Device is a Kasa plug or strip, not a light**: use the TP-Link Outlet driver
 for the device and bind this driver to one of its outputs instead of using

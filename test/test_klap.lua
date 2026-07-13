@@ -346,6 +346,79 @@ outcome = settle(smart:request({ emeter = { get_realtime = {} } }))
 check("EP25 energy mapped to power_mw", Select(outcome.resolved, "emeter", "get_realtime", "power_mw") == 2750)
 
 ---------------------------------------------------------------------------
+-- IOT bulb schema over a real KLAP v1 session (fake KL130 on KLAP firmware)
+---------------------------------------------------------------------------
+
+local IotBulb = require("lib.iotbulb")
+local LIGHT_SERVICE = "smartlife.iot.smartbulb.lightingservice"
+
+local bulbLightState = { on_off = 1, mode = "normal", hue = 240, saturation = 100, color_temp = 0, brightness = 30 }
+local fakeKl130 = fakeDevice({
+  version = 1,
+  handler = function(request)
+    if Select(request, "system", "get_sysinfo") then
+      return {
+        system = {
+          get_sysinfo = {
+            err_code = 0,
+            model = "KL130(US)",
+            alias = "Fake Bulb",
+            mic_type = "IOT.SMARTBULB",
+            is_dimmable = 1,
+            is_color = 1,
+            is_variable_color_temp = 1,
+            light_state = bulbLightState,
+          },
+        },
+      }
+    end
+    local lightParams = Select(request, LIGHT_SERVICE, "transition_light_state")
+    if lightParams then
+      for key, value in pairs(lightParams) do
+        if key ~= "ignore_default" and key ~= "transition_period" then
+          bulbLightState[key] = value
+        end
+      end
+      local response = { err_code = 0 }
+      for key, value in pairs(bulbLightState) do
+        response[key] = value
+      end
+      return { [LIGHT_SERVICE] = { transition_light_state = response } }
+    end
+    return { system = { err_code = -1 } }
+  end,
+})
+fakeKl130:install()
+
+local klapBulb = Klap:new({ authVersion = 1 })
+klapBulb:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+local iotBulb = IotBulb:new(klapBulb)
+
+outcome = settle(iotBulb:poll())
+check("KL130 over KLAP v1 polls", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
+check("KL130 reports color+cct entity", Select(outcome.resolved, "entity", "min_mireds") ~= nil)
+check("KL130 state on", Select(outcome.resolved, "state", "state") == true)
+
+outcome = settle(iotBulb:execute({ has_state = true, state = false }))
+check("KL130 off over KLAP v1 accepted", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
+
+outcome = settle(iotBulb:poll())
+check("KL130 state reflects off", Select(outcome.resolved, "state", "state") == false)
+
+outcome = settle(iotBulb:execute({
+  has_state = true,
+  state = true,
+  has_brightness = true,
+  brightness = 0.75,
+  has_transition_length = true,
+  transition_length = 1000,
+}))
+check("KL130 on+brightness over KLAP v1 accepted", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
+
+outcome = settle(iotBulb:poll())
+check("KL130 brightness reflects 75", Select(outcome.resolved, "state", "brightness") == 0.75)
+
+---------------------------------------------------------------------------
 -- Optional: probe a real device on the network
 ---------------------------------------------------------------------------
 

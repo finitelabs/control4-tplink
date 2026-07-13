@@ -12,6 +12,29 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
+## Unreleased
+
+### Added
+
+- TP-Link Light: direct-mode support for legacy Kasa KL/LB-series bulbs (e.g.
+  KL110, KL120, KL125, KL130, KL135) and light strips (KL400/KL420/KL430) via
+  the IOT command schema, over the original port 9999 protocol or KLAP firmware
+  with either hash generation. Devices on original firmware need no TP-Link
+  credentials. Ramp rates forward as device-side transitions, matching the SMART
+  path. Any Control4 light command takes over from a lighting effect running on
+  a strip.
+- TP-Link Light: a Protocol property (Auto/KLAP/Legacy) and a Reconnect action,
+  matching the TP-Link Outlet driver. The detected transport and schema show in
+  Driver Status as `Connected (SMART)`, `Connected (KLAP)`, or
+  `Connected (Legacy)`.
+- Verified hardware: a field install confirms the KL130 in direct mode via the
+  IOT bulb schema.
+
+### Changed
+
+- TP-Link Light: Tapo-class devices in direct mode now show `Connected (SMART)`
+  instead of `Connected (KLAP)`, matching the outlet driver's naming.
+
 ## v20260712 - 2026-07-12
 
 ### Added

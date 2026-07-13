@@ -155,6 +155,59 @@ function C4:Base64Decode(data, ...)
   end
 end
 
+---------------------------------------------------------------------------
+-- Color conversions (C4:ColorHSVtoRGB, C4:ColorRGBtoHSV)
+-- Pure-Lua ports matching the on-controller behavior, verified against a
+-- CA-1 running OS 3.4: RGB is on the 0-255 scale (float, unrounded), HSV is
+-- h 0-360 / s 0-100 / v 0-100. E.g. ColorHSVtoRGB(120, 75, 100) returns
+-- (63.75, 255, 63.75); ColorRGBtoHSV(64, 255, 64) returns (120, 74.902, 100).
+---------------------------------------------------------------------------
+
+function C4:ColorHSVtoRGB(h, s, v)
+  local sf, vf = (s or 0) / 100, (v or 0) / 100
+  local c = vf * sf
+  local hh = ((h or 0) / 60) % 6
+  local x = c * (1 - math.abs((hh % 2) - 1))
+  local m = vf - c
+  local r, g, b = 0, 0, 0
+  if hh < 1 then
+    r, g, b = c, x, 0
+  elseif hh < 2 then
+    r, g, b = x, c, 0
+  elseif hh < 3 then
+    r, g, b = 0, c, x
+  elseif hh < 4 then
+    r, g, b = 0, x, c
+  elseif hh < 5 then
+    r, g, b = x, 0, c
+  else
+    r, g, b = c, 0, x
+  end
+  return (r + m) * 255, (g + m) * 255, (b + m) * 255
+end
+
+function C4:ColorRGBtoHSV(r, g, b)
+  r, g, b = (r or 0) / 255, (g or 0) / 255, (b or 0) / 255
+  local mx = math.max(r, g, b)
+  local mn = math.min(r, g, b)
+  local d = mx - mn
+  local h = 0
+  if d > 0 then
+    if mx == r then
+      h = 60 * (((g - b) / d) % 6)
+    elseif mx == g then
+      h = 60 * ((b - r) / d + 2)
+    else
+      h = 60 * ((r - g) / d + 4)
+    end
+  end
+  if h < 0 then
+    h = h + 360
+  end
+  local s = mx > 0 and (d / mx) * 100 or 0
+  return h, s, mx * 100
+end
+
 --- Generate a UUID (simplified version)
 local uuid_counter = 0
 function C4:UUID(prefix)

@@ -27,15 +27,15 @@
 <!-- #endif -->
 
 This suite provides local, cloud-free control of TP-Link Kasa and Tapo smart
-home devices from Control4, across the generations of TP-Link's local
-protocols. Older Kasa integrations rely on TP-Link's plaintext protocol on
-port 9999; firmware updates rolled out since late 2024 disable that protocol
-and replace it with KLAP, an encrypted local protocol, and newer Kasa hardware
-(e.g. the EP25 v2.6) also swaps the legacy command schema for the SMART schema
-that Tapo devices speak. These drivers implement the KLAP handshake and
-session encryption (both hash generations) and both command schemas, and
-auto-detect devices still on the original firmware, so the same driver
-instance keeps working when TP-Link migrates a device.
+home devices from Control4, across the generations of TP-Link's local protocols.
+Older Kasa integrations rely on TP-Link's plaintext protocol on port 9999;
+firmware updates rolled out since late 2024 disable that protocol and replace it
+with KLAP, an encrypted local protocol, and newer Kasa hardware (e.g. the EP25
+v2.6) also swaps the legacy command schema for the SMART schema that Tapo
+devices speak. These drivers implement the KLAP handshake and session encryption
+(both hash generations) and both command schemas, and auto-detect devices still
+on the original firmware, so the same driver instance keeps working when TP-Link
+migrates a device.
 
 # <span style="color:#4ACBD6">Index</span>
 
@@ -99,9 +99,11 @@ modes:
 
 **Key features:**
 
-- **Direct mode**: connects to a TP-Link light (Tapo L900/L920/L930 strips,
-  Tapo bulbs) over KLAP. Brightness, color, and color temperature are enabled
-  dynamically from what the device reports
+- **Direct mode**: connects to a TP-Link light — Tapo L900/L920/L930 strips and
+  Tapo bulbs over KLAP + SMART, or legacy Kasa KL/LB-series bulbs and light
+  strips over KLAP or port 9999 with the IOT schema, auto-detected. Brightness,
+  color, and color temperature are enabled dynamically from what the device
+  reports
 - **Proxy mode**: binds to a TP-Link Outlet output so a lamp plugged into a
   smart outlet appears as a real on/off light, with state kept in sync from the
   outlet
@@ -150,8 +152,8 @@ documentation for setting it up.
 <!-- #endif -->
 
 Each driver includes its own documentation accessible from within Composer Pro.
-Refer to the individual driver documentation for detailed property
-descriptions, programming reference, and configuration guides.
+Refer to the individual driver documentation for detailed property descriptions,
+programming reference, and configuration guides.
 
 <div style="page-break-after: always"></div>
 
@@ -186,8 +188,8 @@ call/text us at [+1 (949) 371-5805](tel:+19493715805).
 
 <!-- #else -->
 
-If you have any questions or issues integrating these drivers with Control4,
-you can file an issue on GitHub:
+If you have any questions or issues integrating these drivers with Control4, you
+can file an issue on GitHub:
 
 https://github.com/finitelabs/control4-tplink/issues/new
 
