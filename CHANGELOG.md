@@ -12,6 +12,15 @@
 [//]: # "- Removed"
 <!-- prettier-ignore-end -->
 
+## Unreleased
+
+### Fixed
+
+- TP-Link Outlet: control the individual outputs of multi-outlet legacy plugs
+  that report short child ids (such as the EP40A). These devices reject the
+  short id in the relay command and require the full device-prefixed child id,
+  so per-output on and off now works instead of failing silently.
+
 ## v20260713 - 2026-07-13
 
 ### Added

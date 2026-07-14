@@ -299,7 +299,16 @@ local function applySysinfo(sysinfo)
     for n = 1, outputCount do
       local child = children[n]
       outputs[n] = outputs[n] or {}
-      outputs[n].childId = tostring(child.id)
+      -- Some multi-outlet plugs (e.g. EP40A) report short child ids ("00") in
+      -- get_sysinfo but reject them in context.child_ids ("entry not exist");
+      -- they require the full deviceId-prefixed id. Others (HS300/KP303) already
+      -- report the full id. Prefix with the deviceId only for the short form.
+      local childId = tostring(child.id)
+      local deviceId = tostring(sysinfo.deviceId or "")
+      if deviceId ~= "" and #childId < #deviceId then
+        childId = deviceId .. childId
+      end
+      outputs[n].childId = childId
       ensureRelayBinding(n)
       ensureLightBinding(n)
       values:update("Output " .. n .. " Name", tostring(child.alias or ("Output " .. n)), "STRING")
