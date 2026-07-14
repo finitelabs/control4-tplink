@@ -88,12 +88,13 @@ programming.
 
 **Verified hardware:**
 
-| Device | Type        | Outputs | Energy Metering  | Verified Transport  |
-| ------ | ----------- | ------- | ---------------- | ------------------- |
-| HS300  | Power strip | 6       | Yes (per outlet) | KLAP (IOT schema)   |
-| EP25   | Smart plug  | 1       | Yes              | KLAP (SMART schema) |
-| KP115  | Smart plug  | 1       | Yes              | Legacy              |
-| HS110  | Smart plug  | 1       | Yes              | Legacy              |
+| Device | Type         | Outputs | Energy Metering  | Verified Transport  |
+| ------ | ------------ | ------- | ---------------- | ------------------- |
+| HS300  | Power strip  | 6       | Yes (per outlet) | KLAP (IOT schema)   |
+| EP25   | Smart plug   | 1       | Yes              | KLAP (SMART schema) |
+| KP115  | Smart plug   | 1       | Yes              | Legacy              |
+| HS110  | Smart plug   | 1       | Yes              | Legacy              |
+| EP40A  | Outdoor plug | 2       | No               | Legacy              |
 
 The SMART schema over KLAP is also verified against a Tapo L930 light strip via
 the shared transport stack.
