@@ -123,9 +123,9 @@ docs-readme: preprocess
 docs-html: node_modules
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			npx generate-md --layout github \
-				--input "$${driver_dir}www/documentation/index.md" \
-				--output "$${driver_dir}www/documentation"; \
+			node tools/render-md.mjs \
+				"$${driver_dir}www/documentation/index.md" \
+				"$${driver_dir}www/documentation"; \
 		done; \
 	done
 
@@ -140,9 +140,9 @@ docs-pdf: node_modules
 			fi; \
 			pdf_output="dist/$$build/$$driver_display_name Documentation.pdf"; \
 			if [ -f "$$pdf_output" ]; then continue; fi; \
-			npx electron-pdf --marginsType 0 \
-				--input "$$(pwd)/$${driver_dir}www/documentation/index.html" \
-				--output "$$pdf_output" || exit 1; \
+			node tools/render-pdf.mjs \
+				"$$(pwd)/$${driver_dir}www/documentation/index.html" \
+				"$$pdf_output" || exit 1; \
 		done; \
 	done
 
