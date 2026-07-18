@@ -25,11 +25,18 @@ try {
   await page.goto(pathToFileURL(resolve(input)).href, {
     waitUntil: "networkidle0",
   });
+  // electron-pdf --marginsType 0 is "default" margins (~0.4in / 10mm), NOT zero.
+  // Match those to keep our output visually consistent with the previous pipeline.
   await page.pdf({
     path: resolve(output),
     format: "Letter",
     printBackground: true,
-    margin: { top: "0", right: "0", bottom: "0", left: "0" },
+    margin: {
+      top: "0.4in",
+      right: "0.4in",
+      bottom: "0.4in",
+      left: "0.4in",
+    },
   });
 } finally {
   await browser.close();
