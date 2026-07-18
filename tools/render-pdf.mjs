@@ -21,6 +21,7 @@ const browser = await puppeteer.launch({
 });
 try {
   const page = await browser.newPage();
+  await page.emulateMediaType("print");
   await page.goto(pathToFileURL(resolve(input)).href, {
     waitUntil: "networkidle0",
   });

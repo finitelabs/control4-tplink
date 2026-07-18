@@ -39,7 +39,15 @@ const md = markdownIt({
 });
 
 const source = await readFile(inputPath, "utf8");
-const bodyHtml = md.render(source);
+let bodyHtml = md.render(source);
+
+// Chromium's print engine ignores page-break-after/before on empty <div>s.
+// Convert the markers to <hr>, which it honors reliably (with visibility:hidden
+// on the paint side so the rule doesn't render).
+bodyHtml = bodyHtml.replace(
+  /<div\s+style="page-break-(after|before)\s*:\s*always"[^>]*>\s*<\/div>/g,
+  '<hr class="page-break-$1">'
+);
 
 const githubMarkdownCss = readFileSync(
   require.resolve("github-markdown-css/github-markdown-light.css"),
@@ -61,6 +69,21 @@ ${githubMarkdownCss}
 ${hljsCss}
 .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
 @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+/* Page break markers: source MD uses <div style="page-break-after: always"></div>.
+   render-md.mjs rewrites those to <hr class="page-break-after"> because Chromium
+   ignores page-break-* on empty divs. Style the hr so it forces the break
+   without painting a rule. */
+.markdown-body hr.page-break-after,
+.markdown-body hr.page-break-before {
+  border: 0 !important;
+  background: transparent !important;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  visibility: hidden;
+}
+.markdown-body hr.page-break-after { page-break-after: always !important; break-after: page !important; }
+.markdown-body hr.page-break-before { page-break-before: always !important; break-before: page !important; }
 </style>
 </head>
 <body class="markdown-body">
