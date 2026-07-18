@@ -106,12 +106,12 @@ make clean-all     # Remove everything (build artifacts, deps, venv)
 ### Build Pipeline
 
 1. **Format** — stylua (Lua), black (Python), prettier (Markdown)
-2. **Preprocess** — resolve `#ifdef`/`#ifndef` directives per distribution
-3. **Generate squishy** — create squish manifests from .c4zproj files
-4. **Update driver.xml** — stamp version date and modified timestamp
-5. **Generate docs** — Markdown → HTML → PDF, plus README
-6. **Package** — run driverpackager to create .c4z files
-7. **Zip** — bundle .c4z and .pdf files per distribution
+1. **Preprocess** — resolve `#ifdef`/`#ifndef` directives per distribution
+1. **Generate squishy** — create squish manifests from .c4zproj files
+1. **Update driver.xml** — stamp version date and modified timestamp
+1. **Generate docs** — Markdown → HTML → PDF, plus README
+1. **Package** — run driverpackager to create .c4z files
+1. **Zip** — bundle .c4z and .pdf files per distribution
 
 ### Distributions
 

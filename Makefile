@@ -25,6 +25,16 @@ else
   export CFLAGS   := -DPRAGMA_IGNORE_UNUSED_LABEL= -DPRAGMA_WARN_STRICT_PROTOTYPES=
 endif
 
+# WeasyPrint (docs PDF) links GObject/Pango/Cairo native libs at runtime. On
+# macOS these are Homebrew-installed outside the default dyld search path, so
+# point WeasyPrint at them. On Linux (incl. CI) the libs are on the standard
+# loader path and no override is needed.
+ifeq ($(shell uname -s),Darwin)
+  WEASYPRINT_ENV := DYLD_FALLBACK_LIBRARY_PATH=$(shell brew --prefix 2>/dev/null)/lib
+else
+  WEASYPRINT_ENV :=
+endif
+
 # ─── Help ─────────────────────────────────────────────────────────────────────
 
 .PHONY: help
@@ -35,15 +45,18 @@ help: ## Show this help
 # ─── Init ─────────────────────────────────────────────────────────────────────
 
 .PHONY: init
-init: node_modules $(VENV) $(PACKAGER) ## One-time setup: install all dependencies
+init: $(VENV) $(PACKAGER) ## One-time setup: install all dependencies
 
-node_modules: package.json
-	npm install
-	@touch $@
-
+# M2Crypto + lxml are required by the driverpackager (dist/driverpackager).
+# Everything else is our own tooling: docs (weasyprint + markdown-it-py +
+# mdit-py-plugins + pygments) and formatters (black for Python, mdformat for
+# Markdown). Lua formatting uses the stylua binary (see fmt-lua).
 $(VENV):
 	python3 -m venv $(VENV)
-	$(VENV_PY) -m pip install --upgrade pip setuptools wheel M2Crypto lxml black copier
+	$(VENV_PY) -m pip install --upgrade pip setuptools wheel \
+		M2Crypto lxml \
+		weasyprint markdown-it-py[linkify] mdit-py-plugins pygments \
+		black mdformat mdformat-gfm
 
 $(PACKAGER):
 	rm -rf dist/driverpackager
@@ -54,17 +67,18 @@ $(PACKAGER):
 .PHONY: fmt fmt-lua fmt-py fmt-md
 fmt: fmt-lua fmt-py fmt-md ## Format all code
 
-fmt-lua: node_modules
-	npx stylua \
+# stylua is a standalone binary (brew install stylua / stylua-action in CI).
+fmt-lua:
+	stylua \
 		--indent-type Spaces --column-width 120 --line-endings Unix \
 		--indent-width 2 --quote-style AutoPreferDouble \
 		-g '*.lua' -v ./drivers ./src ./test ./tools ./vendor
 
-fmt-py:
-	$(VENV_BLACK) tools/preprocess
+fmt-py: $(VENV)
+	$(VENV_BLACK) tools/preprocess tools/*.py
 
-fmt-md: node_modules
-	npx prettier --prose-wrap always --write ./drivers/**/www/**/*.md *.md
+fmt-md: $(VENV)
+	$(VENV_PY) -m mdformat --wrap 80 ./drivers/*/www/documentation/*.md documentation/*.md *.md
 
 # ─── Preprocess ───────────────────────────────────────────────────────────────
 
@@ -92,18 +106,16 @@ update-xml: update-xml-version update-xml-modified ## Stamp version + modified i
 update-xml-version:
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			xmlstarlet edit --inplace --omit-decl \
-				--update '/devicedata/version' --value "$$(date +'%Y%m%d')" \
-				"$${driver_dir}driver.xml"; \
+			$(VENV_PY) tools/build-utils.py xml-set \
+				"$${driver_dir}driver.xml" version "$$(date +'%Y%m%d')"; \
 		done; \
 	done
 
 update-xml-modified:
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			xmlstarlet edit --inplace --omit-decl \
-				--update '/devicedata/modified' --value "$$(date +'%m/%d/%Y %I:%M %p')" \
-				"$${driver_dir}driver.xml"; \
+			$(VENV_PY) tools/build-utils.py xml-set \
+				"$${driver_dir}driver.xml" modified "$$(date +'%m/%d/%Y %I:%M %p')"; \
 		done; \
 	done
 
@@ -113,36 +125,36 @@ update-xml-modified:
 docs: docs-readme docs-html docs-pdf ## Generate all documentation
 
 
-docs-readme: preprocess
+docs-readme: preprocess $(VENV)
 	rm -rf ./images
 	@if [ -d documentation/images ]; then cp -r documentation/images .; fi
-	pandoc build/$(README_BUILD)/documentation/index.md \
-		-f gfm -t gfm --lua-filter=tools/pandoc-remove-style.lua -o README.md
+	$(VENV_PY) tools/build-utils.py readme \
+		build/$(README_BUILD)/documentation/index.md README.md
 
 
-docs-html: node_modules
+docs-html: $(VENV)
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			npx generate-md --layout github \
-				--input "$${driver_dir}www/documentation/index.md" \
-				--output "$${driver_dir}www/documentation"; \
+			$(VENV_PY) tools/render-docs.py md2html \
+				"$${driver_dir}www/documentation/index.md" \
+				"$${driver_dir}www/documentation"; \
 		done; \
 	done
 
-docs-pdf: node_modules
+docs-pdf: $(VENV)
 	@for build in $(DISTRIBUTIONS); do \
 		mkdir -p "dist/$$build"; \
 		for driver_dir in build/$$build/drivers/*/; do \
 			if [ -f "$${driver_dir}.variant_pdf" ]; then \
 				driver_display_name=$$(cat "$${driver_dir}.variant_pdf"); \
 			else \
-				driver_display_name=$$(xmlstarlet sel -t -v '/devicedata/name' "$${driver_dir}driver.xml"); \
+				driver_display_name=$$($(VENV_PY) tools/build-utils.py xml-get-name "$${driver_dir}driver.xml"); \
 			fi; \
 			pdf_output="dist/$$build/$$driver_display_name Documentation.pdf"; \
 			if [ -f "$$pdf_output" ]; then continue; fi; \
-			npx electron-pdf --marginsType 0 \
-				--input "$$(pwd)/$${driver_dir}www/documentation/index.html" \
-				--output "$$pdf_output" || exit 1; \
+			$(WEASYPRINT_ENV) $(VENV_PY) tools/render-docs.py html2pdf \
+				"$$(pwd)/$${driver_dir}www/documentation/index.html" \
+				"$$pdf_output" || exit 1; \
 		done; \
 	done
 
@@ -161,11 +173,12 @@ package: $(PACKAGER) ## Create .c4z driver packages
 	done
 
 .PHONY: zip
-zip: ## Zip .c4z and .pdf files per distribution
-	@for build in $(DISTRIBUTIONS); do \
-		cd "dist/$$build" && \
-		zip "$$(basename "$$(realpath "$$(pwd)/../../")").zip" *.c4z *.pdf && \
-		cd ../../; \
+zip: $(VENV) ## Zip .c4z and .pdf files per distribution
+	@repo="$$(basename "$$(pwd)")"; \
+	for build in $(DISTRIBUTIONS); do \
+		(cd "dist/$$build" && \
+			"$(CURDIR)/$(VENV_PY)" "$(CURDIR)/tools/build-utils.py" zip \
+				"$$repo.zip" *.c4z *.pdf); \
 	done
 
 # ─── Build ────────────────────────────────────────────────────────────────────
@@ -186,4 +199,4 @@ clean: clean-build ## Remove build artifacts and dist
 	rm -rf dist
 
 clean-all: clean ## Remove everything (build, dist, deps, venv)
-	rm -rf node_modules $(VENV)
+	rm -rf $(VENV)
