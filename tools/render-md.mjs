@@ -77,6 +77,15 @@ ${hljsCss}
 @page { size: Letter; margin: 0.4in; }
 @media print {
   .markdown-body { max-width: none; padding: 0 45px; margin: 0; }
+  /* Automatic, content-aware pagination. Rather than hand-placed page breaks
+     (which land oddly as content changes), let the paged-media engine decide:
+     neutralize any legacy page-break markers left in source markdown, keep
+     headings attached to the content that follows, never split a table / code
+     block / figure across a page boundary, and avoid orphan/widow lines. */
+  [style*="page-break"] { page-break-after: auto !important; page-break-before: auto !important; }
+  h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+  table, pre, figure, tr { break-inside: avoid; }
+  p, li { orphans: 3; widows: 3; }
 }
 </style>
 </head>
