@@ -75,7 +75,7 @@ fmt-lua:
 		-g '*.lua' -v ./drivers ./src ./test ./tools ./vendor
 
 fmt-py: $(VENV)
-	$(VENV_BLACK) tools/preprocess tools/*.py
+	$(VENV_BLACK) tools/*.py
 
 fmt-md: $(VENV)
 	$(VENV_PY) -m mdformat --wrap 80 ./drivers/*/www/documentation/*.md documentation/*.md *.md
@@ -85,7 +85,7 @@ fmt-md: $(VENV)
 .PHONY: preprocess
 preprocess: ## Run preprocessor for all distributions
 	@for build in $(DISTRIBUTIONS); do \
-		./tools/preprocess --$$build || exit 1; \
+		./tools/preprocess.py --$$build || exit 1; \
 	done
 
 # ─── Squishy ──────────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ update-xml: update-xml-version update-xml-modified ## Stamp version + modified i
 update-xml-version:
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			$(VENV_PY) tools/build-utils.py xml-set \
+			$(VENV_PY) tools/package.py xml-set \
 				"$${driver_dir}driver.xml" version "$$(date +'%Y%m%d')"; \
 		done; \
 	done
@@ -114,7 +114,7 @@ update-xml-version:
 update-xml-modified:
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			$(VENV_PY) tools/build-utils.py xml-set \
+			$(VENV_PY) tools/package.py xml-set \
 				"$${driver_dir}driver.xml" modified "$$(date +'%m/%d/%Y %I:%M %p')"; \
 		done; \
 	done
@@ -128,14 +128,14 @@ docs: docs-readme docs-html docs-pdf ## Generate all documentation
 docs-readme: preprocess $(VENV)
 	rm -rf ./images
 	@if [ -d documentation/images ]; then cp -r documentation/images .; fi
-	$(VENV_PY) tools/build-utils.py readme \
+	$(VENV_PY) tools/docs.py readme \
 		build/$(README_BUILD)/documentation/index.md README.md
 
 
 docs-html: $(VENV)
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			$(VENV_PY) tools/render-docs.py md2html \
+			$(VENV_PY) tools/docs.py md2html \
 				"$${driver_dir}www/documentation/index.md" \
 				"$${driver_dir}www/documentation"; \
 		done; \
@@ -148,11 +148,11 @@ docs-pdf: $(VENV)
 			if [ -f "$${driver_dir}.variant_pdf" ]; then \
 				driver_display_name=$$(cat "$${driver_dir}.variant_pdf"); \
 			else \
-				driver_display_name=$$($(VENV_PY) tools/build-utils.py xml-get-name "$${driver_dir}driver.xml"); \
+				driver_display_name=$$($(VENV_PY) tools/package.py xml-get-name "$${driver_dir}driver.xml"); \
 			fi; \
 			pdf_output="dist/$$build/$$driver_display_name Documentation.pdf"; \
 			if [ -f "$$pdf_output" ]; then continue; fi; \
-			$(WEASYPRINT_ENV) $(VENV_PY) tools/render-docs.py html2pdf \
+			$(WEASYPRINT_ENV) $(VENV_PY) tools/docs.py html2pdf \
 				"$$(pwd)/$${driver_dir}www/documentation/index.html" \
 				"$$pdf_output" || exit 1; \
 		done; \
@@ -177,7 +177,7 @@ zip: $(VENV) ## Zip .c4z and .pdf files per distribution
 	@repo="$$(basename "$$(pwd)")"; \
 	for build in $(DISTRIBUTIONS); do \
 		(cd "dist/$$build" && \
-			"$(CURDIR)/$(VENV_PY)" "$(CURDIR)/tools/build-utils.py" zip \
+			"$(CURDIR)/$(VENV_PY)" "$(CURDIR)/tools/package.py" zip \
 				"$$repo.zip" *.c4z *.pdf); \
 	done
 

@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
-"""Small build helpers that replace external CLI tools with the Python we
-already require. Each is a subcommand:
+"""Packaging helpers that replace external CLI tools with stdlib Python.
 
-  build-utils.py readme <input.md> <output.md>
-      Generate the repo README from the driver docs markdown: strip <style>
-      blocks and prettier-ignore markers, then normalize with mdformat.
-      (replaces: pandoc + tools/pandoc-remove-style.lua)
-
-  build-utils.py xml-get-name <driver.xml>
+Subcommands:
+  package.py xml-get-name <driver.xml>
       Print /devicedata/name. (replaces: xmlstarlet sel)
 
-  build-utils.py xml-set <driver.xml> <version|modified> <value>
+  package.py xml-set <driver.xml> <version|modified> <value>
       Set /devicedata/<version|modified> text in place, preserving the rest of
       the file byte-for-byte. (replaces: xmlstarlet edit --inplace)
 
-  build-utils.py zip <output.zip> <file>...
+  package.py zip <output.zip> <file>...
       Create a zip of the given files (stored flat, basenames).
       (replaces: the `zip` CLI)
 """
@@ -24,22 +19,6 @@ import sys
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
-
-
-def _strip_doc_chrome(text: str) -> str:
-    # Remove <style>...</style> blocks and prettier-ignore comment markers — the
-    # same things tools/pandoc-remove-style.lua stripped from the README.
-    text = re.sub(r"<style\b[^>]*>.*?</style>", "", text, flags=re.S | re.I)
-    text = re.sub(r"<!--\s*prettier-ignore.*?-->", "", text, flags=re.S | re.I)
-    return text
-
-
-def readme(input_path: Path, output_path: Path) -> None:
-    import mdformat
-
-    text = _strip_doc_chrome(input_path.read_text(encoding="utf-8"))
-    text = mdformat.text(text, options={"wrap": 80}, extensions={"gfm"})
-    output_path.write_text(text, encoding="utf-8")
 
 
 def xml_get_name(xml_path: Path) -> None:
@@ -72,13 +51,8 @@ def make_zip(output_path: Path, files: list[Path]) -> None:
 
 def main() -> int:
     args = sys.argv[1:]
-    if not args:
-        print(__doc__, file=sys.stderr)
-        return 1
-    cmd, rest = args[0], args[1:]
-    if cmd == "readme" and len(rest) == 2:
-        readme(Path(rest[0]).resolve(), Path(rest[1]).resolve())
-    elif cmd == "xml-get-name" and len(rest) == 1:
+    cmd, rest = (args[0], args[1:]) if args else ("", [])
+    if cmd == "xml-get-name" and len(rest) == 1:
         xml_get_name(Path(rest[0]).resolve())
     elif cmd == "xml-set" and len(rest) == 3:
         xml_set(Path(rest[0]).resolve(), rest[1], rest[2])

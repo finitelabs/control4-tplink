@@ -119,6 +119,24 @@ https://github.com/finitelabs/control4-tplink/issues/new
 
 # <span style="color:#4ACBD6">Changelog</span>
 
+<!--
+Template for a new release entry (copy below the heading, fill in, uncomment):
+
+## v[Version] - YYYY-MM-DD
+
+### Added
+- Added
+
+### Fixed
+- Fixed
+
+### Changed
+- Changed
+
+### Removed
+- Removed
+-->
+
 ## v20260714 - 2026-07-14
 
 ### Fixed
