@@ -15,8 +15,8 @@ Pipeline:
     from the @page rule; pagination is automatic and content-aware (headings
     kept with their content, tables/code never split, orphan/widow control) —
     no hand-placed page-break markers required.
-  - README is the driver docs markdown with <style> blocks and prettier-ignore
-    markers stripped, then normalized with mdformat.
+  - README is the driver docs markdown with <style> blocks stripped, then
+    normalized with mdformat.
 """
 
 import re
@@ -108,9 +108,8 @@ def readme(input_path: Path, output_path: Path) -> None:
     import mdformat
 
     text = input_path.read_text(encoding="utf-8")
-    # Strip <style> blocks and prettier-ignore markers, then normalize.
+    # Strip <style> blocks (screen-only chrome), then normalize.
     text = re.sub(r"<style\b[^>]*>.*?</style>", "", text, flags=re.S | re.I)
-    text = re.sub(r"<!--\s*prettier-ignore.*?-->", "", text, flags=re.S | re.I)
     text = mdformat.text(text, options={"wrap": 80}, extensions={"gfm"})
     output_path.write_text(text, encoding="utf-8")
 
