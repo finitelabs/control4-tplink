@@ -94,7 +94,7 @@ preprocess: ## Run preprocessor for all distributions
 gen-squishy: ## Auto-generate squishy files from .c4zproj
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			(cd "$$driver_dir" && lua ../../../../tools/gen-squishy.lua) || exit 1; \
+			(cd "$$driver_dir" && luajit ../../../../tools/gen-squishy.lua) || exit 1; \
 		done; \
 	done
 
