@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="TP-Link" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#4ACBD6">Overview</span>
 
@@ -137,16 +137,16 @@ documentation for setting it up.
 
 1. Download the latest `control4-tplink.zip` from
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/).
-2. Extract and install the desired `.c4z` driver files.
-3. Use the "Search" tab in Composer Pro to find the driver by name and add it to
+1. Extract and install the desired `.c4z` driver files.
+1. Use the "Search" tab in Composer Pro to find the driver by name and add it to
    your project.
 
 <!-- #else -->
 
 1. Download the latest `control4-tplink.zip` from
    [Github](https://github.com/finitelabs/control4-tplink/releases/latest).
-2. Extract and install the desired `.c4z` driver files.
-3. Use the "Search" tab in Composer Pro to find the driver by name and add it to
+1. Extract and install the desired `.c4z` driver files.
+1. Use the "Search" tab in Composer Pro to find the driver by name and add it to
    your project.
 
 <!-- #endif -->
@@ -165,7 +165,7 @@ programming reference, and configuration guides.
 <img alt="Finite Labs" src="./images/finite-labs-logo.png" width="400"/>
 </p>
 
-Copyright &copy; 2026 Finite Labs LLC
+Copyright © 2026 Finite Labs LLC
 
 All information contained herein is, and remains the property of Finite Labs LLC
 and its suppliers, if any. The intellectual and technical concepts contained

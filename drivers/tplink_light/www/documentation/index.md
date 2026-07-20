@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="TP-Link" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#4ACBD6">Overview</span>
 
@@ -119,13 +119,13 @@ for setting it up.
 
 1. Install the `tplink_light.c4z` driver (distributed in the same package as the
    TP-Link Outlet driver).
-2. Use the "Search" tab to find the "TP-Link Light" driver and add it to the
+1. Use the "Search" tab to find the "TP-Link Light" driver and add it to the
    room the light lives in.
-3. For direct mode, set the [IP Address](#ip-address) property, plus the TP-Link
+1. For direct mode, set the [IP Address](#ip-address) property, plus the TP-Link
    credential properties for devices on KLAP firmware. For proxy mode, bind the
    driver's TP-Link Outlet connection to an output of a TP-Link Outlet driver
    instead.
-4. `Driver Status` shows the connection and the detected transport/schema:
+1. `Driver Status` shows the connection and the detected transport/schema:
    `Connected (SMART)` (KLAP, Tapo-class), `Connected (KLAP)` (KLAP, KL-series
    bulb), `Connected (Legacy)` (port 9999), or `Connected (Outlet)` in proxy
    mode. If the driver fails to connect, set `Log Mode` to `Print`, run the
@@ -146,7 +146,7 @@ Standard logging controls. Log mode expires after 3 hours.
 IP address of the light device for direct mode. Leave blank when bound to an
 outlet. Use a DHCP reservation so it does not change.
 
-### Protocol [ **_Auto_** | KLAP | Legacy ]
+### Protocol \[ **_Auto_** | KLAP | Legacy \]
 
 Selects the local protocol for direct mode. `Auto` (default) tries KLAP first
 when credentials are set — probing the SMART schema, then the IOT bulb schema,
