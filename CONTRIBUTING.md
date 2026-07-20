@@ -129,8 +129,8 @@ distribution-specific code paths controlled by `#ifdef` directives (e.g.,
 
 ## Preprocessor Directives
 
-The `tools/preprocess` script supports C-style conditional compilation in Lua,
-XML, and Markdown:
+The `tools/preprocess.py` script supports C-style conditional compilation in
+Lua, XML, and Markdown:
 
 ```lua
 --#ifdef DRIVERCENTRAL
