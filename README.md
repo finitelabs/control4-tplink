@@ -1,6 +1,8 @@
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
+
 <img alt="TP-Link" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#4ACBD6">Overview</span>
 
@@ -92,11 +94,11 @@ modes:
 
 ## Installing the Drivers
 
-1.  Download the latest `control4-tplink.zip` from
-    [Github](https://github.com/finitelabs/control4-tplink/releases/latest).
-2.  Extract and install the desired `.c4z` driver files.
-3.  Use the "Search" tab in Composer Pro to find the driver by name and add it
-    to your project.
+1. Download the latest `control4-tplink.zip` from
+   [Github](https://github.com/finitelabs/control4-tplink/releases/latest).
+1. Extract and install the desired `.c4z` driver files.
+1. Use the "Search" tab in Composer Pro to find the driver by name and add it to
+   your project.
 
 Each driver includes its own documentation accessible from within Composer Pro.
 Refer to the individual driver documentation for detailed property descriptions,
@@ -109,13 +111,31 @@ programming reference, and configuration guides.
 If you have any questions or issues integrating these drivers with Control4, you
 can file an issue on GitHub:
 
-<https://github.com/finitelabs/control4-tplink/issues/new>
+https://github.com/finitelabs/control4-tplink/issues/new
 
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <div style="page-break-after: always"></div>
 
 # <span style="color:#4ACBD6">Changelog</span>
+
+<!--
+Template for a new release entry (copy below the heading, fill in, uncomment):
+
+## v[Version] - YYYY-MM-DD
+
+### Added
+- Added
+
+### Fixed
+- Fixed
+
+### Changed
+- Changed
+
+### Removed
+- Removed
+-->
 
 ## v20260714 - 2026-07-14
 

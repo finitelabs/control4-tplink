@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="Kasa" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#4ACBD6">Overview</span>
 
@@ -159,24 +159,29 @@ is an outline of the basic steps for your convenience.
 
 1. Download the latest `control4-tplink.zip` from
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/).
-2. Extract and
+
+1. Extract and
    [install](<(https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)>)
    the `tplink_outlet.c4z` driver.
-3. Use the "Search" tab to find the "TP-Link Outlet" driver and add it to your
+
+1. Use the "Search" tab to find the "TP-Link Outlet" driver and add it to your
    project (one instance per physical device).
 
    ![Search Drivers](images/search-drivers.png)
 
-4. Select the newly added driver in the "System Design" tab. You will notice
+1. Select the newly added driver in the "System Design" tab. You will notice
    that the `Cloud Status` reflects the license state. If you have purchased a
    license it will show `License Activated`, otherwise `Trial Running` and
    remaining trial duration.
-5. You can refresh license status by selecting the "DriverCentral Cloud" driver
+
+1. You can refresh license status by selecting the "DriverCentral Cloud" driver
    in the "System Design" tab and perform the "Check Drivers" action.
    <br><img alt="Check Drivers" src="./images/check-drivers.png" width="300"/>
-6. Configure the [Kasa Settings](#kasa-settings) with the device IP address and
+
+1. Configure the [Kasa Settings](#kasa-settings) with the device IP address and
    TP-Link account credentials.
-7. After a few moments the [`Driver Status`](#driver-status-read-only) will
+
+1. After a few moments the [`Driver Status`](#driver-status-read-only) will
    display `Connected`. If the driver fails to connect, set the
    [`Log Mode`](#log-mode--off--print--log--print-and-log-) property to `Print`
    and run action [`Reconnect`](#reconnect) from the actions tab. Then check the
@@ -186,17 +191,20 @@ is an outline of the basic steps for your convenience.
 
 1. Download the latest `control4-tplink.zip` from
    [Github](https://github.com/finitelabs/control4-tplink/releases/latest).
-2. Extract and
+
+1. Extract and
    [install](<(https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)>)
    the `tplink_outlet.c4z` driver.
-3. Use the "Search" tab to find the "TP-Link Outlet" driver and add it to your
+
+1. Use the "Search" tab to find the "TP-Link Outlet" driver and add it to your
    project (one instance per physical device).
 
    ![Search Drivers](images/search-drivers.png)
 
-4. Configure the [Kasa Settings](#kasa-settings) with the device IP address and
+1. Configure the [Kasa Settings](#kasa-settings) with the device IP address and
    TP-Link account credentials.
-5. After a few moments the [`Driver Status`](#driver-status-read-only) will
+
+1. After a few moments the [`Driver Status`](#driver-status-read-only) will
    display `Connected`. If the driver fails to connect, set the
    [`Log Mode`](#log-mode--off--print--log--print-and-log-) property to `Print`
    and run action [`Reconnect`](#reconnect) from the actions tab. Then check the
@@ -250,11 +258,11 @@ Displays the current status of the driver:
 
 Displays the current version of the driver.
 
-##### Log Level [ Fatal | Error | Warning | **_Info_** | Debug | Trace | Ultra ]
+##### Log Level \[ Fatal | Error | Warning | **_Info_** | Debug | Trace | Ultra \]
 
 Sets the logging level. Default is `Info`.
 
-##### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+##### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Default is `Off`.
 
@@ -267,7 +275,7 @@ Sets the IP address of the Kasa device (e.g. `192.168.1.50`).
 > ⚠️ You should ensure the address will not change by assigning a static IP or
 > creating a DHCP reservation for the device.
 
-##### Protocol [ **_Auto_** | KLAP | Legacy ]
+##### Protocol \[ **_Auto_** | KLAP | Legacy \]
 
 Selects the local protocol. `Auto` (default) tries KLAP first when credentials
 are set and falls back to the legacy port 9999 protocol; without credentials it
