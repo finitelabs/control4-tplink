@@ -58,8 +58,6 @@ migrates a device.
 
 </div>
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#4ACBD6">System Requirements</span>
 
 - Control4 OS 3.3+
@@ -111,8 +109,6 @@ modes:
   color to capability consumers
 - Advanced Lighting Scenes support
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#4ACBD6">Installation</span>
 
 <!-- #ifdef DRIVERCENTRAL -->
@@ -155,8 +151,6 @@ Each driver includes its own documentation accessible from within Composer Pro.
 Refer to the individual driver documentation for detailed property descriptions,
 programming reference, and configuration guides.
 
-<div style="page-break-after: always"></div>
-
 <!-- #ifdef DRIVERCENTRAL -->
 
 # <span style="color:#4ACBD6">Developer Information</span>
@@ -196,7 +190,5 @@ https://github.com/finitelabs/control4-tplink/issues/new
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- #endif -->
-
-<div style="page-break-after: always"></div>
 
 <!-- #embed-changelog -->
