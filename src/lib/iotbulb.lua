@@ -21,6 +21,9 @@ local deferred = require("deferred")
 local log = require("lib.logging")
 local constants = require("constants")
 
+require("drivers-common-public.global.lib")
+require("lib.utils")
+
 local ColorMode = constants.LightColorMode
 
 --- The IOT module and method that set bulb light state.

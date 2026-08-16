@@ -14,7 +14,6 @@ require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
-require("drivers-common-public.global.url")
 
 local log = require("lib.logging")
 --#ifndef DRIVERCENTRAL
@@ -837,7 +836,6 @@ function OnDriverLateInit()
   if not CheckMinimumVersion("Driver Status") then
     return
   end
-  C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
 
   -- Set driver version
   UpdateProperty("Driver Version", C4:GetDeviceData(C4:GetDeviceID(), "version"))

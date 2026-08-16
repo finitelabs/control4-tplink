@@ -33,6 +33,9 @@ local deferred = require("deferred")
 local log = require("lib.logging")
 local http = require("lib.http")
 
+require("drivers-common-public.global.lib")
+require("lib.utils")
+
 --- @class Klap
 --- @field _authVersion number KLAP hash version (1 or 2).
 --- @field _ip string Device IP address.
