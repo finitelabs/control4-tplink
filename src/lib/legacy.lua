@@ -15,6 +15,9 @@ local deferred = require("deferred")
 
 local log = require("lib.logging")
 
+require("drivers-common-public.global.timer")
+require("lib.utils")
+
 --- @class Legacy
 --- @field _ip string Device IP address.
 --- @field _connected boolean Whether the network binding is set up.

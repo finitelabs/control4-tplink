@@ -24,6 +24,9 @@ local deferred = require("deferred")
 
 local log = require("lib.logging")
 
+require("drivers-common-public.global.lib")
+require("lib.utils")
+
 --- @class Smart
 --- @field _klap Klap The underlying KLAP transport (owned by the driver).
 --- @field _childrenSupported boolean? Whether the device has child outlets
