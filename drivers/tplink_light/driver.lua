@@ -13,7 +13,6 @@ require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
-require("drivers-common-public.global.url")
 
 JSON = require("JSON")
 
@@ -315,7 +314,6 @@ function OnDriverLateInit()
   if not CheckMinimumVersion("Driver Status") then
     return
   end
-  C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
 
   -- Fire OnPropertyChanged to set the initial Headers and other Property
   -- global sets, they'll change if Property is changed.
