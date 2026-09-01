@@ -418,9 +418,9 @@ falls back to it automatically; the mismatch only shows when the legacy probe
 also failed.
 
 **`Disconnected: ... device refused the handshake (HTTP 403) ...`**: The device
-is rejecting the KLAP handshake outright, before credentials are even checked.
-This almost always means **Third-Party Compatibility** is disabled — firmware
-updates are known to turn it off. Re-enable it (Tapo app:
+is rejecting the KLAP handshake before credentials are checked. This usually
+means **Third-Party Compatibility** is disabled; firmware updates are known to
+turn it off. Re-enable it (Tapo app:
 `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
 `Settings → Third-Party Compatibility`), then run the [`Reconnect`](#reconnect)
 action. If it is already enabled, power cycle the device to clear a handshake
