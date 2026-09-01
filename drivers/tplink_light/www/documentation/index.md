@@ -75,7 +75,10 @@ presets, and dim-to-warm color on-mode.
 - Direct mode: a TP-Link light on a network reachable from the controller.
   Devices on KLAP firmware (Tapo bulbs and light strips, and firmware-updated
   Kasa bulbs) also need the TP-Link account credentials they are bound to; Kasa
-  KL/LB-series bulbs on original firmware need no credentials
+  KL/LB-series bulbs on original firmware need no credentials. Devices on newer
+  firmware must also have **Third-Party Compatibility** enabled (Tapo app:
+  `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
+  `Settings → Third-Party Compatibility`)
 - Proxy mode: a configured TP-Link Outlet driver instance
 
 **Verified hardware:**
@@ -194,6 +197,15 @@ or UDP port 9999 (legacy) is reachable from the controller, and — for devices 
 KLAP firmware — that the credentials match the account the device is bound to in
 the Tapo/Kasa app (auth mismatches are reported in the lua output window with
 `Log Mode` set to `Print`).
+
+**`Disconnected: ... device refused the handshake (HTTP 403) ...`**: The device
+is rejecting the KLAP handshake before credentials are checked. This usually
+means **Third-Party Compatibility** is disabled; firmware updates are known to
+turn it off. Re-enable it (Tapo app:
+`Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
+`Settings → Third-Party Compatibility`), then run the [`Reconnect`](#reconnect)
+action. If it is already enabled, power cycle the device to clear a handshake
+lockout and reconnect.
 
 **A Kasa light strip shows the wrong brightness while an app effect runs**: the
 strip reports the effect's brightness while a lighting effect is active; any

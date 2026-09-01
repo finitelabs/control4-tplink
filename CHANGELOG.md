@@ -22,6 +22,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Changed
+
+- A device that refuses the KLAP handshake with HTTP 403 (usually because a
+  firmware update disabled Third-Party Compatibility in the Tapo/Kasa app) now
+  reports the cause and fix in `Driver Status` instead of a raw HTTP error.
+
 ### Fixed
 
 - Fixed an automatic update sometimes leaving companion drivers on the previous

@@ -83,6 +83,9 @@ programming.
 - A TP-Link Kasa power strip or smart plug on KLAP firmware, on the same network
   as the controller (or routable from it)
 - The TP-Link (Kasa/Tapo) account credentials the device is bound to
+- Devices on newer firmware must have **Third-Party Compatibility** enabled
+  (Tapo app: `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
+  `Settings → Third-Party Compatibility`)
 
 **Verified hardware:**
 
@@ -413,6 +416,15 @@ not take the device offline — some transitional Kasa firmware answers KLAP wit
 unrecognized credentials while still serving the legacy protocol, and the driver
 falls back to it automatically; the mismatch only shows when the legacy probe
 also failed.
+
+**`Disconnected: ... device refused the handshake (HTTP 403) ...`**: The device
+is rejecting the KLAP handshake before credentials are checked. This usually
+means **Third-Party Compatibility** is disabled; firmware updates are known to
+turn it off. Re-enable it (Tapo app:
+`Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
+`Settings → Third-Party Compatibility`), then run the [`Reconnect`](#reconnect)
+action. If it is already enabled, power cycle the device to clear a handshake
+lockout and reconnect.
 
 **`Driver Status` stuck at `Connecting...` or timeouts**: Verify the IP address,
 that the device is on a network reachable from the controller, and that nothing
