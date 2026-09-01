@@ -261,6 +261,16 @@ function Klap:connect()
     end, function(err)
       self._connecting = nil
       self:reset()
+      if Select(err, "code") == 403 then
+        -- The device refuses to even start a handshake. Seen in the field
+        -- when a firmware update disables Third-Party Compatibility, and on
+        -- devices that lock out after repeated failures.
+        err = {
+          error = "Klap: device refused the handshake (HTTP 403);"
+            .. " enable Third-Party Compatibility in the Tapo/Kasa app, or power cycle the device",
+          code = 403,
+        }
+      end
       log:warn("Klap: handshake with %s failed: %s", self._ip, Select(err, "error") or err)
       d:reject(err)
     end)

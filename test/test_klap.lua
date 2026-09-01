@@ -292,6 +292,26 @@ check(
 )
 
 ---------------------------------------------------------------------------
+-- Handshake refused outright (HTTP 403)
+---------------------------------------------------------------------------
+
+-- Tapo devices with Third-Party Compatibility disabled reject handshake1 at
+-- the HTTP level; the transport maps this to an actionable error.
+function urlDo(method, url, data, headers, callback, context, options)
+  callback("HTTP 403", 403, {}, "", nil, url)
+end
+
+local klapRefused = Klap:new()
+klapRefused:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+outcome = settle(klapRefused:connect())
+check(
+  "handshake1 403 reports the Third-Party Compatibility hint",
+  string.find(tostring(Select(outcome.rejected, "error")), "Third-Party Compatibility", 1, true) ~= nil,
+  Select(outcome.rejected, "error")
+)
+check("handshake1 403 preserves the status code", Select(outcome.rejected, "code") == 403)
+
+---------------------------------------------------------------------------
 -- SMART schema over a real KLAP session (fake EP25)
 ---------------------------------------------------------------------------
 
