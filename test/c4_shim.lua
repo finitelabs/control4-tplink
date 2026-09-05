@@ -12,6 +12,132 @@ if not loadstring then
   loadstring = load
 end
 
+-- Minimal lpack-compatible string.pack/string.unpack for the format codes the ZCL
+-- codec uses (all little-endian); the '<' endian marker is accepted and ignored.
+-- Signature AND code semantics match Control4's lpack, verified on a controller
+-- (Lua 5.1): b unsigned8, c signed8 (NOT the 5.3 convention where b is signed),
+-- h/H signed/unsigned16, i/I signed/unsigned32, l/L signed/unsigned long (4 bytes on
+-- the 32-bit Directors; driver code uses i/I so the width is fixed across ILP32/LP64).
+-- B is kept as an unsigned8 alias. This must track the controller, not the 5.3 stdlib
+-- (which LuaJIT lacks anyway), or a test would agree with a driver bug instead of
+-- catching it.
+if not string.pack then
+  local function packInt(v, size) -- signedness is irrelevant: two's-complement wrap below
+    v = (v >= 0) and math.floor(v + 0.5) or math.ceil(v - 0.5) -- round half away from zero
+    v = v % (2 ^ (8 * size))
+    local out = {}
+    for _ = 1, size do
+      out[#out + 1] = string.char(v % 256)
+      v = math.floor(v / 256)
+    end
+    return table.concat(out)
+  end
+  local function unpackInt(data, pos, size, signed)
+    local v = 0
+    for i = 0, size - 1 do
+      v = v + string.byte(data, pos + i) * 2 ^ (8 * i)
+    end
+    if signed and v >= 2 ^ (8 * size - 1) then
+      v = v - 2 ^ (8 * size)
+    end
+    return pos + size, v
+  end
+  local function packFloat(x)
+    if x == 0 then
+      return string.char(0, 0, 0, 0)
+    end
+    local sign = 0
+    if x < 0 then
+      sign = 0x80
+      x = -x
+    end
+    local mant, expo = math.frexp(x) -- x = mant * 2^expo, 0.5 <= mant < 1
+    expo = expo + 126 -- IEEE754 biased exponent (mant in [0.5,1) => 1.f = 2*mant)
+    if expo <= 0 then
+      -- Underflow: flush to zero. Denormals are out of scope (ZCL floats do not use
+      -- them); unpackFloat still decodes them, so the pair is intentionally asymmetric.
+      return string.char(0, 0, 0, sign)
+    end
+    mant = math.floor((mant * 2 - 1) * 2 ^ 23 + 0.5)
+    if mant == 2 ^ 23 then
+      -- Rounding carried the mantissa into the next binade (e.g. 255.999999): the
+      -- implicit leading 1 must increment the exponent, not be masked off b3.
+      mant = 0
+      expo = expo + 1
+    end
+    if expo >= 255 then
+      return string.char(0, 0, 0x80, sign + 0x7F)
+    end
+    local b1 = mant % 256
+    local b2 = math.floor(mant / 256) % 256
+    local b3 = math.floor(mant / 65536) % 128 + (expo % 2) * 128
+    local b4 = math.floor(expo / 2) + sign
+    return string.char(b1, b2, b3, b4)
+  end
+  local function unpackFloat(data, pos)
+    local b1, b2, b3, b4 = string.byte(data, pos, pos + 3)
+    local sign = (b4 >= 128) and -1 or 1
+    local expo = (b4 % 128) * 2 + math.floor(b3 / 128)
+    local mant = (b3 % 128) * 65536 + b2 * 256 + b1
+    local v
+    if expo == 0 then
+      v = mant / 2 ^ 23 * 2 ^ -126
+    elseif expo == 255 then
+      v = (mant == 0) and math.huge or (0 / 0)
+    else
+      v = (1 + mant / 2 ^ 23) * 2 ^ (expo - 127)
+    end
+    return pos + 4, sign * v
+  end
+  -- code -> { size, signed }. b is UNSIGNED (lpack), c is signed8.
+  local CODE = {
+    b = { 1, false },
+    B = { 1, false },
+    c = { 1, true },
+    h = { 2, true },
+    H = { 2, false },
+    i = { 4, true },
+    I = { 4, false },
+    l = { 4, true },
+    L = { 4, false },
+  }
+  function string.pack(fmt, ...)
+    local args, i, out = { ... }, 0, {}
+    for c in fmt:gmatch(".") do
+      if c == "<" or c == ">" or c == "=" then -- endian marker: ignore (LE)
+      elseif c == "f" then
+        i = i + 1
+        out[#out + 1] = packFloat(args[i])
+      elseif CODE[c] then
+        i = i + 1
+        out[#out + 1] = packInt(args[i], CODE[c][1])
+      else
+        error("shim string.pack: unsupported code '" .. c .. "'")
+      end
+    end
+    return table.concat(out)
+  end
+  function string.unpack(data, fmt, pos)
+    pos = pos or 1
+    local out = {}
+    for c in fmt:gmatch(".") do
+      if c == "<" or c == ">" or c == "=" then
+      elseif c == "f" then
+        local v
+        pos, v = unpackFloat(data, pos)
+        out[#out + 1] = v
+      elseif CODE[c] then
+        local v
+        pos, v = unpackInt(data, pos, CODE[c][1], CODE[c][2])
+        out[#out + 1] = v
+      else
+        error("shim string.unpack: unsupported code '" .. c .. "'")
+      end
+    end
+    return pos, (table.unpack or unpack)(out)
+  end
+end
+
 -- Global C4 object shim
 C4 = {}
 Properties = {}
@@ -119,11 +245,205 @@ end
 function ShimResetSentFrames()
   clear(sent_frames)
 end
+
+---------------------------------------------------------------------------
+-- Dynamic bindings and the connections between them
+-- Shapes and return values were measured on a controller; where the
+-- DriverWorks reference disagrees it is noted at the method. CONTROL and PROXY
+-- surface as type 1 and 2, and removing a binding also drops its connections.
+---------------------------------------------------------------------------
+
+--- @type table<integer, table>
+local dynamic_bindings = {}
+
+--- The driver.xml <connections>, which the get methods return alongside the
+--- dynamic ones.
+--- @type table<integer, table>
+local static_bindings = {}
+
+--- @type { provider: integer, providerBinding: integer, consumer: integer, consumerBinding: integer, class: string }[]
+local connections = {}
+
+local BINDING_TYPE_IDS = { CONTROL = 1, PROXY = 2 }
+
+function C4:AddDynamicBinding(idBinding, strType, bIsProvider, strName, strClass, bHidden, bAutoBind)
+  dynamic_bindings[idBinding] = {
+    id = idBinding,
+    type = strType,
+    provider = bIsProvider,
+    name = strName,
+    class = strClass,
+    hidden = bHidden or false,
+    autoBind = bAutoBind or false,
+  }
+end
+
+local function resolveDeviceId(deviceId)
+  deviceId = tonumber(deviceId)
+  if deviceId == 0 then
+    return tonumber(C4:GetDeviceID())
+  end
+  return deviceId
+end
+
+local function dropConnections(matches)
+  for i = #connections, 1, -1 do
+    if matches(connections[i]) then
+      table.remove(connections, i)
+    end
+  end
+end
+
+function C4:RemoveDynamicBinding(idBinding)
+  dynamic_bindings[idBinding] = nil
+  local me = tonumber(C4:GetDeviceID())
+  dropConnections(function(c)
+    return (c.provider == me and c.providerBinding == idBinding)
+      or (c.consumer == me and c.consumerBinding == idBinding)
+  end)
+end
+
+function C4:Bind(idDeviceProvider, idBindingProvider, idDeviceConsumer, idBindingConsumer, strClass)
+  local provider, consumer = resolveDeviceId(idDeviceProvider), resolveDeviceId(idDeviceConsumer)
+  for _, c in ipairs(connections) do
+    if
+      c.provider == provider
+      and c.providerBinding == idBindingProvider
+      and c.consumer == consumer
+      and c.consumerBinding == idBindingConsumer
+    then
+      return
+    end
+  end
+  connections[#connections + 1] = {
+    provider = provider,
+    providerBinding = idBindingProvider,
+    consumer = consumer,
+    consumerBinding = idBindingConsumer,
+    class = strClass,
+  }
+end
+
+function C4:Unbind(idDeviceConsumer, idBindingConsumer)
+  local consumer = resolveDeviceId(idDeviceConsumer)
+  dropConnections(function(c)
+    return c.consumer == consumer and c.consumerBinding == idBindingConsumer
+  end)
+end
+
+local function boundPeer(deviceId, bindingId, class)
+  return {
+    bindingid = bindingId,
+    deviceid = deviceId,
+    name = C4:GetDeviceDisplayName(deviceId) or ("Device " .. tostring(deviceId)),
+    boundclasses = { class },
+  }
+end
+
+local function bindingRecord(deviceId, binding)
+  local record = {
+    bindingid = binding.id,
+    deviceid = deviceId,
+    name = binding.name,
+    provider = binding.provider == true,
+    type = BINDING_TYPE_IDS[binding.type] or binding.type,
+    bindingclasses = {
+      { class = binding.class, rank = 0, autobind = binding.autoBind == true, excludeids = {} },
+    },
+    isbound = false,
+    flags = 0,
+    binding_info = "",
+  }
+  for _, c in ipairs(connections) do
+    if record.provider and c.provider == deviceId and c.providerBinding == binding.id then
+      record.isbound = true
+      record.boundconsumers = record.boundconsumers or {}
+      record.boundconsumers[#record.boundconsumers + 1] = boundPeer(c.consumer, c.consumerBinding, c.class)
+    elseif not record.provider and c.consumer == deviceId and c.consumerBinding == binding.id then
+      record.isbound = true
+      record.boundprovider = { bound = boundPeer(c.provider, c.providerBinding, c.class) }
+    end
+  end
+  return record
+end
+
+--- Device 0 is deliberately not resolved: the reference says it means the
+--- current device here, a controller returns nothing for it.
+function C4:GetBindingsByDevice(deviceId)
+  local bindings = {}
+  if tonumber(deviceId) == tonumber(C4:GetDeviceID()) then
+    for _, source in ipairs({ static_bindings, dynamic_bindings }) do
+      for _, binding in pairs(source) do
+        bindings[#bindings + 1] = bindingRecord(tonumber(deviceId), binding)
+      end
+    end
+    table.sort(bindings, function(a, b)
+      return a.bindingid < b.bindingid
+    end)
+  end
+  return { bindings = bindings }
+end
+
+--- @return table|nil devices The bound consumers as { [deviceId] = name }. Nil,
+--- not an empty table, when unbound.
+function C4:GetBoundConsumerDevices(deviceId, bindingId)
+  deviceId = resolveDeviceId(deviceId)
+  local devices, found = {}, false
+  for _, c in ipairs(connections) do
+    if c.provider == deviceId and c.providerBinding == bindingId then
+      devices[c.consumer] = C4:GetDeviceDisplayName(c.consumer) or ("Device " .. tostring(c.consumer))
+      found = true
+    end
+  end
+  if not found then
+    return nil
+  end
+  return devices
+end
+
+--- @return integer deviceId The providing device, 0 when unbound. A device id,
+--- not the id/name table the reference documents. Asked about a bound provider
+--- binding, a controller answers with the querying device itself.
+function C4:GetBoundProviderDevice(deviceId, bindingId)
+  deviceId = resolveDeviceId(deviceId)
+  for _, c in ipairs(connections) do
+    if c.consumer == deviceId and c.consumerBinding == bindingId then
+      return c.provider
+    end
+    if c.provider == deviceId and c.providerBinding == bindingId then
+      return deviceId
+    end
+  end
+  return 0
+end
+
+--- @return table bindings Every live dynamic binding, keyed by binding id.
+function ShimDynamicBindings()
+  return dynamic_bindings
+end
+
+--- @return table connections Every live connection, in the order Bind made them.
+function ShimConnections()
+  return connections
+end
+
+--- Seed the driver.xml <connections>, as { id, type, provider, name, class } records.
+function ShimSetStaticBindings(bindings)
+  clear(static_bindings)
+  for _, binding in pairs(bindings or {}) do
+    static_bindings[binding.id] = binding
+  end
+end
+
+--- Clear the recorded dynamic bindings and their connections, in place so a
+--- table a test already holds stays the live one.
+function ShimResetDynamicBindings()
+  clear(dynamic_bindings)
+  clear(connections)
+end
+
 function C4:SendUIRequest()
   return ""
-end
-function C4:GetBindingsByDevice()
-  return {}
 end
 function C4:RegisterVariableListener() end
 function C4:UnregisterVariableListener() end
@@ -962,7 +1282,7 @@ end
 ---------------------------------------------------------------------------
 
 -- socket.http and ltn12 are separate rocks from the socket core, and
--- test_c4_shim.lua's withShim() preloads a socket stub that supplies neither,
+-- c4_fixtures.lua's withShim() preloads a socket stub that supplies neither,
 -- so has_socket alone does not imply they are loadable.
 local has_http, http_client = pcall(require, "socket.http")
 local has_ltn12, ltn12 = pcall(require, "ltn12")
