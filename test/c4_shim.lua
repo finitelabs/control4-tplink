@@ -144,9 +144,6 @@ Properties = {}
 Variables = {}
 
 -- Stub C4 functions that are called but not needed for testing
-function C4:GetDriverConfigInfo()
-  return nil
-end
 function C4:GetDeviceID()
   return 12345
 end
@@ -261,6 +258,12 @@ local dynamic_bindings = {}
 --- @type table<integer, table>
 local static_bindings = {}
 
+--- The same connections as driver.xml declares them, behind
+--- C4:GetDriverConfigInfo. Separate from the live records above because a
+--- controller keeps listing a connection here after the live binding is gone.
+--- @type table<integer, table>
+local static_manifest = {}
+
 --- @type { provider: integer, providerBinding: integer, consumer: integer, consumerBinding: integer, class: string }[]
 local connections = {}
 
@@ -294,8 +297,10 @@ local function dropConnections(matches)
   end
 end
 
+--- A controller removes a static driver.xml connection as readily as a dynamic one.
 function C4:RemoveDynamicBinding(idBinding)
   dynamic_bindings[idBinding] = nil
+  static_bindings[idBinding] = nil
   local me = tonumber(C4:GetDeviceID())
   dropConnections(function(c)
     return (c.provider == me and c.providerBinding == idBinding)
@@ -417,6 +422,35 @@ function C4:GetBoundProviderDevice(deviceId, bindingId)
   return 0
 end
 
+--- @param section string A driver.xml section. Only "connections" is modelled.
+--- @return string|nil xml The section as XML.
+function C4:GetDriverConfigInfo(section)
+  if section ~= "connections" then
+    return nil
+  end
+  local ids = {}
+  for id in pairs(static_manifest) do
+    ids[#ids + 1] = id
+  end
+  table.sort(ids)
+  local out = { "<connections>" }
+  for _, id in ipairs(ids) do
+    local connection = static_manifest[id]
+    out[#out + 1] = string.format(
+      "<connection><id>%d</id><facing>6</facing><connectionname>%s</connectionname>"
+        .. "<type>%d</type><consumer>%s</consumer>"
+        .. "<classes><class><classname>%s</classname></class></classes></connection>",
+      id,
+      connection.name or "",
+      BINDING_TYPE_IDS[connection.type] or 0,
+      connection.provider and "False" or "True",
+      connection.class or ""
+    )
+  end
+  out[#out + 1] = "</connections>"
+  return table.concat(out)
+end
+
 --- @return table bindings Every live dynamic binding, keyed by binding id.
 function ShimDynamicBindings()
   return dynamic_bindings
@@ -430,8 +464,10 @@ end
 --- Seed the driver.xml <connections>, as { id, type, provider, name, class } records.
 function ShimSetStaticBindings(bindings)
   clear(static_bindings)
+  clear(static_manifest)
   for _, binding in pairs(bindings or {}) do
     static_bindings[binding.id] = binding
+    static_manifest[binding.id] = binding
   end
 end
 
@@ -728,6 +764,34 @@ end
 -- because AddVariable cannot set one. A device with no variables and a device
 -- that does not exist both give an empty table, and hidden variables are
 -- returned rather than filtered out.
+---------------------------------------------------------------------------
+-- Project temperature scale
+-- The controller answers with the whole word, "CELSIUS" or "FAHRENHEIT", never
+-- an initial, so a driver that never normalizes still reads as correct against
+-- an initial. Celsius by default because callers idiomatically end `... or "F"`:
+-- under a Fahrenheit default that yields "F" whether their normalization works
+-- or not, and the test cannot tell the two apart.
+---------------------------------------------------------------------------
+
+local DEFAULT_TEMPERATURE_SCALE = "CELSIUS"
+local temperature_scale = DEFAULT_TEMPERATURE_SCALE
+
+function C4:GetTemperatureScale()
+  return temperature_scale
+end
+
+--- Harness, not a controller API: C4 is userdata on a controller, so assigning
+--- the scale there raises rather than taking effect. Named to be unmistakable.
+function ShimSetTemperatureScale(scale)
+  temperature_scale = scale
+end
+
+--- Restore the default. A scale a test leaves set carries into every later test
+--- in the process, and under Fahrenheit a scale assertion can no longer fail.
+function ShimResetTemperatureScale()
+  temperature_scale = DEFAULT_TEMPERATURE_SCALE
+end
+
 ---------------------------------------------------------------------------
 -- Project devices
 -- C4:GetDevices / GetDeviceDisplayName / GetDeviceVariables read a registry a
@@ -1166,8 +1230,19 @@ if has_ffi then
       }
     end
   else
-    local ok, libcrypto = pcall(ffi.load, "crypto")
-    if ok then
+    -- ffi.load("crypto") resolves "libcrypto.so", which ships in libssl-dev
+    -- rather than the runtime package, so the bare name misses on a stock
+    -- host (including the CI runners). Fall back to the versioned sonames,
+    -- which are the ones actually installed.
+    local libcrypto
+    for _, soname in ipairs({ "crypto", "libcrypto.so.3", "libcrypto.so.1.1" }) do
+      local loaded, handle = pcall(ffi.load, soname)
+      if loaded then
+        libcrypto = handle
+        break
+      end
+    end
+    if libcrypto then
       local declared = pcall(function()
         ffi.cdef([[
           unsigned char *MD5(const unsigned char *d, size_t n, unsigned char *md);
@@ -1228,14 +1303,26 @@ if has_ffi then
   end
 end
 
+--- Whether the FFI crypto backend resolved. False under plain Lua, and on a host
+--- with no loadable CommonCrypto/libcrypto.
+C4.SHIM_HAS_CRYPTO = crypto_backend ~= nil
+
 local function to_hex(s)
   return (s:gsub(".", function(c)
     return string.format("%02X", c:byte())
   end))
 end
 
---- C4:Hash(algorithm, data, options) — supports raw ("NONE") and hex returns.
+--- C4:Hash(algorithm, data, options) — raw ("NONE") or, with no return_encoding,
+--- hex. Any other value is refused rather than answered in hex, since the shim
+--- has never been measured against one and a wrong-encoding digest still looks
+--- like a digest. Checked ahead of the backend, so the refusal also holds on a
+--- host with no crypto at all.
 function C4:Hash(algorithm, data, options)
+  local encoding = type(options) == "table" and options.return_encoding or nil
+  if encoding ~= nil and string.upper(encoding) ~= "NONE" then
+    return nil, "C4 shim: return_encoding " .. tostring(encoding) .. " is not modelled (only NONE, or absent for hex)"
+  end
   if not crypto_backend then
     return nil, "C4 shim: no crypto backend (requires LuaJIT + CommonCrypto/libcrypto)"
   end
@@ -1243,7 +1330,7 @@ function C4:Hash(algorithm, data, options)
   if not raw then
     return nil, err
   end
-  if type(options) == "table" and string.upper(options.return_encoding or "") == "NONE" then
+  if encoding ~= nil then
     return raw
   end
   return to_hex(raw)
@@ -1273,45 +1360,6 @@ function C4:Decrypt(cipher, key, iv, data, options)
     return nil, "C4 shim: only raw AES-128-CBC is supported"
   end
   return crypto_backend.aes128cbc(false, key, iv, data or "")
-end
-
----------------------------------------------------------------------------
--- urlDo (HTTP client used by lib/http.lua)
--- Synchronous implementation over luasocket. Tests can override the global
--- with a fake (e.g. an in-process KLAP device) before loading modules.
----------------------------------------------------------------------------
-
--- socket.http and ltn12 are separate rocks from the socket core, and
--- c4_fixtures.lua's withShim() preloads a socket stub that supplies neither,
--- so has_socket alone does not imply they are loadable.
-local has_http, http_client = pcall(require, "socket.http")
-local has_ltn12, ltn12 = pcall(require, "ltn12")
-
-if has_socket and has_http and has_ltn12 then
-  function urlDo(method, url, data, headers, callback, context, options)
-    local chunks = {}
-    local requestHeaders = {}
-    for name, value in pairs(headers or {}) do
-      requestHeaders[name] = value
-    end
-    if data and #data > 0 then
-      requestHeaders["content-length"] = tostring(#data)
-    end
-    http_client.TIMEOUT = (type(options) == "table" and tonumber(options.timeout)) or 30
-    local ok, code, responseHeaders = http_client.request({
-      method = method,
-      url = url,
-      headers = requestHeaders,
-      source = data and ltn12.source.string(data) or nil,
-      sink = ltn12.sink.table(chunks),
-    })
-    local body = table.concat(chunks)
-    if not ok then
-      callback(tostring(code or "request failed"), 0, {}, "", nil, url)
-    else
-      callback(nil, tonumber(code) or 0, responseHeaders or {}, body, nil, url)
-    end
-  end
 end
 
 print("C4 shim layer loaded" .. (has_socket and " (with luasocket)" or " (stubs only)"))
