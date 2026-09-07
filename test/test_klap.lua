@@ -11,23 +11,17 @@
 require("lib.utils")
 require("drivers-common-public.global.lib")
 
+local T = require("testlib")
 local Klap = require("lib.klap")
 local Smart = require("lib.smart")
 
-if C4:Hash("SHA256", "", { return_encoding = "NONE", data_encoding = "NONE" }) == nil then
+-- Keyed on the shim's capability flag rather than a nil return from C4:Hash: a
+-- backend that loads and computes the WRONG digest also answers non-nil, and one
+-- broken some other way answers nil, so a nil probe cannot tell absent from
+-- broken. The reference vectors below exist to catch exactly the broken case.
+if not C4.SHIM_HAS_CRYPTO then
   print("SKIP: no crypto backend in shim (run under LuaJIT with CommonCrypto/libcrypto)")
   os.exit(0)
-end
-
-local failures = 0
-
-local function check(name, condition, detail)
-  if condition then
-    print("PASS " .. name)
-  else
-    failures = failures + 1
-    print("FAIL " .. name .. (detail and (": " .. tostring(detail)) or ""))
-  end
 end
 
 local function toHex(s)
@@ -50,21 +44,19 @@ end
 local USERNAME = "user@example.com"
 local PASSWORD = "secretpassword"
 
----------------------------------------------------------------------------
--- Auth hash vectors (reference values computed with python hashlib)
----------------------------------------------------------------------------
+T.section("Auth hash vectors (reference values computed with python hashlib)")
 
 local klapV2 = Klap:new()
 local klapV1 = Klap:new({ authVersion = 1 })
 klapV2:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
 klapV1:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
 
-check(
+T.check(
   "v1 auth hash matches MD5(MD5(u)..MD5(p))",
   toHex(klapV1:_authHash()) == "EC26837EFABDFBD326B59CE26ABCC57A",
   toHex(klapV1:_authHash())
 )
-check(
+T.check(
   "v2 auth hash matches SHA256(SHA1(u)..SHA1(p))",
   toHex(klapV2:_authHash()) == "15C96F9042424A517400BFEAD8B54D424688185D483DCBF07F84DE7485FA3F89",
   toHex(klapV2:_authHash())
@@ -203,9 +195,7 @@ local function fakeDevice(opts)
   return device
 end
 
----------------------------------------------------------------------------
--- v2 handshake + IOT request round-trip
----------------------------------------------------------------------------
+T.section("v2 handshake + IOT request round-trip")
 
 local iotSysinfo = { system = { get_sysinfo = { err_code = 0, model = "HS300(US)", relay_state = 1 } } }
 
@@ -224,22 +214,20 @@ local klap = Klap:new()
 klap:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
 
 local outcome = settle(klap:connect())
-check("v2 handshake succeeds", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
+T.check("v2 handshake succeeds", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
 
 outcome = settle(klap:request({ system = { get_sysinfo = {} } }))
-check(
+T.check(
   "v2 request round-trips",
   Select(outcome.resolved, "system", "get_sysinfo", "model") == "HS300(US)",
   Select(outcome.rejected, "error")
 )
 
 outcome = settle(klap:request({ system = { get_sysinfo = {} } }))
-check("v2 second request advances seq", Select(outcome.resolved, "system", "get_sysinfo", "err_code") == 0)
-check("v2 device saw both requests", deviceV2.requestCount == 2, deviceV2.requestCount)
+T.eq("v2 second request advances seq", Select(outcome.resolved, "system", "get_sysinfo", "err_code"), 0)
+T.eq("v2 device saw both requests", deviceV2.requestCount, 2)
 
----------------------------------------------------------------------------
--- v1 handshake + IOT request round-trip
----------------------------------------------------------------------------
+T.section("v1 handshake + IOT request round-trip")
 
 local deviceV1 = fakeDevice({
   version = 1,
@@ -256,25 +244,23 @@ local klap1 = Klap:new({ authVersion = 1 })
 klap1:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
 
 outcome = settle(klap1:connect())
-check("v1 handshake succeeds", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
+T.check("v1 handshake succeeds", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
 
 outcome = settle(klap1:request({ system = { get_sysinfo = {} } }))
-check(
+T.check(
   "v1 request round-trips",
   Select(outcome.resolved, "system", "get_sysinfo", "model") == "KP115(US)",
   Select(outcome.rejected, "error")
 )
 
----------------------------------------------------------------------------
--- Hash version mismatches
----------------------------------------------------------------------------
+T.section("Hash version mismatches")
 
 -- v2 client against v1 device: server hash cannot match.
 deviceV1:install()
 local klapWrongVersion = Klap:new()
 klapWrongVersion:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
 outcome = settle(klapWrongVersion:connect())
-check(
+T.check(
   "v2 client vs v1 device reports auth mismatch",
   string.find(tostring(Select(outcome.rejected, "error")), "auth mismatch", 1, true) ~= nil,
   Select(outcome.rejected, "error")
@@ -285,15 +271,13 @@ deviceV2:install()
 local klapWrongPassword = Klap:new()
 klapWrongPassword:configure({ ip = "127.0.0.1", username = USERNAME, password = "wrong" })
 outcome = settle(klapWrongPassword:connect())
-check(
+T.check(
   "wrong password reports auth mismatch",
   string.find(tostring(Select(outcome.rejected, "error")), "auth mismatch", 1, true) ~= nil,
   Select(outcome.rejected, "error")
 )
 
----------------------------------------------------------------------------
--- Handshake refused outright (HTTP 403)
----------------------------------------------------------------------------
+T.section("Handshake refused outright (HTTP 403)")
 
 -- Tapo devices with Third-Party Compatibility disabled reject handshake1 at
 -- the HTTP level; the transport maps this to an actionable error.
@@ -304,16 +288,14 @@ end
 local klapRefused = Klap:new()
 klapRefused:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
 outcome = settle(klapRefused:connect())
-check(
+T.check(
   "handshake1 403 reports the Third-Party Compatibility hint",
   string.find(tostring(Select(outcome.rejected, "error")), "Third-Party Compatibility", 1, true) ~= nil,
   Select(outcome.rejected, "error")
 )
-check("handshake1 403 preserves the status code", Select(outcome.rejected, "code") == 403)
+T.eq("handshake1 403 preserves the status code", Select(outcome.rejected, "code"), 403)
 
----------------------------------------------------------------------------
--- SMART schema over a real KLAP session (fake EP25)
----------------------------------------------------------------------------
+T.section("SMART schema over a real KLAP session (fake EP25)")
 
 local relayState = true
 local fakeEp25 = fakeDevice({
@@ -350,24 +332,22 @@ local smart = Smart:new(klapSmart)
 
 outcome = settle(smart:request({ system = { get_sysinfo = {} } }))
 local sysinfo = Select(outcome.resolved, "system", "get_sysinfo")
-check("EP25 sysinfo over KLAP", Select(sysinfo, "err_code") == 0, Select(outcome.rejected, "error"))
-check("EP25 model mapped", Select(sysinfo, "model") == "EP25")
-check("EP25 alias decoded", Select(sysinfo, "alias") == "Fountain Pump")
-check("EP25 relay_state mapped", Select(sysinfo, "relay_state") == 1)
+T.check("EP25 sysinfo over KLAP", Select(sysinfo, "err_code") == 0, Select(outcome.rejected, "error"))
+T.eq("EP25 model mapped", Select(sysinfo, "model"), "EP25")
+T.eq("EP25 alias decoded", Select(sysinfo, "alias"), "Fountain Pump")
+T.eq("EP25 relay_state mapped", Select(sysinfo, "relay_state"), 1)
 
 outcome = settle(smart:request({ system = { set_relay_state = { state = 0 } } }))
-check("EP25 relay off accepted", Select(outcome.resolved, "system", "set_relay_state", "err_code") == 0)
-check("EP25 relay actually off", relayState == false)
+T.eq("EP25 relay off accepted", Select(outcome.resolved, "system", "set_relay_state", "err_code"), 0)
+T.eq("EP25 relay actually off", relayState, false)
 
 outcome = settle(smart:request({ system = { get_sysinfo = {} } }))
-check("EP25 sysinfo reflects off", Select(outcome.resolved, "system", "get_sysinfo", "relay_state") == 0)
+T.eq("EP25 sysinfo reflects off", Select(outcome.resolved, "system", "get_sysinfo", "relay_state"), 0)
 
 outcome = settle(smart:request({ emeter = { get_realtime = {} } }))
-check("EP25 energy mapped to power_mw", Select(outcome.resolved, "emeter", "get_realtime", "power_mw") == 2750)
+T.eq("EP25 energy mapped to power_mw", Select(outcome.resolved, "emeter", "get_realtime", "power_mw"), 2750)
 
----------------------------------------------------------------------------
--- IOT bulb schema over a real KLAP v1 session (fake KL130 on KLAP firmware)
----------------------------------------------------------------------------
+T.section("IOT bulb schema over a real KLAP v1 session (fake KL130 on KLAP firmware)")
 
 local IotBulb = require("lib.iotbulb")
 local LIGHT_SERVICE = "smartlife.iot.smartbulb.lightingservice"
@@ -415,15 +395,15 @@ klapBulb:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD 
 local iotBulb = IotBulb:new(klapBulb)
 
 outcome = settle(iotBulb:poll())
-check("KL130 over KLAP v1 polls", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
-check("KL130 reports color+cct entity", Select(outcome.resolved, "entity", "min_mireds") ~= nil)
-check("KL130 state on", Select(outcome.resolved, "state", "state") == true)
+T.check("KL130 over KLAP v1 polls", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
+T.check("KL130 reports color+cct entity", Select(outcome.resolved, "entity", "min_mireds") ~= nil)
+T.eq("KL130 state on", Select(outcome.resolved, "state", "state"), true)
 
 outcome = settle(iotBulb:execute({ has_state = true, state = false }))
-check("KL130 off over KLAP v1 accepted", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
+T.check("KL130 off over KLAP v1 accepted", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
 
 outcome = settle(iotBulb:poll())
-check("KL130 state reflects off", Select(outcome.resolved, "state", "state") == false)
+T.eq("KL130 state reflects off", Select(outcome.resolved, "state", "state"), false)
 
 outcome = settle(iotBulb:execute({
   has_state = true,
@@ -433,14 +413,12 @@ outcome = settle(iotBulb:execute({
   has_transition_length = true,
   transition_length = 1000,
 }))
-check("KL130 on+brightness over KLAP v1 accepted", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
+T.check("KL130 on+brightness over KLAP v1 accepted", outcome.resolved ~= nil, Select(outcome.rejected, "error"))
 
 outcome = settle(iotBulb:poll())
-check("KL130 brightness reflects 75", Select(outcome.resolved, "state", "brightness") == 0.75)
+T.eq("KL130 brightness reflects 75", Select(outcome.resolved, "state", "brightness"), 0.75)
 
----------------------------------------------------------------------------
--- Optional: probe a real device on the network
----------------------------------------------------------------------------
+T.section("Optional: probe a real device on the network")
 
 local realIp = os.getenv("TPLINK_TEST_IP")
 if realIp ~= nil and realIp ~= "" then
@@ -493,10 +471,4 @@ if realIp ~= nil and realIp ~= "" then
   end
 end
 
----------------------------------------------------------------------------
-
-print("")
-if failures > 0 then
-  error(failures .. " test(s) failed")
-end
-print("All tests passed")
+T.finish()
