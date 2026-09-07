@@ -1362,45 +1362,6 @@ function C4:Decrypt(cipher, key, iv, data, options)
   return crypto_backend.aes128cbc(false, key, iv, data or "")
 end
 
----------------------------------------------------------------------------
--- urlDo (HTTP client used by lib/http.lua)
--- Synchronous implementation over luasocket. Tests can override the global
--- with a fake (e.g. an in-process KLAP device) before loading modules.
----------------------------------------------------------------------------
-
--- socket.http and ltn12 are separate rocks from the socket core, and
--- c4_fixtures.lua's withShim() preloads a socket stub that supplies neither,
--- so has_socket alone does not imply they are loadable.
-local has_http, http_client = pcall(require, "socket.http")
-local has_ltn12, ltn12 = pcall(require, "ltn12")
-
-if has_socket and has_http and has_ltn12 then
-  function urlDo(method, url, data, headers, callback, context, options)
-    local chunks = {}
-    local requestHeaders = {}
-    for name, value in pairs(headers or {}) do
-      requestHeaders[name] = value
-    end
-    if data and #data > 0 then
-      requestHeaders["content-length"] = tostring(#data)
-    end
-    http_client.TIMEOUT = (type(options) == "table" and tonumber(options.timeout)) or 30
-    local ok, code, responseHeaders = http_client.request({
-      method = method,
-      url = url,
-      headers = requestHeaders,
-      source = data and ltn12.source.string(data) or nil,
-      sink = ltn12.sink.table(chunks),
-    })
-    local body = table.concat(chunks)
-    if not ok then
-      callback(tostring(code or "request failed"), 0, {}, "", nil, url)
-    else
-      callback(nil, tonumber(code) or 0, responseHeaders or {}, body, nil, url)
-    end
-  end
-end
-
 print("C4 shim layer loaded" .. (has_socket and " (with luasocket)" or " (stubs only)"))
 
 return C4

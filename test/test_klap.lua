@@ -444,10 +444,10 @@ check("KL130 brightness reflects 75", Select(outcome.resolved, "state", "brightn
 
 local realIp = os.getenv("TPLINK_TEST_IP")
 if realIp ~= nil and realIp ~= "" then
-  -- Restore the shim's real HTTP urlDo (the fakes replaced it).
+  -- Restore the real HTTP urlDo (the fakes replaced it).
   urlDo = nil
-  dofile("c4_shim.lua")
-  assert(urlDo ~= nil, "real-device probe requires luasocket in the shim")
+  dofile("c4_local.lua")
+  assert(urlDo ~= nil, "real-device probe requires luasocket")
 
   print("")
   print("Probing real device at " .. realIp .. "...")
