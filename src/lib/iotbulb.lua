@@ -147,10 +147,10 @@ local function synthesizeState(lightState, effectState)
 
   local state = { state = on }
   if values.brightness ~= nil then
-    state.brightness = (tonumber(values.brightness) or 100) / 100
+    state.brightness = (tofinite(values.brightness) or 100) / 100
   end
   if type(effectState) == "table" and tointeger(effectState.enable) == 1 and effectState.brightness ~= nil then
-    state.brightness = (tonumber(effectState.brightness) or 100) / 100
+    state.brightness = (tofinite(effectState.brightness) or 100) / 100
   end
   local colorTemp = tonumber(values.color_temp) or 0
   if colorTemp > 0 then

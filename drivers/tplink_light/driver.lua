@@ -2446,7 +2446,7 @@ local function applyUpdate(entity, state)
   if not isOn then
     newBrightness = 0
   elseif supportsDimming then
-    local brightness = tonumber(Select(state, "brightness")) or 1.0
+    local brightness = tofinite(Select(state, "brightness")) or 1.0
     newBrightness = math.floor(brightness * 100 + 0.5)
     newBrightness = math.max(0, math.min(100, newBrightness))
     if newBrightness == 0 and isOn then
@@ -2628,7 +2628,7 @@ end
 local function synthesizeState(info)
   local state = { state = toboolean(info.device_on) }
   if info.brightness ~= nil then
-    state.brightness = (tonumber_locale(info.brightness) or 100) / 100
+    state.brightness = (tofinite(tonumber_locale(info.brightness)) or 100) / 100
   end
   local colorTemp = tonumber_locale(info.color_temp) or 0
   if colorTemp > 0 then

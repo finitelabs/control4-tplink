@@ -392,13 +392,23 @@ local function pollEnergy()
       if type(realtime) == "table" and tointeger(realtime.err_code) == 0 then
         -- Hardware v1 reports floats in base units (power/voltage); v2 reports
         -- integers in milli-units (power_mw/voltage_mv).
-        local watts = realtime.power_mw ~= nil and (tonumber_locale(realtime.power_mw) or 0) / 1000
-          or tonumber_locale(realtime.power)
+        local watts
+        if realtime.power_mw ~= nil then
+          local milliWatts = tofinite(realtime.power_mw)
+          watts = milliWatts and milliWatts / 1000
+        else
+          watts = tofinite(realtime.power)
+        end
         if watts ~= nil then
           values:update("Output " .. n .. " Power", string.format("%.1f", watts), "NUMBER", nil, " W")
         end
-        local voltage = realtime.voltage_mv ~= nil and (tonumber_locale(realtime.voltage_mv) or 0) / 1000
-          or tonumber_locale(realtime.voltage)
+        local voltage
+        if realtime.voltage_mv ~= nil then
+          local milliVolts = tofinite(realtime.voltage_mv)
+          voltage = milliVolts and milliVolts / 1000
+        else
+          voltage = tofinite(realtime.voltage)
+        end
         if voltage ~= nil and not voltageReported then
           voltageReported = true
           values:update("Voltage", string.format("%.0f", voltage), "NUMBER", nil, " V")

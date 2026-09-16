@@ -298,4 +298,49 @@ T.check(
   Select(transport.requests[#transport.requests], LIGHT_SERVICE, "transition_light_state") ~= nil
 )
 
+T.section("non-finite brightness falls back instead of propagating (DRV-122)")
+
+-- The light driver latches this value into currentBrightness. A NaN survives
+-- its math.max(0, math.min(100, x)) clamp on the controller's LuaJIT, and once
+-- latched every comparison against it is false, so the driver stops tracking
+-- on/off and re-notifies on every poll until it is reloaded.
+local NAN = 0 / 0
+
+local edge = IotBulb:new(transport)
+transport:reply(sysinfoReply({
+  model = "KL130(US)",
+  is_dimmable = 1,
+  light_state = { on_off = 1, mode = "normal", color_temp = 0, brightness = NAN },
+}))
+result = settle(edge:poll()).resolved
+T.check("NaN brightness does not reach the driver", approx(Select(result, "state", "brightness"), 1.0))
+
+transport:reply(sysinfoReply({
+  model = "KL130(US)",
+  is_dimmable = 1,
+  light_state = { on_off = 1, mode = "normal", color_temp = 0, brightness = math.huge },
+}))
+result = settle(edge:poll()).resolved
+T.check("infinite brightness does not reach the driver", approx(Select(result, "state", "brightness"), 1.0))
+
+-- Same guard on the effect-state producer, which overrides light_state.
+transport:reply(sysinfoReply({
+  model = "KL430(US)",
+  is_dimmable = 1,
+  is_color = 1,
+  length = 16,
+  light_state = { on_off = 1, mode = "normal", color_temp = 0, brightness = 60 },
+  lighting_effect_state = { enable = 1, name = "Aurora", brightness = NAN },
+}))
+result = settle(edge:poll()).resolved
+T.check("NaN effect brightness does not reach the driver", approx(Select(result, "state", "brightness"), 1.0))
+
+transport:reply(sysinfoReply({
+  model = "KL130(US)",
+  is_dimmable = 1,
+  light_state = { on_off = 1, mode = "normal", color_temp = 0, brightness = 40 },
+}))
+result = settle(edge:poll()).resolved
+T.check("a finite brightness is still scaled", approx(Select(result, "state", "brightness"), 0.4))
+
 T.finish()
