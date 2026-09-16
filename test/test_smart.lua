@@ -132,6 +132,28 @@ T.check(
   Select(outcome.resolved, "emeter", "get_realtime", "err_code") == -10008
 )
 
+T.section("get_realtime drops a non-finite current_power (DRV-122)")
+
+-- The outlet driver formats power_mw into a C4 NUMBER variable, so a non-finite
+-- reaching it writes the literal "nan"/"inf" and breaks every Composer
+-- comparison bound to that variable. Dropping the key leaves the last good
+-- reading in place instead of publishing a fabricated 0 W.
+local NAN = 0 / 0
+
+klap:reply({ resolve = { error_code = 0, result = { current_power = NAN } } })
+outcome = settle(smart:request({ emeter = { get_realtime = {} } }))
+realtime = Select(outcome.resolved, "emeter", "get_realtime")
+T.eq("NaN current_power still reports success", Select(realtime, "err_code"), 0)
+T.eq("NaN current_power yields no power_mw", Select(realtime, "power_mw"), nil)
+
+klap:reply({ resolve = { error_code = 0, result = { current_power = math.huge } } })
+outcome = settle(smart:request({ emeter = { get_realtime = {} } }))
+T.eq("infinite current_power yields no power_mw", Select(outcome.resolved, "emeter", "get_realtime", "power_mw"), nil)
+
+klap:reply({ resolve = { error_code = 0, result = { current_power = 0 } } })
+outcome = settle(smart:request({ emeter = { get_realtime = {} } }))
+T.eq("a genuine zero reading is still reported", Select(outcome.resolved, "emeter", "get_realtime", "power_mw"), 0)
+
 T.section("Children: single-outlet devices cache the rejected probe")
 
 -- The first get_sysinfo on a fresh adapter probes get_child_device_list.

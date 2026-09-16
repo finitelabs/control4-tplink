@@ -226,8 +226,8 @@ function Smart:_getRealtime(childId)
       return { emeter = { get_realtime = { err_code = reply.code } } }
     end
     -- current_power is milliwatts, matching the IOT hardware-v2 power_mw field.
-    local currentPower = tonumber(Select(reply.result, "current_power"))
-    return { emeter = { get_realtime = { err_code = 0, power_mw = currentPower or 0 } } }
+    local currentPower = tofinite(Select(reply.result, "current_power"))
+    return { emeter = { get_realtime = { err_code = 0, power_mw = currentPower } } }
   end)
 end
 
