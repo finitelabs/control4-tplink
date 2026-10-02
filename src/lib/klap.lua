@@ -263,11 +263,13 @@ function Klap:connect()
       self:reset()
       if Select(err, "code") == 403 then
         -- The device refuses to even start a handshake. Seen in the field
-        -- when a firmware update disables Third-Party Compatibility, and on
-        -- devices that lock out after repeated failures.
+        -- when a firmware update disables Third-Party Compatibility, on newly
+        -- added devices that only accept it after the setting is toggled off
+        -- and on again, and on devices that lock out after repeated failures.
         err = {
           error = "Klap: device refused the handshake (HTTP 403);"
-            .. " enable Third-Party Compatibility in the Tapo/Kasa app, or power cycle the device",
+            .. " turn on Third-Party Compatibility in the Tapo/Kasa app,"
+            .. " or if it is already on, turn it off and back on",
           code = 403,
         }
       end

@@ -67,7 +67,8 @@ migrates a device.
   `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
   `Settings → Third-Party Compatibility`). Firmware updates can turn this
   setting off, in which case the device refuses local connections until it is
-  re-enabled
+  re-enabled. A device added after the setting was turned on may also refuse
+  them until the setting is turned off and back on
 
 # <span style="color:#4ACBD6">Included Drivers</span>
 

@@ -2654,6 +2654,9 @@ local function directPoll()
         directConnected = false
         handleDisconnect()
       end
+      if Select(err, "code") == 403 then
+        UpdateProperty("Driver Status", "Disconnected: " .. Select(err, "error"))
+      end
     end)
     return
   end
@@ -2675,6 +2678,9 @@ local function directPoll()
     if directConnected then
       directConnected = false
       handleDisconnect()
+    end
+    if Select(err, "code") == 403 then
+      UpdateProperty("Driver Status", "Disconnected: " .. Select(err, "error"))
     end
   end)
 end
@@ -2862,9 +2868,15 @@ backendStart = function()
 
   --- Probe the legacy port 9999 transport, the last resort in Auto mode.
   --- @param klapReason string? The KLAP failure that led here, for the status.
-  local function tryLegacy(klapReason)
+  --- @param klapCode number? HTTP status of a refused KLAP handshake, if any.
+  local function tryLegacy(klapReason, klapCode)
     UpdateProperty("Driver Status", "Connecting (Legacy)...")
     tryIotBulb(legacy, "Legacy", function(legacyReason)
+      if klapCode == 403 then
+        log:info("Legacy probe failed: %s", legacyReason)
+        UpdateProperty("Driver Status", "Disconnected: " .. klapReason)
+        return
+      end
       if mode == "Auto" and not hasCredentials then
         legacyReason = legacyReason .. " (set TP-Link credentials if this device is on KLAP firmware)"
       end
@@ -2875,12 +2887,13 @@ backendStart = function()
 
   --- Route a KLAP-side failure to legacy fallback or a final status.
   --- @param reason string
-  local function onKlapFail(reason)
+  --- @param code number? HTTP status of a refused handshake, if any.
+  local function onKlapFail(reason, code)
     if mode == "KLAP" then
       UpdateProperty("Driver Status", "Disconnected: " .. reason)
     else
       log:info("KLAP probe failed (%s); trying legacy protocol", reason)
-      tryLegacy(reason)
+      tryLegacy(reason, code)
     end
   end
 
@@ -2898,14 +2911,14 @@ backendStart = function()
     end, function(err)
       local reason = Select(err, "error") or "KLAP connection failed"
       if string.find(reason, "auth mismatch", 1, true) == nil then
-        onKlapFail(reason)
+        onKlapFail(reason, Select(err, "code"))
         return
       end
       log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
       klapV1:connect():next(function()
         tryIotBulb(klapV1, "KLAP", onKlapFail)
       end, function(v1Err)
-        onKlapFail(Select(v1Err, "error") or "KLAP connection failed")
+        onKlapFail(Select(v1Err, "error") or "KLAP connection failed", Select(v1Err, "code"))
       end)
     end)
   end
