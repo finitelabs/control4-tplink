@@ -18,9 +18,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
-<!-- #ifndef DRIVERCENTRAL -->
-
-## Unreleased
+## v20261002 - 2026-10-02
 
 ### Changed
 
@@ -31,6 +29,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   turning the setting off and back on when it is already on. In `Auto` mode the
   status no longer buries this behind the legacy protocol's failure, and the
   TP-Link Light driver now shows it when a connected light starts refusing.
+
+<!-- #ifndef DRIVERCENTRAL -->
 
 ### Fixed
 
