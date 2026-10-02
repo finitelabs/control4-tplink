@@ -85,7 +85,9 @@ programming.
 - The TP-Link (Kasa/Tapo) account credentials the device is bound to
 - Devices on newer firmware must have **Third-Party Compatibility** enabled
   (Tapo app: `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
-  `Settings → Third-Party Compatibility`)
+  `Settings → Third-Party Compatibility`). If a device refuses to connect while
+  it is already on, turn it off and back on (see
+  [Troubleshooting](#troubleshooting))
 
 **Verified hardware:**
 
@@ -418,13 +420,20 @@ falls back to it automatically; the mismatch only shows when the legacy probe
 also failed.
 
 **`Disconnected: ... device refused the handshake (HTTP 403) ...`**: The device
-is rejecting the KLAP handshake before credentials are checked. This usually
-means **Third-Party Compatibility** is disabled; firmware updates are known to
-turn it off. Re-enable it (Tapo app:
-`Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
-`Settings → Third-Party Compatibility`), then run the [`Reconnect`](#reconnect)
-action. If it is already enabled, power cycle the device to clear a handshake
-lockout and reconnect.
+is rejecting the KLAP handshake before credentials are checked, which means it
+is not accepting third-party connections. Work through these in order:
+
+1. Make sure **Third-Party Compatibility** is on (Tapo app:
+   `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
+   `Settings → Third-Party Compatibility`). Firmware updates are known to turn
+   it off.
+1. If it is already on, turn it off and back on. A device added after the
+   setting was turned on, or one that was just updated, may keep refusing
+   connections until the setting is toggled, even though the app shows it on.
+1. Run the [`Reconnect`](#reconnect) action. The driver also retries on every
+   poll, so the status clears on its own once the device accepts the handshake.
+1. If it still fails, power cycle the device to clear a handshake lockout, then
+   run [`Reconnect`](#reconnect) again.
 
 **`Driver Status` stuck at `Connecting...` or timeouts**: Verify the IP address,
 that the device is on a network reachable from the controller, and that nothing

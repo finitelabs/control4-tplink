@@ -44,7 +44,8 @@ migrates a device.
   `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
   `Settings → Third-Party Compatibility`). Firmware updates can turn this
   setting off, in which case the device refuses local connections until it is
-  re-enabled
+  re-enabled. A device added after the setting was turned on may also refuse
+  them until the setting is turned off and back on
 
 # <span style="color:#4ACBD6">Included Drivers</span>
 
@@ -139,8 +140,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Changed
 
 - A device that refuses the KLAP handshake with HTTP 403 (usually because a
-  firmware update disabled Third-Party Compatibility in the Tapo/Kasa app) now
-  reports the cause and fix in `Driver Status` instead of a raw HTTP error.
+  firmware update disabled Third-Party Compatibility in the Tapo/Kasa app, or
+  because a newly added device has not picked up the setting) now reports the
+  cause and fix in `Driver Status` instead of a raw HTTP error, including
+  turning the setting off and back on when it is already on. In `Auto` mode the
+  status no longer buries this behind the legacy protocol's failure, and the
+  TP-Link Light driver now shows it when a connected light starts refusing.
 
 ### Fixed
 

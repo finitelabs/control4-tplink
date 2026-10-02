@@ -293,6 +293,11 @@ T.check(
   string.find(tostring(Select(outcome.rejected, "error")), "Third-Party Compatibility", 1, true) ~= nil,
   Select(outcome.rejected, "error")
 )
+T.check(
+  "handshake1 403 says to toggle the setting when it is already on",
+  string.find(tostring(Select(outcome.rejected, "error")), "turn it off and back on", 1, true) ~= nil,
+  Select(outcome.rejected, "error")
+)
 T.eq("handshake1 403 preserves the status code", Select(outcome.rejected, "code"), 403)
 
 T.section("SMART schema over a real KLAP session (fake EP25)")

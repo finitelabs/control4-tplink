@@ -78,7 +78,9 @@ presets, and dim-to-warm color on-mode.
   KL/LB-series bulbs on original firmware need no credentials. Devices on newer
   firmware must also have **Third-Party Compatibility** enabled (Tapo app:
   `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
-  `Settings → Third-Party Compatibility`)
+  `Settings → Third-Party Compatibility`). If a device refuses to connect while
+  it is already on, turn it off and back on (see
+  [Troubleshooting](#troubleshooting))
 - Proxy mode: a configured TP-Link Outlet driver instance
 
 **Verified hardware:**
@@ -199,13 +201,20 @@ the Tapo/Kasa app (auth mismatches are reported in the lua output window with
 `Log Mode` set to `Print`).
 
 **`Disconnected: ... device refused the handshake (HTTP 403) ...`**: The device
-is rejecting the KLAP handshake before credentials are checked. This usually
-means **Third-Party Compatibility** is disabled; firmware updates are known to
-turn it off. Re-enable it (Tapo app:
-`Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
-`Settings → Third-Party Compatibility`), then run the [`Reconnect`](#reconnect)
-action. If it is already enabled, power cycle the device to clear a handshake
-lockout and reconnect.
+is rejecting the KLAP handshake before credentials are checked, which means it
+is not accepting third-party connections. Work through these in order:
+
+1. Make sure **Third-Party Compatibility** is on (Tapo app:
+   `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
+   `Settings → Third-Party Compatibility`). Firmware updates are known to turn
+   it off.
+1. If it is already on, turn it off and back on. A device added after the
+   setting was turned on, or one that was just updated, may keep refusing
+   connections until the setting is toggled, even though the app shows it on.
+1. Run the [`Reconnect`](#reconnect) action. The driver also retries on every
+   poll, so the status clears on its own once the device accepts the handshake.
+1. If it still fails, power cycle the device to clear a handshake lockout, then
+   run [`Reconnect`](#reconnect) again.
 
 **A Kasa light strip shows the wrong brightness while an app effect runs**: the
 strip reports the effect's brightness while a lighting effect is active; any

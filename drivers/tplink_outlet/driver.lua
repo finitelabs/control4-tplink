@@ -517,7 +517,8 @@ end
 --- v2.6/KP125M/Tapo), then the legacy IOT schema over the same session. A v2
 --- auth mismatch retries the handshake with v1 hashing, which legacy Kasa
 --- devices use after their KLAP firmware update.
---- @param onFail fun(reason: string)
+--- @param onFail fun(reason: string, code: number?) code is the HTTP status of a
+---   refused handshake, if any.
 local function tryKlap(onFail)
   klap:connect():next(function()
     trySmart(function(smartReason)
@@ -527,14 +528,14 @@ local function tryKlap(onFail)
   end, function(err)
     local reason = Select(err, "error") or "KLAP connection failed"
     if string.find(reason, "auth mismatch", 1, true) == nil then
-      onFail(reason)
+      onFail(reason, Select(err, "code"))
       return
     end
     log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
     klapV1:connect():next(function()
       tryKlapIot(klapV1, onFail)
     end, function(v1Err)
-      onFail(Select(v1Err, "error") or "KLAP connection failed")
+      onFail(Select(v1Err, "error") or "KLAP connection failed", Select(v1Err, "code"))
     end)
   end)
 end
@@ -569,7 +570,7 @@ function reconnect()
       return
     end
     updateDriverStatus("Connecting (KLAP)...")
-    tryKlap(function(klapReason)
+    tryKlap(function(klapReason, klapCode)
       if mode == "KLAP" then
         setDeviceOnline(false, klapReason)
         return
@@ -581,6 +582,11 @@ function reconnect()
       log:info("KLAP probe failed (%s); trying legacy protocol", klapReason)
       updateDriverStatus("Connecting (Legacy)...")
       tryLegacy(function(legacyReason)
+        if klapCode == 403 then
+          log:info("Legacy probe failed: %s", legacyReason)
+          setDeviceOnline(false, klapReason)
+          return
+        end
         setDeviceOnline(false, "KLAP: " .. klapReason .. " / Legacy: " .. legacyReason)
       end)
     end)
