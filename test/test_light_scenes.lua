@@ -1782,4 +1782,12 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a scene step with no ramp time carries a transition of 0, as a level command's does")
+do
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS })
+  activate(levelStep(30))
+  T.eq("the step's command carries a transition of 0", lastLevel(), { 30 / 100, 0 })
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.finish()
