@@ -43,6 +43,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   still moving. It now shows as finished when the light gets there.
 - Fixed a color set on a TP-Link light during a ramp being replaced by its
   Dim-To-Warm color when the ramp ended.
+- Fixed Color On Mode set to a color preset not being applied to a TP-Link
+  light: the light turned on in the color it last went off in, as if the mode
+  were Previous, and with no color of its own before it had been off once. It
+  now turns on in the preset's color and follows an edit of that preset.
 
 ## v20261002 - 2026-10-02
 
