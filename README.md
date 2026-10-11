@@ -142,6 +142,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed an Advanced Lighting scene set to flash, with no delay or ramp time on
   any step, hanging the TP-Link Light driver. It now runs its steps once and
   stops.
+- Fixed a color sent to a TP-Link light right after it was ramped on, as
+  programming that turns a light on and sets its color does, being dropped. The
+  light now takes it and keeps it when the ramp ends.
 
 ## v20261002 - 2026-10-02
 
