@@ -50,6 +50,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a TP-Link light with Color On Mode set to Previous that was faded off,
   not switched off at once, turning back on in the color it had before the fade,
   not the one it faded off in.
+- Fixed a TP-Link light that was told to stop ramping during an Advanced
+  Lighting scene being moved again by the scene's next step. The stop now takes
+  the light out of the scene.
 
 ## v20261002 - 2026-10-02
 

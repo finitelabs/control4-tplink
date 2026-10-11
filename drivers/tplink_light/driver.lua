@@ -1544,6 +1544,7 @@ function RFP.SET_BRIGHTNESS_STOP(idBinding, strCommand, tParams, args)
   if idBinding ~= PROXY_BINDING then
     return
   end
+  stopSceneSteps() -- a light told to stop is not then moved by a later step
   brightnessRampStopped()
 end
 
