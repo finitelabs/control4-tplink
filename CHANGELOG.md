@@ -114,6 +114,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a TP-Link light that was stopped during a scene step's fade, with
   Dim-To-Warm, losing the color the step set when the light was already in that
   color.
+- Fixed a ramp that took over from one still changing a TP-Link light's color,
+  as a button's click does from its press, showing its color fade from the color
+  the first ramp was heading for.
+- Fixed a ramped On of a TP-Link light cut short by a level command leaving the
+  light shown as still changing color.
 
 ### Changed
 
