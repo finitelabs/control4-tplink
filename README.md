@@ -148,6 +148,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a ramp that also changes a TP-Link light's color, on to the color it
   turns on in or with Dim-To-Warm, reporting the new color as the one the fade
   starts from.
+- Fixed a TP-Link light being shown in a scene's color, or going back to a color
+  set while it was off, after a level change or a turn-on had given it its
+  Dim-To-Warm color or the color it turns on in.
 
 ## v20261002 - 2026-10-02
 
