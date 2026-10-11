@@ -79,6 +79,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   level.
 - Fixed a color a TP-Link light took while it was off not being picked up until
   it was next on.
+- Fixed Ramp Scene Up and Down, on a TP-Link light already ramping, starting
+  from the level that ramp began at: the light could drop to its minimum and
+  climb, or not move at all.
 
 ### Changed
 
