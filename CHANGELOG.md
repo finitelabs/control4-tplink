@@ -68,6 +68,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the TP-Link Light driver's button actions doing nothing: a keypad button
   bound to the light's Top, Bottom or Toggle link, and the light's own buttons,
   failed inside the driver.
+- Fixed a held Top or Toggle button ramping a TP-Link light toward its Default
+  On level, which dimmed a brighter light. A hold now ramps toward full until
+  released.
 
 ### Changed
 
