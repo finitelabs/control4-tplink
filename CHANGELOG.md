@@ -111,6 +111,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a scene step that turns a TP-Link light on over a ramp time not fading
   it up from off as a ramped On does, and a step that sets only a level turning
   the light on without its Color On Mode color.
+- Fixed a TP-Link light that was stopped during a scene step's fade, with
+  Dim-To-Warm, losing the color the step set when the light was already in that
+  color.
 
 ### Changed
 
