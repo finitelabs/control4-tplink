@@ -89,6 +89,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   it was already at.
 - Fixed a TP-Link color light with no color temperature restarting a moment into
   a ramp to on, when it turns on in a color temperature preset.
+- Fixed an Advanced Lighting scene that was deactivated, cleared or removed
+  while one of its steps was fading a TP-Link light leaving the light shown as
+  still ramping, at the level and color it had before the fade: a command for
+  that level then did nothing, and a stop found nothing to stop. The fade now
+  runs on and shows as finished when the light gets there.
 
 ### Changed
 
