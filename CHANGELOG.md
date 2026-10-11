@@ -57,6 +57,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   fading being put in its Dim-To-Warm color, or the color it turns on in, with
   the fade cut short. The stop now holds the level and leaves the color fade to
   finish.
+- Fixed a TP-Link light that was stopped during a ramp losing a color set since
+  the ramp began.
 
 ## v20261002 - 2026-10-02
 
