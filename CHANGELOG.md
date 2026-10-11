@@ -18,6 +18,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed an Advanced Lighting scene set to flash, with no delay or ramp time on
+  any step, hanging the TP-Link Light driver. It now runs its steps once and
+  stops.
+
 ## v20261002 - 2026-10-02
 
 ### Changed
