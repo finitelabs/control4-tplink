@@ -53,6 +53,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a TP-Link light that was told to stop ramping during an Advanced
   Lighting scene being moved again by the scene's next step. The stop now takes
   the light out of the scene.
+- Fixed a TP-Link light that was told to stop ramping while its color was still
+  fading being put in its Dim-To-Warm color, or the color it turns on in, with
+  the fade cut short. The stop now holds the level and leaves the color fade to
+  finish.
 
 ## v20261002 - 2026-10-02
 
