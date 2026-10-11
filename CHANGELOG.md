@@ -28,6 +28,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a color sent to a TP-Link light right after it was ramped on, as
   programming that turns a light on and sets its color does, being dropped. The
   light now takes it and keeps it when the ramp ends.
+- Fixed a ramp that also changes a TP-Link light's color, on to the color it
+  turns on in or with Dim-To-Warm, reporting the new color as the one the fade
+  starts from.
 
 ## v20261002 - 2026-10-02
 
