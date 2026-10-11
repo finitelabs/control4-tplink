@@ -41,6 +41,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a ramp or color fade started while a scene was still fading a TP-Link
   light showing as finished when the scene's fade ended, while the light was
   still moving. It now shows as finished when the light gets there.
+- Fixed a color set on a TP-Link light during a ramp being replaced by its
+  Dim-To-Warm color when the ramp ended.
 
 ## v20261002 - 2026-10-02
 
