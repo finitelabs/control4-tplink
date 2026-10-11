@@ -179,6 +179,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a scene step that sets only a level leaving a TP-Link light in its old
   color with Dim-To-Warm. The step now takes the Dim-To-Warm color for its
   level.
+- Fixed Stop Scene Ramp not stopping a TP-Link light: the light carried on to
+  the end of its ramp and was shown as still ramping. It now holds the light
+  where the ramp has got to.
 
 ### Changed
 
