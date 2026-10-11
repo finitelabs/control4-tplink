@@ -59,6 +59,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   finish.
 - Fixed a TP-Link light that was stopped during a ramp losing a color set since
   the ramp began.
+- Fixed a scene step that sets only a level leaving a TP-Link light in its old
+  color with Dim-To-Warm. The step now takes the Dim-To-Warm color for its
+  level.
 
 ### Changed
 
