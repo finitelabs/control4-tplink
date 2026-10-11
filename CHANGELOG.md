@@ -94,6 +94,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - With Dim-To-Warm, a color set on a TP-Link light now lasts until its
   brightness next changes, when the light takes its Dim-To-Warm color again. It
   used to last until the light was turned off.
+- With Dim-To-Warm, a brightness command for the level a TP-Link light is
+  already at now returns a color set on it to its Dim-To-Warm color. It used to
+  do nothing.
 
 ## v20261002 - 2026-10-02
 
