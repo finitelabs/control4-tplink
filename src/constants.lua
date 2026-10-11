@@ -66,6 +66,14 @@ return {
     TOGGLE = 2,
   },
 
+  --- Constant for button action types (light_v2 BUTTON_ACTION).
+  --- @type table<string, number>
+  ButtonActions = {
+    RELEASE_HOLD = 0,
+    PRESS = 1,
+    RELEASE_CLICK = 2,
+  },
+
   --- Color modes shared across the TPLINK_LIGHT binding protocol between
   --- tplink_outlet (state provider) and tplink_light (light_v2 proxy).
   --- @type table<string, number>

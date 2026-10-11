@@ -65,6 +65,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed Stop Scene Ramp not stopping a TP-Link light: the light carried on to
   the end of its ramp and was shown as still ramping. It now holds the light
   where the ramp has got to.
+- Fixed the TP-Link Light driver's button actions doing nothing: a keypad button
+  bound to the light's Top, Bottom or Toggle link, and the light's own buttons,
+  failed inside the driver.
 
 ### Changed
 

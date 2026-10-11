@@ -757,4 +757,27 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+---------------------------------------------------------------------------
+-- Buttons
+---------------------------------------------------------------------------
+
+local TOP, TOGGLE = 0, 2
+local RELEASE_HOLD, PRESS, RELEASE_CLICK = 0, 1, 2
+local TOP_LINK = 300 -- the Top Button Link binding
+
+T.section("a button action and a Button Link's click reach the light")
+do
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+  local ok, err = pcall(proxy, "BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  T.check("a Top press is taken", ok, err)
+  T.eq("and ramps the light up", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"), { 100 })
+  ok, err = pcall(proxy, "BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_HOLD })
+  T.check("its release is taken", ok, err)
+  light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
+  ok, err = pcall(RFP.DO_CLICK, TOP_LINK, "DO_CLICK", {})
+  T.check("a Button Link's click is taken", ok, err)
+  run(15000)
+  T.eq("and turns the light on", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 100 })
+end
+
 T.finish()
