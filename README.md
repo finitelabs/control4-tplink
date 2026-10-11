@@ -145,12 +145,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a color sent to a TP-Link light right after it was ramped on, as
   programming that turns a light on and sets its color does, being dropped. The
   light now takes it and keeps it when the ramp ends.
-- Fixed a ramp that also changes a TP-Link light's color, on to the color it
-  turns on in or with Dim-To-Warm, reporting the new color as the one the fade
-  starts from.
-- Fixed a TP-Link light being shown in a scene's color, or going back to a color
-  set while it was off, after a level change or a turn-on had given it its
-  Dim-To-Warm color or the color it turns on in.
+- Fixed a ramp that also changes a TP-Link light's color, as a ramped on or a
+  Dim-To-Warm dim does, reporting the new color as the one the fade starts from.
+- Fixed a TP-Link light showing a scene's color, or going back to a color set
+  while it was off, after turning on or changing level had given it its on color
+  or Dim-To-Warm color.
 - Fixed an Advanced Lighting scene carrying on with a TP-Link light after the
   light was turned on or off, set to a level or ramped: a later step of the
   scene took the light back, and a scene that flashes the light kept flashing
@@ -182,18 +181,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed Stop Scene Ramp not stopping a TP-Link light: the light carried on to
   the end of its ramp and was shown as still ramping. It now holds the light
   where the ramp has got to.
-- Fixed the TP-Link Light driver's button actions doing nothing: a keypad button
-  bound to the light's Top, Bottom or Toggle link, and the light's own buttons,
-  failed inside the driver.
+- Fixed a keypad button bound to a TP-Link light's Top, Bottom or Toggle link,
+  and the light's own button actions, doing nothing.
 - Fixed a held Top or Toggle button ramping a TP-Link light toward its Default
   On level, which dimmed a brighter light. A hold now ramps toward full until
   released.
 - Fixed a button pressed, clicked or toggled while a TP-Link light was ramping
   acting on the level the ramp began from: a light on its way up could be
   switched off and faded up again, or toggled the wrong way.
-- Fixed a scene step with no ramp time not being shown for a TP-Link light until
-  the light reported it, so the step or command after it started from the old
-  level.
+- Fixed a scene step with no ramp time not being shown for a TP-Link light, in
+  level or color, until the light reported it, so the step, command or color
+  fade after it started from the old one.
 - Fixed a color a TP-Link light took while it was off not being picked up until
   it was next on.
 - Fixed Ramp Scene Up and Down, on a TP-Link light already ramping, starting
@@ -202,9 +200,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a TP-Link light that was ramping not stopping when a command asked for
   the level it had just reached: the light carried on to the end of its ramp
   while it was shown at the level asked for.
-- Fixed a scene step with no ramp time not showing its color for a TP-Link light
-  until the light reported it, so a color fade after it started from the old
-  color.
 
 ### Changed
 
