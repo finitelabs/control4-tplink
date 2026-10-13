@@ -249,6 +249,20 @@ function C4:GetDriverConfigInfo(section)
   return config(self, section)
 end
 
+-- The light's proxy and its answer to GET_SETUP: an empty one unless a case
+-- gives one, or false for none.
+local proxySetup = ""
+function C4:GetProxyDevices()
+  return 727
+end
+local uiRequest = C4.SendUIRequest
+function C4:SendUIRequest(id, request, params)
+  if request == "GET_SETUP" then
+    return proxySetup or nil
+  end
+  return uiRequest(self, id, request, params)
+end
+
 local sent, statuses, start = {}, {}, now
 
 function C4:UpdateProperty(name, value)
@@ -986,6 +1000,298 @@ do
   T.eq("9000 K in a scene step: the 6500 K point", pointsTold(), { 0.65 })
   reply()
   proxy("CLEAR_ALL_SCENES")
+end
+
+---------------------------------------------------------------------------
+-- The proxy's setup
+---------------------------------------------------------------------------
+
+--- An answer the proxy gave GET_SETUP on OS 4.3.0, as it came.
+local function setupFile(name)
+  local f = assert(io.open(HERE .. "/light_setup/" .. name, "rb"))
+  local xml = f:read("*a")
+  f:close()
+  return xml
+end
+
+--- `xml` with the text of each tag in `tags` replaced, or the tag taken out
+--- where it is given false.
+local function withTags(xml, tags)
+  for tag, value in pairs(tags) do
+    xml =
+      xml:gsub("<" .. tag .. ">.-</" .. tag .. ">", value and ("<" .. tag .. ">" .. value .. "</" .. tag .. ">") or "")
+  end
+  return xml
+end
+
+local SETUP_KEYS = {
+  "color_on_mode",
+  "brightness_on_mode",
+  "brightness_on_mode_preset",
+  "brightness_rate_default",
+  "color_rate_default",
+}
+
+--- Forget what the driver stores of the proxy's on modes, presets and rates.
+local function forgetSetup()
+  for _, key in ipairs({ "color_presets", "brightness_presets", "previous_color" }) do
+    persist:delete(key)
+  end
+  for _, key in ipairs(SETUP_KEYS) do
+    persist:delete(key)
+  end
+end
+
+--- Answer everything in flight, and whatever goes out behind it.
+local function settle()
+  while held[1] do
+    reply()
+  end
+end
+
+--- The one command in flight, which is then answered.
+local function answered()
+  local command = flying()[1]
+  reply()
+  return command
+end
+
+local function colorsTold()
+  return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")
+end
+
+local CCT_MODE = 1
+
+T.section("a light the proxy never sent its Color On Mode reads it from the proxy's setup at start")
+do
+  -- The proxy sends a mode when it changes and a preset when it is made: a
+  -- light left in the mode it was made with has its presets and no mode.
+  forgetSetup()
+  light({ device_on = false })
+  for _, p in ipairs({
+    { 1, "On Color", 0.380438, 0.376746 },
+    { 2, "Dim Color", 0.526676, 0.413297 },
+    { 10, "Previous On", 0.497642, 0.415248 },
+  }) do
+    proxy(
+      "UPDATE_COLOR_PRESET",
+      { COMMAND = "ADDED", ID = p[1], NAME = p[2], COLOR_X = p[3], COLOR_Y = p[4], COLOR_MODE = CCT_MODE }
+    )
+  end
+  proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "ADDED", ID = 10, NAME = "Previous On", LEVEL = 20 })
+  proxySetup = setupFile("setup-607.xml")
+  light({ device_on = false })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  -- Dim-To-Warm between the device's On Color and Dim Color: 3804 K and
+  -- 5267 K here, 4536 K half way.
+  T.eq(
+    "a level carries the Dim-To-Warm mix as a color temperature",
+    answered(),
+    { device_on = true, brightness = 50, color_temp = 4536 }
+  )
+  T.eq("and the proxy is told it", colorsTold(), { 0.453557 })
+  proxy(
+    "UPDATE_COLOR_PRESET",
+    { COMMAND = "MODIFIED", ID = 1, NAME = "On Color", COLOR_X = 0.3, COLOR_Y = 0.4, COLOR_MODE = CCT_MODE }
+  )
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq(
+    "an edit of the On Color alone then moves the on color",
+    answered(),
+    { device_on = true, brightness = 100, color_temp = 3000 }
+  )
+  T.eq("which the proxy is told", colorsTold(), { 0.3 })
+end
+
+T.section("a preset the setup names is found by its id and its origin together")
+do
+  -- This light's Dim-To-Warm is between the Color Agent's Sunset (8) and Blue
+  -- Bonnet (10), and the device's own preset 10 is Previous On, which the
+  -- driver has stored.
+  forgetSetup()
+  proxySetup = ""
+  light({ device_on = false })
+  proxy(
+    "UPDATE_COLOR_PRESET",
+    { COMMAND = "ADDED", ID = 10, NAME = "Previous On", COLOR_X = 0.305692, COLOR_Y = 0.189781, COLOR_MODE = 0 }
+  )
+  proxySetup = setupFile("setup-626.xml")
+  light({ device_on = false })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq(
+    "the mix is between the Color Agent's two",
+    answered(),
+    { device_on = true, brightness = 50, hue = 135, saturation = 23, color_temp = 0 }
+  )
+  T.eq("which the proxy is told", colorsTold(), { 0.142639 + (0.608506 - 0.142639) * 0.5 })
+end
+
+T.section("a setup with no fade preset is Previous for the device's preset 10 and a preset for any other")
+do
+  local noFade = { light_color_on_mode_fade_preset_id = 0, light_color_on_mode_fade_preset_origin = 0 }
+  --- A light started with `setup`, on in green and then off.
+  local function offInGreen(setup)
+    forgetSetup()
+    proxySetup = setup
+    light()
+    colorTarget(xy(120, 50), 0)
+    reply()
+    proxy("OFF")
+    reply()
+  end
+  local setup = withTags(setupFile("setup-607.xml"), noFade)
+  offInGreen(withTags(setup, { light_color_on_mode_preset_id = 10 }))
+  proxy("ON")
+  T.eq(
+    "Previous: an on is in the color the light went off in",
+    answered(),
+    { device_on = true, brightness = 100, hue = 120, saturation = 50, color_temp = 0 }
+  )
+  offInGreen(setup)
+  proxy("ON")
+  T.eq("a preset: an on is in the On Color", answered(), { device_on = true, brightness = 100, color_temp = 3804 })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq("and a level after it carries no color", answered(), { device_on = true, brightness = 50 })
+end
+
+T.section("a setup that cannot be read, or that names no on mode, leaves what the driver has stored")
+do
+  --- What the driver has stored under each key the setup can write.
+  local function stored()
+    local out = {}
+    for _, key in ipairs(SETUP_KEYS) do
+      out[key] = persist:get(key, false)
+    end
+    return out
+  end
+  forgetSetup()
+  proxySetup = ""
+  light({ device_on = false })
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 1,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_PRESET_COLOR_X = 0.6,
+    COLOR_PRESET_COLOR_Y = 0.3,
+    COLOR_PRESET_COLOR_MODE = 0,
+    COLOR_FADE_PRESET_ID = 2,
+    COLOR_FADE_PRESET_ORIGIN = 1,
+    COLOR_FADE_PRESET_COLOR_X = 0.14,
+    COLOR_FADE_PRESET_COLOR_Y = 0.1,
+    COLOR_FADE_PRESET_COLOR_MODE = 0,
+  })
+  proxy("UPDATE_BRIGHTNESS_ON_MODE", { BRIGHTNESS_PRESET_ID = 3, BRIGHTNESS_PRESET_LEVEL = 40 })
+  proxy("UPDATE_BRIGHTNESS_RATE_DEFAULT", { RATE = 1234 })
+  local before = stored()
+  local setup, none = setupFile("setup-607.xml"), {}
+  for _, tag in ipairs({
+    "light_color_on_mode_preset_id",
+    "light_color_on_mode_preset_origin",
+    "light_color_on_mode_fade_preset_id",
+    "light_color_on_mode_fade_preset_origin",
+    "light_brightness_on_mode_preset_id",
+    "light_brightness_rate_default",
+    "light_color_rate_default",
+  }) do
+    none[tag] = false
+  end
+  for _, c in ipairs({
+    { "no answer", false },
+    { "an empty answer", "" },
+    { "an answer that is not whole", setup:sub(1, 2000) },
+    { "a setup with none of the tags", withTags(setup, none) },
+  }) do
+    proxySetup = c[2]
+    light({ device_on = false })
+    T.eq(c[1] .. ": nothing stored changes", stored(), before)
+  end
+  -- A preset the setup names and does not list has no color or level to
+  -- store: the mode stored stands.
+  for _, c in ipairs({
+    { "an on preset that is not listed", "color_on_mode", { light_color_on_mode_preset_id = 99 } },
+    { "a fade preset that is not listed", "color_on_mode", { light_color_on_mode_fade_preset_id = 99 } },
+    { "no fade origin", "color_on_mode", { light_color_on_mode_fade_preset_origin = false } },
+    { "a brightness preset that is not listed", "brightness_on_mode", { light_brightness_on_mode_preset_id = 99 } },
+  }) do
+    local had = persist:get(c[2], false)
+    proxySetup = withTags(setup, c[3])
+    light({ device_on = false })
+    T.eq(c[1] .. ": the mode stored stands", persist:get(c[2], false), had)
+  end
+end
+
+T.section("the brightness on mode and the default rates are read from the proxy's setup too")
+do
+  -- The mode as Previous On, whose level the proxy has at 20 %, and both
+  -- rates at 750 ms.
+  forgetSetup()
+  proxySetup = withTags(setupFile("setup-607.xml"), { light_brightness_on_mode_preset_id = 10 })
+  light({ device_on = false })
+  proxy("ON")
+  T.eq("an on goes to the level of the mode's preset", answered().brightness, 20)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80 })
+  T.eq("a target with no rate ramps at the proxy's default", answered().transition_period, 750)
+  run(1000)
+  proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_X = 0.5, LIGHT_COLOR_TARGET_Y = 0.5 })
+  T.eq("and a color with no rate fades at it", answered().transition_period, 750)
+  run(1000)
+  -- The proxy sends the mode when it changes, and a preset when it is edited:
+  -- the on level follows both.
+  --- An edit of preset 10 and then its removal, on a light whose mode is that
+  --- preset `how`.
+  local function follows(how)
+    proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "MODIFIED", ID = 10, NAME = "Previous On", LEVEL = 35 })
+    proxy("OFF")
+    settle()
+    proxy("ON")
+    T.eq("a mode " .. how .. ": an edit of its preset moves the on level", answered().brightness, 35)
+    proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "REMOVED", ID = 10 })
+    proxy("OFF")
+    settle()
+    proxy("ON")
+    T.eq("a mode " .. how .. ": with its preset removed an on goes to the Default On level", answered().brightness, 100)
+  end
+  follows("read from the setup")
+  forgetSetup()
+  proxySetup = ""
+  light({ device_on = false })
+  proxy("UPDATE_BRIGHTNESS_ON_MODE", { BRIGHTNESS_PRESET_ID = 10, BRIGHTNESS_PRESET_LEVEL = 20 })
+  follows("sent by the proxy")
+  -- The two default rates are one setting to this light, so either of the
+  -- setup's is both.
+  for _, tag in ipairs({ "light_brightness_rate_default", "light_color_rate_default" }) do
+    forgetSetup()
+    proxySetup = withTags(setupFile("setup-607.xml"), { [tag] = false })
+    light({ device_on = false })
+    T.eq(
+      "a setup without " .. tag .. ": both rates are the other's",
+      { persist:get("brightness_rate_default", false), persist:get("color_rate_default", false) },
+      { 750, 750 }
+    )
+  end
+end
+
+T.section("the Tapo strip's own proxy: Dim-To-Warm between two presets of one color, and rates of 750 ms")
+do
+  -- setup-727.xml is what this driver's proxy answered on the first hardware
+  -- run, where the driver held no Color On Mode and a rate of 500 ms.
+  forgetSetup()
+  proxySetup = setupFile("setup-727.xml")
+  light({ device_on = false })
+  proxy("ON")
+  T.eq(
+    "an on is at full, in the On Color",
+    answered(),
+    { device_on = true, brightness = 100, hue = 152, saturation = 40, color_temp = 0 }
+  )
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30 })
+  T.eq(
+    "a level with no rate goes out over the proxy's 750 ms, in the Dim-To-Warm color",
+    answered(),
+    { device_on = true, brightness = 30, hue = 152, saturation = 40, color_temp = 0, transition_period = 750 }
+  )
+  forgetSetup()
+  proxySetup = ""
 end
 
 T.eq("no timer or reply handler raised", errors, {})

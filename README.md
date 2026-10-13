@@ -283,6 +283,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the TP-Link Light driver storing a light's brightness presets among its
   color presets, and the two together as its Color On Mode, when a preset
   reached a driver that had stored none yet.
+- Fixed the TP-Link Light driver not knowing a light's Color On Mode, the level
+  it turns on to, or its default ramp rate until one of them was next changed in
+  Composer. A level command with no ramp time, a keypad button bound to the
+  light and a scene step used half a second and no on color, where Composer
+  showed three quarters of a second and Dim-To-Warm. The driver now reads them
+  from the light's settings in the project when it starts.
 
 ### Changed
 
