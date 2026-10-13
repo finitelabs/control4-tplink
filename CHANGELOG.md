@@ -160,6 +160,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   or a scene can ask for, being shown as asked and then, at the light's next
   report, as the nearest one the light can do. It is now shown once, as the
   light takes it.
+- Fixed a color change sent to a TP-Link light with no ramp time being taken at
+  once on a light whose default ramp rate had never been set. It now takes the
+  default ramp rate, as a level change does.
 
 ### Changed
 

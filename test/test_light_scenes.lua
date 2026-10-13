@@ -142,6 +142,18 @@ local function commands()
   return count
 end
 
+--- The transition length of each command the device was sent since the mark.
+local function lengths()
+  local out = {}
+  for _, s in ipairs(sent) do
+    local cmd = s.binding == OUTLET and s.command == "ENTITY_COMMAND" and DeserializeSafe(s.params.body)
+    if cmd then
+      out[#out + 1] = cmd.transition_length
+    end
+  end
+  return out
+end
+
 --- A scene element setting a level over `rate` ms after `delay`, 0 if nil.
 local function levelStep(level, rate, delay)
   local step = "<element><delay>%d</delay><rate>%d</rate><brightnessEnabled>true</brightnessEnabled>"
@@ -1944,6 +1956,33 @@ do
     { 0 }
   )
   run(15000)
+end
+
+T.section("a color with no rate takes the default rate, the brightness one when none was ever set")
+do
+  local function colorNoRate(xy)
+    proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_X = xy[1], LIGHT_COLOR_TARGET_Y = xy[2] })
+  end
+  for _, key in ipairs({ "color_rate_default", "brightness_rate_default" }) do
+    persist:delete(key)
+  end
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  mark()
+  colorNoRate(BLUE)
+  T.eq("with no default ever set: it goes out over 500 ms, as a level does", lengths(), { 500 })
+  T.eq("which the proxy is told", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_COLOR_RATE"), { 500 })
+  proxy("UPDATE_BRIGHTNESS_RATE_DEFAULT", { RATE = 750 })
+  mark()
+  colorNoRate(ON)
+  T.eq("with a default rate set: over that", lengths(), { 750 })
+  proxy("UPDATE_COLOR_RATE_DEFAULT", { RATE = 0 })
+  mark()
+  colorNoRate(BLUE)
+  T.eq("with a default of 0: at once", lengths(), { 0 })
+  for _, key in ipairs({ "color_rate_default", "brightness_rate_default" }) do
+    persist:delete(key)
+  end
 end
 
 T.finish()
