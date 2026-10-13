@@ -1016,7 +1016,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
   --      the SET_COLOR_TARGET handler skip a redundant ESPHome cmd that
   --      would otherwise cancel and restart the in-flight transition.
   local mergedColor = nil
-  -- A ramp's end, and a stop after a color was set, re-send the level alone.
+  -- A stop after a color was set sends the level alone.
   if not keepColor then
     if level > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE then
       mergedColor = computeFadeColor(level)
@@ -1228,11 +1228,9 @@ local function rampToBrightness(level, rate, presetId, replaced)
   -- Single ESPHome command - the bulb handles the physical transition.
   setESPHomeBrightness(level, rate)
   notifyBrightnessChanging(level, rate)
+  -- Nothing is sent at the end: the light has held the level as its state
+  -- since the command, and one sent again is one more request to answer.
   SetTimer("BrightnessRampFinish", rate, function()
-    -- Belt-and-suspenders: snap state with a 0-transition cmd at target so
-    -- our state matches the bulb's even if the transition completed slightly
-    -- before/after our timer.
-    setESPHomeBrightness(level, 0, true)
     brightnessRampFinished(level)
   end, false)
 end
@@ -1356,10 +1354,6 @@ local function rampToColor(targetX, targetY, targetMode, rate)
   -- Mode change is logically instantaneous; mid-ramp we're interpolating XY.
   currentColorMode = targetMode
   SetTimer("ColorRampFinish", rate, function()
-    sendColor(targetX, targetY, targetMode, 0)
-    currentColorX = targetX
-    currentColorY = targetY
-    currentColorMode = targetMode
     colorRampFinished(targetX, targetY, targetMode)
   end, false)
 end

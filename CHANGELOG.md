@@ -148,6 +148,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   or account, so the new settings were not tried until the next retry.
 - Fixed a ramped On of a TP-Link light in direct mode first switching the light
   on at the level it was last at, ahead of the fade to the level asked for.
+- Fixed the TP-Link Light driver sending a light its level again when a ramp
+  ended, and its color again when a color fade ended. The light already held
+  both, and the extra command was one more for it to answer while others waited.
 
 ### Changed
 

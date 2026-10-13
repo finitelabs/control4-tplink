@@ -308,7 +308,7 @@ end
 
 T.section("an on during a color ramp begun while the light was off: the light ends in the On color")
 do
-  -- The On color goes out after the ramp's, whose end would re-send its own.
+  -- The On color goes out after the ramp's, whose end sends nothing.
   local onColor = offInBlue()
   mark()
   colorTarget({ 0.3, 0.6 }, 3000)
@@ -436,7 +436,7 @@ end
 
 T.section("a color set during a rated on is the color the light ends in, with Dim-To-Warm too")
 do
-  -- The ramp's end re-sends the level alone, lest its mix replace the color.
+  -- The ramp's end sends nothing, so its mix cannot replace the color.
   for _, case in ipairs({ { 4000, 500 }, { 500, 500 }, { 0, 500 }, { 1000, 100 } }) do
     local rate, at = case[1], case[2]
     local name = ("over %d ms, %d ms into the on"):format(rate, at)
@@ -1326,7 +1326,7 @@ do
       run(20)
       target(lineX, lineY, 4000)
       run(20000)
-      T.eq(name .. ": the proxy's send of the color puts nothing more out", commands(), 3)
+      T.eq(name .. ": the proxy's send of the color puts nothing more out", commands(), 2)
       T.check(
         name .. ": the proxy is told the color once, as the light takes it",
         toldOnce(pointX, pointY, CCT),

@@ -774,6 +774,29 @@ do
   T.eq("with nothing behind it", flying(), {})
 end
 
+T.section("a ramp's end sends the light nothing: it has held the level and the color since the command")
+do
+  -- Each ramp ends before the first poll is due, with nothing else in flight.
+  light()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 2000 })
+  reply()
+  run(2200)
+  T.eq("a level ramp: nothing is sent at its end", flying(), {})
+  T.eq("where the proxy is told the level", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 2000 })
+  mark()
+  colorTarget(BLUE, 2000)
+  reply()
+  run(2200)
+  T.eq("a color ramp: nothing is sent at its end", flying(), {})
+  T.eq("where the proxy is told the color", told("LIGHT_COLOR_CHANGED", "at"), { 2000 })
+  bulb()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 2000 })
+  reply()
+  run(2200)
+  T.eq("a Kasa bulb's level ramp: nothing is sent at its end", flying(), {})
+  T.eq("where the proxy is told the level", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 2000 })
+end
+
 T.eq("no timer or reply handler raised", errors, {})
 
 T.finish()
