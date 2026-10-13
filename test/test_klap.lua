@@ -171,7 +171,9 @@ local function fakeDevice(opts)
       local plaintext = C4:Decrypt("AES-128-CBC", self.key, iv, ciphertext, AES)
       local request = JSON:decode(plaintext)
       self.requestCount = self.requestCount + 1
-      local response = JSON:encode(self.handler(request))
+      -- A handler's string goes out as it is: text that need not be JSON.
+      local reply = self.handler(request)
+      local response = type(reply) == "string" and reply or JSON:encode(reply)
       local responseCipher = C4:Encrypt("AES-128-CBC", self.key, iv, response, AES)
       local responseSignature = sha256(self.sig .. packInt32BE(self.seq) .. responseCipher)
       return 200, {}, responseSignature .. responseCipher
@@ -512,6 +514,35 @@ T.eq(
   Select(outcome.resolved, "system", "get_sysinfo", "model"),
   "HS300(US)"
 )
+
+T.section("A request whose answer cannot be read")
+
+-- A session reset while a request is in flight, as a reconnect does. On a
+-- controller C4:Decrypt raises on the key a reset leaves, which is none.
+local klapReset = Klap:new()
+klapReset:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+klapReset:connect()
+release()
+release()
+outcome = settle(klapReset:request({ system = { get_sysinfo = {} } }))
+klapReset:reset()
+release()
+T.eq(
+  "a session reset before a request's answer: the answer is read all the same",
+  Select(outcome.resolved, "system", "get_sysinfo", "model"),
+  "HS300(US)"
+)
+
+fakeDevice({
+  version = 2,
+  handler = function()
+    return '{"system":{"get_sysinfo":{"err_code":0,"mod'
+  end,
+}):install()
+local klapCutShort = Klap:new()
+klapCutShort:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+outcome = settle(klapCutShort:request({ system = { get_sysinfo = {} } }))
+T.contains("an answer that is not JSON fails the request", Select(outcome.rejected, "error"), "not valid JSON")
 
 T.section("The account is not traced")
 

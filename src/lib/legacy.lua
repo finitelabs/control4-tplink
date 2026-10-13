@@ -156,9 +156,10 @@ function Legacy:_onDataIn(strData)
   CancelTimer(TIMEOUT_TIMER)
   self._inFlight = nil
 
-  local decoded = JSON:decode(unscramble(strData))
+  -- JSON:decode raises on text that is not JSON, as a datagram cut short is.
+  local ok, decoded = pcall(JSON.decode, JSON, unscramble(strData))
   self:_sendNext()
-  if decoded == nil then
+  if not ok or decoded == nil then
     inFlight.d:reject({ error = "Legacy: response is not valid JSON" })
   else
     inFlight.d:resolve(decoded)

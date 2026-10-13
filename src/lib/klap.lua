@@ -320,9 +320,12 @@ function Klap:_send(payload)
   local seq = self._seq
   local seqBytes = packInt32BE(seq)
   local iv = self._iv .. seqBytes
+  -- The answer is read with the key the request goes out under: a reset
+  -- before it comes leaves the transport none, and C4:Decrypt raises on that.
+  local key = self._key
 
   local plaintext = JSON:encode(payload)
-  local ciphertext, encryptErr = C4:Encrypt("AES-128-CBC", self._key, iv, plaintext, CIPHER_OPTIONS)
+  local ciphertext, encryptErr = C4:Encrypt("AES-128-CBC", key, iv, plaintext, CIPHER_OPTIONS)
   if not ciphertext then
     return d:reject({ error = "Klap: encryption failed: " .. tostring(encryptErr) })
   end
@@ -338,13 +341,13 @@ function Klap:_send(payload)
     )
     :next(function(response)
       local body = response.body or ""
-      local plaintextResponse, decryptErr =
-        C4:Decrypt("AES-128-CBC", self._key, iv, string.sub(body, 33), CIPHER_OPTIONS)
+      local plaintextResponse, decryptErr = C4:Decrypt("AES-128-CBC", key, iv, string.sub(body, 33), CIPHER_OPTIONS)
       if not plaintextResponse then
         return d:reject({ error = "Klap: decryption failed: " .. tostring(decryptErr) })
       end
-      local decoded = JSON:decode(plaintextResponse)
-      if decoded == nil then
+      -- JSON:decode raises on text that is not JSON.
+      local ok, decoded = pcall(JSON.decode, JSON, plaintextResponse)
+      if not ok or decoded == nil then
         return d:reject({ error = "Klap: response is not valid JSON: " .. tostring(plaintextResponse) })
       end
       d:resolve(decoded)

@@ -293,6 +293,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   account to the Lua output and the log: the password at `Log Level`
   `6 - Ultra`, and the username from `5 - Trace` up. Neither is printed at any
   level now.
+- Fixed a request to a TP-Link device being left with neither an answer nor a
+  failure in two cases: over KLAP when the driver reconnected while the request
+  was on its way, and over either protocol when the device's reply could not be
+  read. The TP-Link Outlet driver sends no poll while one is unanswered, so from
+  then on it no longer noticed an output switched at the device or in the Kasa
+  or Tapo app, or the device going offline, until the driver was reloaded.
 
 ### Changed
 
