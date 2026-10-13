@@ -245,6 +245,24 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a TP-Link light in direct mode being shown, for a few seconds after a
   command, at the level or color it had just before it, when the driver's poll
   of the light was already on its way as the command was made.
+- Fixed the TP-Link Light driver showing
+  `Disconnected: Legacy: request timed out` in `Driver Status` for a light that
+  was connected and working, after the username and password were entered, or
+  after any two connection properties were changed a few seconds apart. A
+  connection attempt went on acting after a later one had replaced it: it could
+  write its own result over the status, and could leave the driver connected
+  over a protocol the `Protocol` property excludes.
+- Fixed `Driver Status` of the TP-Link Light driver flipping between
+  `Connecting` and the reason the light was not found, every poll, while the
+  driver kept trying. The reason now stays until an attempt ends another way.
+- Fixed the TP-Link Light and TP-Link Outlet drivers failing to connect to a
+  device that was answering, until the next retry, when a connection property
+  was changed or Reconnect was run at the moment a KLAP handshake was half done.
+  The session that handshake made had lost its cookie, and the device refused
+  every request on it.
+- Fixed a change of IP address or TP-Link account made while a KLAP handshake
+  was still under way being answered by that handshake, begun for the old device
+  or account, so the new settings were not tried until the next retry.
 
 ### Changed
 

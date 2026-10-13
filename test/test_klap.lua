@@ -423,6 +423,96 @@ T.check("KL130 on+brightness over KLAP v1 accepted", outcome.resolved ~= nil, Se
 outcome = settle(iotBulb:poll())
 T.eq("KL130 brightness reflects 75", Select(outcome.resolved, "state", "brightness"), 0.75)
 
+T.section("A handshake in flight when the device or the account changes")
+
+-- Each response is held until the test lets it go, oldest first.
+local responses = {}
+local function release()
+  local response = table.remove(responses, 1)
+  if response then
+    response()
+  end
+end
+function urlDo(method, url, data, headers, callback, context, options)
+  table.insert(responses, function()
+    -- As the Tapo strip does, a step after the first is refused without the
+    -- cookie the first gave.
+    if not string.find(url, "/app/handshake1", 1, true) and Select(headers, "Cookie") == nil then
+      return callback("HTTP 400", 400, {}, "", nil, url)
+    end
+    local code, responseHeaders, responseBody = deviceV2:serve(url, data or "")
+    callback(nil, code, responseHeaders, responseBody, nil, url)
+  end)
+end
+
+local klapMoved = Klap:new()
+klapMoved:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+local first = klapMoved:connect()
+local firstOutcome = settle(first)
+klapMoved:configure({ ip = "127.0.0.2" })
+T.eq("its waiters are told at once", Select(firstOutcome.rejected, "error"), "Klap: connection reset")
+local second = klapMoved:connect()
+T.check("the next connect starts a handshake of its own", second ~= first)
+release()
+T.eq("the first handshake's answer is not followed up", #responses, 1)
+T.falsy("nor taken as a session", klapMoved:isConnected())
+release()
+release()
+T.check("the second handshake makes the session", settle(second).resolved ~= nil and klapMoved:isConnected())
+outcome = settle(klapMoved:request({ system = { get_sysinfo = {} } }))
+release()
+T.eq("which requests go out on", Select(outcome.resolved, "system", "get_sysinfo", "model"), "HS300(US)")
+
+for _, change in ipairs({ { username = "other@example.com" }, { password = "another" } }) do
+  local klapAccount = Klap:new()
+  klapAccount:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+  local dropped = settle(klapAccount:connect())
+  klapAccount:configure(change)
+  T.eq(
+    "a changed " .. next(change) .. " drops the handshake too",
+    Select(dropped.rejected, "error"),
+    "Klap: connection reset"
+  )
+  release()
+end
+
+local klapBetween = Klap:new()
+klapBetween:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+first = klapBetween:connect()
+firstOutcome = settle(first)
+release()
+T.eq("the first step is answered, and the second is in flight", #responses, 1)
+klapBetween:configure({ ip = "127.0.0.2" })
+T.eq(
+  "a handshake dropped between its two steps: its waiters are told",
+  Select(firstOutcome.rejected, "error"),
+  "Klap: connection reset"
+)
+second = klapBetween:connect()
+release()
+T.falsy("the answer to its second step makes no session", klapBetween:isConnected())
+release()
+release()
+T.check("which the next handshake makes", settle(second).resolved ~= nil and klapBetween:isConnected())
+
+local klapSame = Klap:new()
+klapSame:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+first = klapSame:connect()
+klapSame:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+T.check("configured again with nothing changed: the handshake is shared", klapSame:connect() == first)
+release()
+klapSame:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+T.check("and again between its two steps: the same", klapSame:connect() == first)
+release()
+T.check("and makes the session", settle(first).resolved ~= nil and klapSame:isConnected())
+outcome = settle(klapSame:request({ system = { get_sysinfo = {} } }))
+release()
+T.eq(
+  "whose requests go out with the cookie its first step was given",
+  Select(outcome.resolved, "system", "get_sysinfo", "model"),
+  "HS300(US)"
+)
+
 T.section("Optional: probe a real device on the network")
 
 local realIp = os.getenv("TPLINK_TEST_IP")

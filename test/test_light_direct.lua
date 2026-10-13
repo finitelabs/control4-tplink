@@ -101,7 +101,9 @@ Transport.__index = Transport
 
 function Transport:configure() end
 
-function Transport:reset() end
+function Transport:reset()
+  self.resets = self.resets + 1
+end
 
 function Transport:connect()
   local d = deferred.new()
@@ -116,12 +118,14 @@ function Transport:request(payload)
 end
 
 -- The driver's three transports, as it made them when it was last loaded.
-local klap, legacy
+local klap, klapV1, legacy
 
 package.loaded["lib.klap"] = {
   new = function(_, opts)
-    local transport = setmetatable({ handshakes = {} }, Transport)
-    if Select(opts, "authVersion") ~= 1 then
+    local transport = setmetatable({ handshakes = {}, resets = 0 }, Transport)
+    if Select(opts, "authVersion") == 1 then
+      klapV1 = transport
+    else
       klap = transport
     end
     return transport
@@ -129,7 +133,7 @@ package.loaded["lib.klap"] = {
 }
 package.loaded["lib.legacy"] = {
   new = function()
-    legacy = setmetatable({ handshakes = {} }, Transport)
+    legacy = setmetatable({ handshakes = {}, resets = 0 }, Transport)
     return legacy
   end,
 }
@@ -190,9 +194,14 @@ local function sysinfo(lightState)
   }
 end
 
---- Answer the oldest held request: a SMART result, or an IOT response whole.
-local function reply(result)
-  local request = table.remove(held, 1)
+--- Answer a held request, the oldest unless `i` names another: a SMART result,
+--- or an IOT response whole. With none there, as on a driver that sent nothing,
+--- it does nothing, and the check after it says so.
+local function reply(result, i)
+  local request = table.remove(held, i or 1)
+  if request == nil then
+    return
+  end
   if request.payload.method then
     request.d:resolve({ error_code = 0, result = result or {} })
   else
@@ -200,9 +209,14 @@ local function reply(result)
   end
 end
 
+local TIMED_OUT = "Legacy: request timed out (no response on UDP 9999)"
+
 --- Fail the oldest held request, as a transport does one it got no answer to.
 local function fail(reason)
-  table.remove(held, 1).d:reject({ error = reason or "request timed out" })
+  local request = table.remove(held, 1)
+  if request ~= nil then
+    request.d:reject({ error = reason or TIMED_OUT })
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -235,15 +249,28 @@ function C4:GetDriverConfigInfo(section)
   return config(self, section)
 end
 
+local sent, statuses, start = {}, {}, now
+
 function C4:UpdateProperty(name, value)
   Properties[name] = value
+  if name == "Driver Status" then
+    statuses[#statuses + 1] = value
+  end
 end
 
-local sent, start = {}, now
-
---- Count what the proxy is told from here.
+--- Count what the proxy is told, and each Driver Status written, from here.
 local function mark()
-  sent, start = {}, now
+  sent, statuses, start = {}, {}, now
+end
+
+local function status()
+  return Properties["Driver Status"]
+end
+
+--- Set a property as Composer does: the value, then the driver's handler.
+local function setProperty(name, value)
+  Properties[name] = value
+  OnPropertyChanged(name)
 end
 
 --- Load the driver afresh and start it with these properties over the usual.
@@ -270,10 +297,15 @@ local function startDriver(properties)
   mark()
 end
 
+--- Complete the KLAP handshake the driver asked for last.
+local function shakeHands()
+  klap.handshakes[#klap.handshakes]:resolve(klap)
+end
+
 --- A color strip connected over KLAP with the SMART schema, as info() has it.
 local function light(fields)
   startDriver()
-  klap.handshakes[1]:resolve(klap)
+  shakeHands()
   reply(info(fields))
   mark()
 end
@@ -529,6 +561,177 @@ do
   T.eq("a poll sent before a command tells the proxy nothing", levels(), { 60 })
   T.eq("and the command goes out next", flying(), { { on_off = 1, brightness = 60, ignore_default = 1 } })
   reply()
+end
+
+T.section("a connect attempt that a later one has replaced does nothing more")
+do
+  -- Protocol set to Legacy and, before that probe has timed out, back to Auto.
+  light()
+  local resets = legacy.resets
+  setProperty("Protocol", "Legacy")
+  T.eq("Legacy: the legacy port is probed", #held == 1 and held[1].transport, legacy)
+  T.eq("on a transport reset first, so no probe waits behind the last attempt's", legacy.resets, resets + 1)
+  setProperty("Protocol", "Auto")
+  shakeHands()
+  reply(info(), 2)
+  T.eq("Auto again: the light connects over KLAP", status(), "Connected (SMART)")
+  mark()
+  fail()
+  T.eq("the Legacy attempt's probe then times out: the status stands", status(), "Connected (SMART)")
+  T.eq("and the proxy is told nothing", sent, {})
+
+  -- Protocol set to KLAP and, before its handshake is done, to Legacy.
+  light()
+  setProperty("Protocol", "KLAP")
+  local handshake = klap.handshakes[#klap.handshakes]
+  setProperty("Protocol", "Legacy")
+  mark()
+  handshake:resolve(klap)
+  T.eq(
+    "the KLAP attempt's handshake then completes: nothing is asked over it",
+    #held == 1 and held[1].transport,
+    legacy
+  )
+  T.eq("the light is not taken as connected", told("ONLINE_CHANGED", "STATE"), {})
+  T.eq("and the status is the Legacy attempt's", status(), "Connecting (Legacy)...")
+  fail()
+  T.eq("as it is when that attempt ends", status(), "Disconnected: " .. TIMED_OUT)
+
+  -- Each later step of a KLAP attempt, ended after Protocol became Legacy.
+  --- The status, what the proxy was told and whether the Legacy attempt's
+  --- probe alone is in flight, once `land` has ended the step `reach` brought
+  --- a KLAP attempt to.
+  local function afterReplaced(reach, land)
+    light()
+    setProperty("Protocol", "KLAP")
+    reach()
+    setProperty("Protocol", "Legacy")
+    mark()
+    land()
+    return { status(), told("ONLINE_CHANGED", "STATE"), #held == 1 and held[1].transport == legacy }
+  end
+  local NOTHING = { "Connecting (Legacy)...", {}, true }
+  local function toIotProbe()
+    shakeHands()
+    fail("not a SMART device")
+  end
+  local function toV1Handshake()
+    klap.handshakes[#klap.handshakes]:reject({ error = "Klap: handshake1 auth mismatch" })
+  end
+  T.eq(
+    "its SMART probe is answered: nothing is adopted",
+    afterReplaced(shakeHands, function()
+      reply(info(), 1)
+    end),
+    NOTHING
+  )
+  T.eq(
+    "its SMART probe fails: no IOT probe follows over KLAP",
+    afterReplaced(shakeHands, function()
+      fail("not a SMART device")
+    end),
+    NOTHING
+  )
+  T.eq(
+    "its IOT probe over KLAP is answered: nothing is adopted",
+    afterReplaced(toIotProbe, function()
+      reply(sysinfo(), 1)
+    end),
+    NOTHING
+  )
+  T.eq(
+    "its handshake fails: the status is not its reason",
+    afterReplaced(function() end, function()
+      klap.handshakes[#klap.handshakes]:reject({ error = "Klap: refused" })
+    end),
+    NOTHING
+  )
+  T.eq(
+    "its handshake with v1 hashing completes: no probe follows over it",
+    afterReplaced(toV1Handshake, function()
+      klapV1.handshakes[#klapV1.handshakes]:resolve(klapV1)
+    end),
+    NOTHING
+  )
+  T.eq(
+    "its handshake with v1 hashing fails: the status is not its reason",
+    afterReplaced(toV1Handshake, function()
+      klapV1.handshakes[#klapV1.handshakes]:reject({ error = "Klap: refused" })
+    end),
+    NOTHING
+  )
+end
+
+T.section("an answer to a poll or a command sent before the backend was started again is not acted on")
+do
+  light()
+  run(5000)
+  T.eq("a poll is in flight", flying(), { "poll" })
+  setProperty("Poll Rate (Seconds)", "10")
+  mark()
+  reply(info({ brightness = 30 }))
+  T.eq("its answer after the restart tells the proxy nothing", sent, {})
+  T.eq("and is not the new attempt's connection", status(), "Connecting (KLAP)...")
+  shakeHands()
+  reply(info())
+  T.eq("which its own probe makes", status(), "Connected (SMART)")
+
+  light()
+  proxy("SET_LEVEL", { LEVEL = 30 })
+  setProperty("Poll Rate (Seconds)", "10")
+  shakeHands()
+  reply(info(), 2)
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  reply(nil, 1)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq(
+    "a command's answer after the restart does not let the next past the one in flight",
+    flying(),
+    { { device_on = true, brightness = 40 } }
+  )
+  reply()
+  T.eq("which goes when that one is answered", flying(), { { device_on = true, brightness = 50 } })
+  reply()
+
+  light()
+  proxy("SET_LEVEL", { LEVEL = 30 })
+  run(5000)
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  setProperty("Poll Rate (Seconds)", "10")
+  shakeHands()
+  reply(info(), 2)
+  proxy("SET_LEVEL", { LEVEL = 60 })
+  reply(nil, 2)
+  T.eq(
+    "a command and a poll that waited before the restart are not sent after it",
+    flying(),
+    { { device_on = true, brightness = 30 } }
+  )
+end
+
+T.section("while no light is found the poll timer tries again, and says nothing until the outcome changes")
+do
+  startDriver({ ["Protocol"] = "Legacy" })
+  T.eq("an attempt says what it is trying", status(), "Connecting (Legacy)...")
+  fail()
+  T.eq("and why it found no light", status(), "Disconnected: " .. TIMED_OUT)
+  mark()
+  run(5000)
+  T.eq("the retry probes again", flying(), { "poll" })
+  T.eq("without a word", statuses, {})
+  fail()
+  T.eq("nor when it fails the same way", statuses, {})
+  T.eq("so the reason stands", status(), "Disconnected: " .. TIMED_OUT)
+  run(5000)
+  reply(sysinfo())
+  T.eq("a retry that finds the light says so", status(), "Connected (Legacy)")
+
+  startDriver()
+  run(12000)
+  T.eq("an attempt still waiting on its handshake is not replaced by a retry", #klap.handshakes, 1)
+  shakeHands()
+  reply(info())
+  T.eq("and connects when the light answers", status(), "Connected (SMART)")
 end
 
 T.eq("no timer or reply handler raised", errors, {})

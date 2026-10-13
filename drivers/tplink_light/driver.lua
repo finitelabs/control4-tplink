@@ -2735,6 +2735,16 @@ end
 --- @type boolean
 local directConnected = false
 
+--- Counts backendStart, as sceneGeneration counts scenes: a connect attempt,
+--- and the answer to a poll or a command, does nothing once it has moved on.
+--- @type number
+local backendGeneration = 0
+
+--- Whether a connect attempt is still probing. The poll timer's retry waits
+--- for it: a start would replace it before it had found or failed to find.
+--- @type boolean
+local directDetecting = false
+
 --- Map a SMART get_device_info result to the entity shape applyUpdate expects.
 --- @param info table
 --- @return table entity
@@ -2821,11 +2831,12 @@ local DIRECT_ANSWER_TIMER = "DirectAnswer"
 --- @param onAnswer fun(response: table)
 --- @param onFail fun(err: table)
 local function directFlight(request, onAnswer, onFail)
+  local generation = backendGeneration
   local over = false
   directBusy = true
   local function landed(handler)
     return function(value)
-      if over then
+      if over or generation ~= backendGeneration then
         return
       end
       over = true
@@ -3049,11 +3060,16 @@ local function setNetworkPropertiesAttribs(attrib)
 end
 
 --- Select and start the appropriate backend from current bindings/properties.
-backendStart = function()
+--- @param retry boolean? The poll timer trying again after no light was found.
+backendStart = function(retry)
   CancelTimer(DIRECT_POLL_TIMER)
+  backendGeneration = backendGeneration + 1
+  local generation = backendGeneration
+  directDetecting = false
   directConnected = false
   transportName = nil
-  -- What waited was for the light as it was configured.
+  -- The request in flight and what waited were for the backend as it was.
+  directBusy = false
   directWaiting = nil
   directPollWaiting = false
 
@@ -3095,9 +3111,39 @@ backendStart = function()
   klap:configure(config)
   klapV1:configure(config)
   legacy:configure({ ip = ip })
+  -- A probe the last attempt left on the legacy port would hold this one's.
+  legacy:reset()
 
   local mode = Properties["Protocol"] or "Auto"
   local hasCredentials = not IsEmpty(Properties["TP-Link Username"]) and not IsEmpty(Properties["TP-Link Password"])
+
+  --- A continuation of this attempt: one that comes in after the backend has
+  --- been started again does nothing.
+  --- @param continuation function
+  --- @return function
+  local function live(continuation)
+    return function(...)
+      if generation == backendGeneration then
+        continuation(...)
+      end
+    end
+  end
+
+  --- Say which transport is being tried. A retry says nothing: the reason the
+  --- last attempt failed for stays up until this one ends another way.
+  --- @param name string
+  local function connecting(name)
+    if not retry then
+      UpdateProperty("Driver Status", "Connecting (" .. name .. ")...")
+    end
+  end
+
+  --- End this attempt with no light found. The poll timer tries again.
+  --- @param reason string
+  local function failed(reason)
+    directDetecting = false
+    UpdateProperty("Driver Status", "Disconnected: " .. reason)
+  end
 
   --- Adopt a probed schema/transport and apply its first poll result.
   --- @param schema string "smart" or "iot"
@@ -3106,6 +3152,7 @@ backendStart = function()
   --- @param entity table
   --- @param state table
   local function adopt(schema, bulb, name, entity, state)
+    directDetecting = false
     directSchema = schema
     iotBulb = bulb
     transportName = name
@@ -3120,44 +3167,49 @@ backendStart = function()
   --- @param onFail fun(reason: string)
   local function tryIotBulb(transport, name, onFail)
     local bulb = IotBulb:new(transport)
-    bulb:poll():next(function(result)
-      adopt("iot", bulb, name, result.entity, result.state)
-    end, function(err)
-      onFail(Select(err, "error") or "no response")
-    end)
+    bulb:poll():next(
+      live(function(result)
+        adopt("iot", bulb, name, result.entity, result.state)
+      end),
+      live(function(err)
+        onFail(Select(err, "error") or "no response")
+      end)
+    )
   end
 
   --- Probe the established KLAP v2 session with the SMART schema.
   --- @param onFail fun(reason: string)
   local function trySmart(onFail)
-    klap:request({ method = "get_device_info", params = {} }):next(function(response)
-      if tointeger(Select(response, "error_code")) == 0 then
-        local info = Select(response, "result") or {}
-        adopt("smart", nil, "SMART", synthesizeEntity(info), synthesizeState(info))
-      else
-        onFail("device rejected get_device_info over KLAP")
-      end
-    end, function(err)
-      onFail(Select(err, "error") or "SMART request failed")
-    end)
+    klap:request({ method = "get_device_info", params = {} }):next(
+      live(function(response)
+        if tointeger(Select(response, "error_code")) == 0 then
+          local info = Select(response, "result") or {}
+          adopt("smart", nil, "SMART", synthesizeEntity(info), synthesizeState(info))
+        else
+          onFail("device rejected get_device_info over KLAP")
+        end
+      end),
+      live(function(err)
+        onFail(Select(err, "error") or "SMART request failed")
+      end)
+    )
   end
 
   --- Probe the legacy port 9999 transport, the last resort in Auto mode.
   --- @param klapReason string? The KLAP failure that led here, for the status.
   --- @param klapCode number? HTTP status of a refused KLAP handshake, if any.
   local function tryLegacy(klapReason, klapCode)
-    UpdateProperty("Driver Status", "Connecting (Legacy)...")
+    connecting("Legacy")
     tryIotBulb(legacy, "Legacy", function(legacyReason)
       if klapCode == 403 then
         log:info("Legacy probe failed: %s", legacyReason)
-        UpdateProperty("Driver Status", "Disconnected: " .. klapReason)
+        failed(klapReason)
         return
       end
       if mode == "Auto" and not hasCredentials then
         legacyReason = legacyReason .. " (set TP-Link credentials if this device is on KLAP firmware)"
       end
-      local reason = klapReason and ("KLAP: " .. klapReason .. " / Legacy: " .. legacyReason) or legacyReason
-      UpdateProperty("Driver Status", "Disconnected: " .. reason)
+      failed(klapReason and ("KLAP: " .. klapReason .. " / Legacy: " .. legacyReason) or legacyReason)
     end)
   end
 
@@ -3166,7 +3218,7 @@ backendStart = function()
   --- @param code number? HTTP status of a refused handshake, if any.
   local function onKlapFail(reason, code)
     if mode == "KLAP" then
-      UpdateProperty("Driver Status", "Disconnected: " .. reason)
+      failed(reason)
     else
       log:info("KLAP probe failed (%s); trying legacy protocol", reason)
       tryLegacy(reason, code)
@@ -3178,25 +3230,31 @@ backendStart = function()
   --- on KLAP firmware). A v2 auth mismatch retries the handshake with v1
   --- hashing before falling back.
   local function tryKlap()
-    UpdateProperty("Driver Status", "Connecting (KLAP)...")
-    klap:connect():next(function()
-      trySmart(function(smartReason)
-        log:info("SMART probe failed (%s); trying IOT bulb schema over KLAP", smartReason)
-        tryIotBulb(klap, "KLAP", onKlapFail)
+    connecting("KLAP")
+    klap:connect():next(
+      live(function()
+        trySmart(function(smartReason)
+          log:info("SMART probe failed (%s); trying IOT bulb schema over KLAP", smartReason)
+          tryIotBulb(klap, "KLAP", onKlapFail)
+        end)
+      end),
+      live(function(err)
+        local reason = Select(err, "error") or "KLAP connection failed"
+        if string.find(reason, "auth mismatch", 1, true) == nil then
+          onKlapFail(reason, Select(err, "code"))
+          return
+        end
+        log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
+        klapV1:connect():next(
+          live(function()
+            tryIotBulb(klapV1, "KLAP", onKlapFail)
+          end),
+          live(function(v1Err)
+            onKlapFail(Select(v1Err, "error") or "KLAP connection failed", Select(v1Err, "code"))
+          end)
+        )
       end)
-    end, function(err)
-      local reason = Select(err, "error") or "KLAP connection failed"
-      if string.find(reason, "auth mismatch", 1, true) == nil then
-        onKlapFail(reason, Select(err, "code"))
-        return
-      end
-      log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
-      klapV1:connect():next(function()
-        tryIotBulb(klapV1, "KLAP", onKlapFail)
-      end, function(v1Err)
-        onKlapFail(Select(v1Err, "error") or "KLAP connection failed", Select(v1Err, "code"))
-      end)
-    end)
+    )
   end
 
   if mode == "KLAP" or (mode == "Auto" and hasCredentials) then
@@ -3204,20 +3262,22 @@ backendStart = function()
       UpdateProperty("Driver Status", "Set the TP-Link Username and Password properties (required for KLAP)")
       return
     end
+    directDetecting = true
     tryKlap()
   else
     -- Legacy mode, or Auto without credentials (KL-series bulbs on original
     -- firmware need none).
+    directDetecting = true
     tryLegacy(nil)
   end
 
   local pollSeconds = tointeger(Properties["Poll Rate (Seconds)"]) or 5
   SetTimer(DIRECT_POLL_TIMER, pollSeconds * 1000, function()
-    if directSchema == nil then
-      -- Detection failed or never ran; keep retrying until the device answers.
-      backendStart()
-    else
+    if directSchema ~= nil then
       directPoll()
+    elseif not directDetecting then
+      -- Detection found no light; keep retrying until the device answers.
+      backendStart(true)
     end
   end, true)
 end
