@@ -1985,4 +1985,39 @@ do
   end
 end
 
+T.section("a preset stored on a driver with none is stored under its own key alone")
+do
+  -- persist answers every unset key with the one table it keeps for that: a
+  -- preset written into it is every unset key's answer from then on.
+  local keys = { "brightness_presets", "color_presets", "color_on_mode", "brightness_on_mode" }
+  for _, key in ipairs(keys) do
+    persist:delete(key)
+  end
+  light({ ColorMode.COLOR_MODE_RGB })
+  proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "ADDED", ID = 10, NAME = "Previous On", LEVEL = 20 })
+  proxy(
+    "UPDATE_COLOR_PRESET",
+    { COMMAND = "ADDED", ID = 1, NAME = "On Color", COLOR_X = ON[1], COLOR_Y = ON[2], COLOR_MODE = 0 }
+  )
+  --- The ids stored under `key`.
+  local function ids(key)
+    local out = {}
+    for id in pairs(persist:get(key, {})) do
+      out[#out + 1] = id
+    end
+    table.sort(out)
+    return out
+  end
+  T.eq("the brightness presets are the one sent", ids("brightness_presets"), { "10" })
+  T.eq("the color presets are the one sent", ids("color_presets"), { "1" })
+  T.eq("no Color On Mode is stored", PersistGetValue("color_on_mode"), nil)
+  T.eq("and a key with nothing stored still reads as empty", persist:get("brightness_on_mode"), {})
+  proxy("ON")
+  proxy("OFF")
+  T.eq("an on and an off later, it still does", persist:get("brightness_on_mode"), {})
+  for _, key in ipairs(keys) do
+    persist:delete(key)
+  end
+end
+
 T.finish()

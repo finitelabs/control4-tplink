@@ -518,7 +518,7 @@ local function updateDynamicCapabilities(entity)
     [constants.ButtonIds.TOGGLE] = "Toggle",
   }
   for buttonId, name in pairs(buttonNames) do
-    local colors = persist:get(P_BUTTON_COLORS) or {}
+    local colors = persist:get(P_BUTTON_COLORS, {})
     local saved = colors[tostring(buttonId)] or {}
     SendToProxy(PROXY_BINDING, "BUTTON_INFO", {
       BUTTON_ID = buttonId,
@@ -587,8 +587,7 @@ local function getPresetLevel()
 end
 
 local function getOnBrightness()
-  local onMode = persist:get(P_ON_MODE)
-  local level = onMode and tointeger(onMode.level)
+  local level = tointeger(persist:get(P_ON_MODE, {}).level)
   if level and level >= 1 then
     return math.min(level, 100)
   end
@@ -779,10 +778,7 @@ end
 -- both via UPDATE_COLOR_ON_MODE (onPreset = on color, fadePreset = dim
 -- color). Returns nil if either color is missing or fade mode isn't active.
 local function computeFadeColor(brightness)
-  local mode = persist:get(P_COLOR_ON_MODE)
-  if not mode then
-    return nil
-  end
+  local mode = persist:get(P_COLOR_ON_MODE, {})
   local onPreset = mode.onPreset
   local dimPreset = mode.fadePreset
   if not onPreset or not dimPreset then
@@ -806,8 +802,8 @@ local function getColorOnModeKind()
   if not (supportsColor or supportsCCT) then
     return COLOR_ON_MODE_NONE
   end
-  local mode = persist:get(P_COLOR_ON_MODE)
-  if not mode or not mode.fadePreset then
+  local mode = persist:get(P_COLOR_ON_MODE, {})
+  if not mode.fadePreset then
     return COLOR_ON_MODE_NONE
   end
   local fadeOrigin = mode.fadePreset.origin
@@ -847,14 +843,13 @@ local function resolveOnColor(brightnessLevel)
     return computeFadeColor(brightnessLevel)
   end
   if kind == COLOR_ON_MODE_PREVIOUS then
-    local prev = persist:get(P_PREVIOUS_COLOR)
-    if prev and prev.x and prev.y then
+    local prev = persist:get(P_PREVIOUS_COLOR, {})
+    if prev.x and prev.y then
       return { x = prev.x, y = prev.y, mode = prev.mode or LIGHT_COLOR_MODE_FULL }
     end
   end
   if kind == COLOR_ON_MODE_PRESET then
-    local mode = persist:get(P_COLOR_ON_MODE)
-    local onPreset = mode and mode.onPreset
+    local onPreset = persist:get(P_COLOR_ON_MODE, {}).onPreset
     if onPreset and onPreset.x and onPreset.y then
       local x, y, colorMode = takenColor(onPreset.x, onPreset.y, onPreset.mode or LIGHT_COLOR_MODE_FULL)
       return { x = x, y = y, mode = colorMode }
@@ -1518,7 +1513,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   -- LIGHT_COLOR_CHANGED notifies report it as the current preset.
   local presetId = tointeger(Select(tParams, "LIGHT_COLOR_TARGET_PRESET_ID"))
   if presetId ~= nil and not (x and y) and not (kelvin and kelvin > 0) then
-    local preset = (persist:get(P_COLOR_PRESETS) or {})[tostring(presetId)]
+    local preset = persist:get(P_COLOR_PRESETS, {})[tostring(presetId)]
     if preset then
       x = preset.x
       y = preset.y
@@ -2138,7 +2133,7 @@ function RFP.SET_BRIGHTNESS_ON_MODE(idBinding, strCommand, tParams, args)
   end
   persist:set(P_BRIGHTNESS_ON_MODE_PRESET, presetId)
   -- Look up the preset's current level so getOnBrightness uses it immediately.
-  local presets = persist:get(P_BRIGHTNESS_PRESETS) or {}
+  local presets = persist:get(P_BRIGHTNESS_PRESETS, {})
   local preset = presets[tostring(presetId)]
   if preset and preset.level then
     persist:set(P_ON_MODE, { id = presetId, level = preset.level })
@@ -2157,7 +2152,7 @@ function RFP.UPDATE_BRIGHTNESS_PRESET(idBinding, strCommand, tParams, args)
   if presetId == nil then
     return
   end
-  local presets = persist:get(P_BRIGHTNESS_PRESETS) or {}
+  local presets = persist:get(P_BRIGHTNESS_PRESETS, {})
   local key = tostring(presetId)
   if command == "REMOVED" then
     presets[key] = nil
@@ -2212,7 +2207,7 @@ function RFP.UPDATE_COLOR_PRESET(idBinding, strCommand, tParams, args)
   if presetId == nil then
     return
   end
-  local presets = persist:get(P_COLOR_PRESETS) or {}
+  local presets = persist:get(P_COLOR_PRESETS, {})
   local key = tostring(presetId)
   if command == "REMOVED" then
     presets[key] = nil
@@ -2227,8 +2222,8 @@ function RFP.UPDATE_COLOR_PRESET(idBinding, strCommand, tParams, args)
   end
   persist:set(P_COLOR_PRESETS, presets)
   -- The on and dim colors follow an edit of the preset the on mode names.
-  local onMode = persist:get(P_COLOR_ON_MODE)
-  if onMode and presets[key] then
+  local onMode = persist:get(P_COLOR_ON_MODE, {})
+  if onMode.onPreset and presets[key] then
     for _, p in ipairs({ onMode.onPreset, onMode.fadePreset }) do
       if p.id == presetId and p.origin == PRESET_ORIGIN_DEVICE then
         p.x, p.y, p.mode = presets[key].x, presets[key].y, presets[key].mode

@@ -280,6 +280,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a color change sent to a TP-Link light with no ramp time being taken at
   once on a light whose default ramp rate had never been set. It now takes the
   default ramp rate, as a level change does.
+- Fixed the TP-Link Light driver storing a light's brightness presets among its
+  color presets, and the two together as its Color On Mode, when a preset
+  reached a driver that had stored none yet.
 
 ### Changed
 
