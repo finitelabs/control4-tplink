@@ -3176,10 +3176,9 @@ backendStart = function(retry)
   smartPendingColor = nil
 
   -- Force a fresh capability discovery on every (re)connect. The light_v2
-  -- proxy resets to the conservative static baseline whenever the driver
-  -- reloads, so the dynamic capabilities must be re-emitted; clearing ENTITY
-  -- makes the next state update count as the first and re-run
-  -- updateDynamicCapabilities.
+  -- proxy resets to the static baseline whenever the driver reloads, so the
+  -- dynamic capabilities must be re-emitted; clearing ENTITY makes the next
+  -- state update count as the first and re-run updateDynamicCapabilities.
   ENTITY = nil
   STATE = nil
   dynamicCapsSent = false

@@ -335,12 +335,13 @@ local function proxy(command, params)
   RFP[command](PROXY, command, params or {})
 end
 
---- Each `field` the proxy got with `command` since the mark; "at" is the ms.
+--- Each `field` the proxy got with `command` since the mark: "at" is the ms,
+--- and with no field the params whole.
 local function told(command, field)
   local out = {}
   for _, s in ipairs(sent) do
     if s.binding == PROXY and s.command == command then
-      out[#out + 1] = field == "at" and s.at or s.params[field]
+      out[#out + 1] = field == "at" and s.at or field == nil and s.params or s.params[field]
     end
   end
   return out
@@ -1292,6 +1293,41 @@ do
   )
   forgetSetup()
   proxySetup = ""
+end
+
+T.section("dimming is declared in driver.xml, and turned off at run time for a light that only switches")
+do
+  local DIMMING = { "dimmer", "set_level", "supports_target", "supports_brightness_stop", "ramp_level" }
+  local f = assert(io.open(HERE .. "/../drivers/tplink_light/driver.xml", "rb"))
+  local xml = f:read("*a")
+  f:close()
+  local declared = {}
+  for _, capability in ipairs(DIMMING) do
+    declared[#declared + 1] = xml:match("<" .. capability .. ">(%a+)</" .. capability .. ">")
+  end
+  T.eq("driver.xml declares each True", declared, { "True", "True", "True", "True", "True" })
+  --- Each dimming capability the proxy was told with the light's first state.
+  local function dimming()
+    local out = {}
+    local capabilities = told("DYNAMIC_CAPABILITIES_CHANGED", nil)[1] or {}
+    for i, capability in ipairs(DIMMING) do
+      out[i] = capabilities[capability]
+    end
+    return out
+  end
+  startDriver()
+  shakeHands()
+  reply(info())
+  T.eq("a strip that dims keeps each", dimming(), { true, true, true, true, true })
+  -- Bound to a TP-Link Outlet output, which only switches.
+  C4:Bind(900, 1, C4:GetDeviceID(), 1, "TPLINK_LIGHT")
+  startDriver()
+  RFP.UPDATE_STATE(1, "UPDATE_STATE", {
+    entity = SerializeSafe({ supported_color_modes = { require("constants").LightColorMode.COLOR_MODE_ON_OFF } }),
+    state = SerializeSafe({ state = true }),
+  })
+  T.eq("a light bound to an outlet is told each is off", dimming(), { false, false, false, false, false })
+  C4:Unbind(C4:GetDeviceID(), 1)
 end
 
 T.section("the TP-Link username and password are printed at no log level")

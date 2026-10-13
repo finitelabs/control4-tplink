@@ -88,8 +88,8 @@ modes:
 - **Proxy mode**: binds to a TP-Link Outlet output so a lamp plugged into a
   smart outlet appears as a real on/off light, with state kept in sync from the
   outlet
-- Conservative capability baseline so on/off devices never advertise dimming or
-  color to capability consumers
+- An on/off device is shown without dimming or color once the driver has
+  connected to it
 - Advanced Lighting Scenes support
 
 # <span style="color:#4ACBD6">Installation</span>
@@ -302,6 +302,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - With Dim-To-Warm, a brightness command for the level a TP-Link light is
   already at now returns a color set on it to its Dim-To-Warm color. It used to
   do nothing.
+- The TP-Link Light driver now declares a light as a dimmer and turns dimming
+  off once it has connected to one that only switches, a light bound to a
+  TP-Link Outlet output. It used to declare none and turn dimming on at connect.
+  The proxy announces its default ramp rate when dimming turns on, before
+  Composer has the light's color capabilities, and at a color light's first
+  connect Composer showed "Error setting default color rate from driver".
+  Declaring dimming is expected to end that. A lamp on a TP-Link Outlet is now
+  shown as a dimmer until the outlet first reports, and stays one to anything
+  that reads the driver's declared capabilities alone, as a HomeKit bridge may.
 
 ## v20261002 - 2026-10-02
 
