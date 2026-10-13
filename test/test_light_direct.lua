@@ -797,6 +797,150 @@ do
   T.eq("where the proxy is told the level", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 2000 })
 end
 
+T.section("a color set while a SMART light is off is kept, and goes out with the command that turns it on")
+do
+  local GREEN = xy(120, 50)
+  local function colorsTold()
+    return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")
+  end
+  light({ device_on = false })
+  colorTarget(GREEN, 0)
+  T.eq("the light, which would ignore it, is sent nothing", flying(), {})
+  T.eq("the proxy is told the color", colorsTold(), { GREEN[1] })
+  run(5000)
+  mark()
+  reply(info({ device_on = false }))
+  T.eq("a poll that reads the color it had tells the proxy nothing", sent, {})
+  proxy("ON")
+  T.eq(
+    "an on is one request, with the level and the color",
+    flying(),
+    { { device_on = true, brightness = 100, hue = 120, saturation = 50, color_temp = 0 } }
+  )
+  reply()
+  proxy("OFF")
+  reply()
+  proxy("ON")
+  T.eq("the on after that carries no color", flying(), { { device_on = true, brightness = 100 } })
+  reply()
+
+  light({ device_on = false })
+  proxy(
+    "SET_COLOR_TARGET",
+    { LIGHT_COLOR_TARGET_COLOR_CORRELATED_TEMPERATURE = 3000, LIGHT_COLOR_TARGET_COLOR_RATE = 0 }
+  )
+  colorTarget(GREEN, 2000)
+  run(3000)
+  T.eq("a color temperature and then a color over a rate: nothing is sent", flying(), {})
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  T.eq(
+    "and the on carries the later of the two",
+    flying(),
+    { { device_on = true, brightness = 40, hue = 120, saturation = 50, color_temp = 0 } }
+  )
+  reply()
+
+  -- An off waiting behind a request, with a color set before it goes out.
+  light()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  proxy("OFF")
+  colorTarget(GREEN, 0)
+  reply()
+  T.eq("an off and then a color, sent as one: the off alone goes", flying(), { { device_on = false } })
+  reply()
+  proxy("ON")
+  T.eq("and the color with the on after it", Select(flying(), 1, "hue"), 120)
+  reply()
+
+  -- A scene step that turns the light off, waiting with a color either side.
+  light()
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(0, 0) })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  colorTarget(BLUE, 0)
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  reply()
+  T.eq("a color and then a scene's off, sent as one: the off goes", flying(), { { device_on = false } })
+  reply()
+  proxy("ON")
+  T.eq("and the color, which never reached the light, with the on after it", Select(flying(), 1, "hue"), 240)
+  reply()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  colorTarget(GREEN, 0)
+  reply()
+  T.eq("a scene's off and then a color: the off goes", flying(), { { device_on = false } })
+  reply()
+  proxy("ON")
+  reply()
+  run(5000)
+  colorTarget(BLUE, 0)
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq("the two made while a poll is in flight", flying(), { "poll" })
+  reply(info())
+  T.eq("go out as the off too", flying(), { { device_on = false } })
+  reply()
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A color for the off light that waits behind a request, with a poll.
+  light({ device_on = false })
+  proxy("ON")
+  reply()
+  proxy("OFF")
+  colorTarget(GREEN, 0)
+  run(5000)
+  reply()
+  T.eq("a color that waited and sends nothing lets the poll behind it go", flying(), { "poll" })
+  reply(info({ device_on = false }))
+
+  -- The backend started again, as a change of a connection property does.
+  light({ device_on = false })
+  colorTarget(GREEN, 0)
+  setProperty("Poll Rate (Seconds)", "10")
+  shakeHands()
+  reply(info({ device_on = false }))
+  proxy("ON")
+  T.eq("a color kept is let go at a restart", flying(), { { device_on = true, brightness = 100 } })
+  reply()
+
+  -- A scene step that turns the light on in a color of its own.
+  light({ device_on = false })
+  colorTarget(GREEN, 0)
+  local step = "<element><delay>0</delay><rate>0</rate><brightnessEnabled>true</brightnessEnabled>"
+    .. "<brightness>50</brightness><colorEnabled>true</colorEnabled><colorX>%s</colorX><colorY>%s</colorY>"
+    .. "<colorMode>0</colorMode></element>"
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = step:format(BLUE[1], BLUE[2]) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq("an on that names a color goes out in its own", Select(flying(), 1, "hue"), 240)
+  reply()
+  proxy("CLEAR_ALL_SCENES")
+  proxy("OFF")
+  reply()
+  proxy("ON")
+  T.eq("and the one kept is let go", flying(), { { device_on = true, brightness = 100 } })
+  reply()
+
+  -- The light is turned on at its switch, or by another controller.
+  light({ device_on = false })
+  colorTarget(GREEN, 0)
+  run(5000)
+  mark()
+  reply(info())
+  T.eq("a light that came on by another hand is told as it is, in the color it had", colorsTold(), { 0 })
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  T.eq("and the color kept for it is let go", flying(), { { device_on = true, brightness = 40 } })
+  reply()
+
+  -- Unmeasured on the IOT schema: a Kasa bulb is sent the color as before.
+  bulb({ on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } })
+  colorTarget(GREEN, 0)
+  T.eq(
+    "a Kasa bulb that is off is sent the color",
+    flying(),
+    { { on_off = 0, hue = 120, saturation = 50, color_temp = 0, ignore_default = 1 } }
+  )
+  reply()
+end
+
 T.eq("no timer or reply handler raised", errors, {})
 
 T.finish()

@@ -2809,6 +2809,11 @@ local directPollWaiting = false
 --- @type number
 local directCommands = 0
 
+--- The color a SMART light was given while off, which it would ignore. It is
+--- held here and goes out with the next command that turns the light on.
+--- @type table?
+local smartPendingColor = nil
+
 local directNext -- defined below, after what it sends
 
 --- How long a request in flight is waited for, in milliseconds: past the
@@ -2886,6 +2891,14 @@ local function directPoll()
     local info = Select(response, "result") or {}
     directConnected = true
     if asked == directCommands then
+      if toboolean(info.device_on) then
+        -- Turned on by another hand, in the color it had.
+        smartPendingColor = nil
+      end
+      -- The color held for a light that is off is the one it will come on in.
+      for field, value in pairs(smartPendingColor or {}) do
+        info[field] = value
+      end
       applyUpdate(synthesizeEntity(info), synthesizeState(info))
     end
   end, function(err)
@@ -2903,9 +2916,10 @@ end
 --- Translate an internal light command (ESPHome light_command shape) to the
 --- params of a SMART set_device_info request. A ramp rate the command carries
 --- is sent as the SMART transition_period (milliseconds); the proxy layer's
---- local ramp tracking drives CHANGING/CHANGED notification timing.
+--- local ramp tracking drives CHANGING/CHANGED notification timing. A color for
+--- a light that is off is held (smartPendingColor), and added to the next on.
 --- @param opts table
---- @return table? params nil when the command names nothing the light takes.
+--- @return table? params nil when the command names nothing to send.
 local function smartParams(opts)
   local params = {}
   if opts.has_state then
@@ -2930,6 +2944,19 @@ local function smartParams(opts)
     params.saturation = math.max(0, math.min(100, math.floor((sat or 0) + 0.5)))
     params.color_temp = 0
   end
+  local color = params.color_temp ~= nil
+  -- No on with it: the light is off, or is being turned off.
+  if color and not params.device_on then
+    smartPendingColor = { hue = params.hue, saturation = params.saturation, color_temp = params.color_temp }
+    params.hue, params.saturation, params.color_temp = nil, nil, nil
+  elseif color then
+    smartPendingColor = nil
+  elseif params.device_on then
+    for field, value in pairs(smartPendingColor or {}) do
+      params[field] = value
+    end
+    smartPendingColor = nil
+  end
   if IsEmpty(params) then
     return nil
   end
@@ -2946,7 +2973,7 @@ end
 
 --- Send a light command to the direct-mode device now.
 --- @param opts table
---- @return boolean sent false when the command names nothing the light takes.
+--- @return boolean sent false when the command names nothing to send.
 local function directSend(opts)
   if directSchema == "iot" and iotBulb ~= nil then
     directFlight(iotBulb:execute(opts), function() end, function(err)
@@ -3015,6 +3042,11 @@ local function directExecute(opts)
   if level and level < 1 and not (opts.has_rgb or opts.has_color_temperature) then
     return
   end
+  -- A color for a SMART light that is off is no off: a light turned on since
+  -- is left on. It names no state here, so an off it waits with is still one.
+  if directSchema ~= "iot" and opts.state == false and (opts.has_rgb or opts.has_color_temperature) then
+    opts.has_state, opts.state = nil, nil
+  end
   directCommands = directCommands + 1
   if not directBusy then
     directSend(opts)
@@ -3072,6 +3104,7 @@ backendStart = function(retry)
   directBusy = false
   directWaiting = nil
   directPollWaiting = false
+  smartPendingColor = nil
 
   -- Force a fresh capability discovery on every (re)connect. The light_v2
   -- proxy resets to the conservative static baseline whenever the driver

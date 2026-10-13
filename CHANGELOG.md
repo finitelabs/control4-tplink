@@ -151,6 +151,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the TP-Link Light driver sending a light its level again when a ramp
   ended, and its color again when a color fade ended. The light already held
   both, and the extra command was one more for it to answer while others waited.
+- Fixed a color picked for a Tapo light while it was off being lost: the color
+  was shown for a few seconds and then went back, and the light came on in the
+  color it had before. A Tapo light takes no color while it is off, so the
+  driver now keeps the color and sends it with the command that turns the light
+  on, unless the light's Color On Mode gives that on a color of its own.
 
 ### Changed
 
