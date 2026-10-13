@@ -119,6 +119,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   the first ramp was heading for.
 - Fixed a ramped On of a TP-Link light cut short by a level command leaving the
   light shown as still changing color.
+- Fixed a TP-Link light in direct mode resting at a level or color that was not
+  the last one asked for, after presses in quick succession or a dragged slider,
+  while it was shown at the last one: commands that reached the light together
+  were taken in another order. The light is now sent one command at a time, and
+  what is asked while it answers goes out next as one command with the latest
+  values.
+- Fixed a TP-Link light in direct mode being shown, for a few seconds after a
+  command, at the level or color it had just before it, when the driver's poll
+  of the light was already on its way as the command was made.
 
 ### Changed
 

@@ -2787,12 +2787,75 @@ local function synthesizeState(info)
   return state
 end
 
+--- A direct-mode light serves one request at a time, and those in flight
+--- together in an order of its own: one goes out, and the rest wait for it.
+--- @type boolean
+local directBusy = false
+
+--- The command waiting for the request in flight, every later one merged in.
+--- @type table?
+local directWaiting = nil
+
+--- Whether a poll waits for the request in flight.
+--- @type boolean
+local directPollWaiting = false
+
+--- Counts the commands made. A poll sent before the latest reads the light as
+--- it was before that command.
+--- @type number
+local directCommands = 0
+
+local directNext -- defined below, after what it sends
+
+--- How long a request in flight is waited for, in milliseconds: past the
+--- transports' own timeouts, 10 s for a KLAP post and 5 s on the legacy port.
+--- @type number
+local DIRECT_ANSWER_MS = 15000
+
+local DIRECT_ANSWER_TIMER = "DirectAnswer"
+
+--- Put a request in flight, and send what waited for it once its answer or
+--- its failure is in. One with neither after DIRECT_ANSWER_MS has failed: a
+--- request its transport never settled would hold every later one.
+--- @param request Deferred
+--- @param onAnswer fun(response: table)
+--- @param onFail fun(err: table)
+local function directFlight(request, onAnswer, onFail)
+  local over = false
+  directBusy = true
+  local function landed(handler)
+    return function(value)
+      if over then
+        return
+      end
+      over = true
+      CancelTimer(DIRECT_ANSWER_TIMER)
+      directBusy = false
+      handler(value)
+      directNext()
+    end
+  end
+  -- Set first: a request settled already lands inside next().
+  SetTimer(DIRECT_ANSWER_TIMER, DIRECT_ANSWER_MS, function()
+    landed(onFail)({ error = "no answer from the light" })
+  end)
+  request:next(landed(onAnswer), landed(onFail))
+end
+
 --- Poll the direct-mode device and feed the result into applyUpdate.
 local function directPoll()
+  if directBusy then
+    directPollWaiting = true
+    return
+  end
+  local asked = directCommands
+
   if directSchema == "iot" and iotBulb ~= nil then
-    iotBulb:poll():next(function(result)
+    directFlight(iotBulb:poll(), function(result)
       directConnected = true
-      applyUpdate(result.entity, result.state)
+      if asked == directCommands then
+        applyUpdate(result.entity, result.state)
+      end
     end, function(err)
       log:warn("IOT bulb poll failed: %s", Select(err, "error") or err)
       if directConnected then
@@ -2806,7 +2869,7 @@ local function directPoll()
     return
   end
 
-  klap:request({ method = "get_device_info", params = {} }):next(function(response)
+  directFlight(klap:request({ method = "get_device_info", params = {} }), function(response)
     if tointeger(Select(response, "error_code")) ~= 0 then
       log:warn("get_device_info failed: %s", response)
       if directConnected then
@@ -2817,7 +2880,9 @@ local function directPoll()
     end
     local info = Select(response, "result") or {}
     directConnected = true
-    applyUpdate(synthesizeEntity(info), synthesizeState(info))
+    if asked == directCommands then
+      applyUpdate(synthesizeEntity(info), synthesizeState(info))
+    end
   end, function(err)
     log:warn("get_device_info failed: %s", Select(err, "error") or err)
     if directConnected then
@@ -2830,21 +2895,13 @@ local function directPoll()
   end)
 end
 
---- Translate an internal light command (ESPHome light_command shape) to a
---- SMART set_device_info request. When the command carries a ramp rate it is
---- forwarded as the SMART transition_period (milliseconds) so the bulb fades
---- brightness, color, and on/off itself; the proxy layer's local ramp tracking
---- still drives CHANGING/CHANGED notification timing.
+--- Translate an internal light command (ESPHome light_command shape) to the
+--- params of a SMART set_device_info request. A ramp rate the command carries
+--- is sent as the SMART transition_period (milliseconds); the proxy layer's
+--- local ramp tracking drives CHANGING/CHANGED notification timing.
 --- @param opts table
-local function directExecute(opts)
-  if directSchema == "iot" and iotBulb ~= nil then
-    iotBulb:execute(opts):next(nil, function(err)
-      -- Command failures are logged only; the poll loop decides connectivity.
-      log:error("IOT bulb command failed: %s", Select(err, "error") or err)
-    end)
-    return
-  end
-
+--- @return table? params nil when the command names nothing the light takes.
+local function smartParams(opts)
   local params = {}
   if opts.has_state then
     params.device_on = opts.state and true or false
@@ -2869,19 +2926,36 @@ local function directExecute(opts)
     params.color_temp = 0
   end
   if IsEmpty(params) then
-    return
+    return nil
   end
-  -- The SMART firmware honors an inline transition_period (milliseconds) on
-  -- set_device_info, fading the change over that span. Mirror the proxy ramp's
-  -- rate so device-side transitions match programmed ramp rates. Cap at the
-  -- 60s gradual-transition ceiling the firmware advertises.
+  -- The proxy ramp's rate, sent as an inline transition_period (milliseconds)
+  -- and capped at the 60 s ceiling the firmware advertises for its own fades.
   if opts.has_transition_length then
     local ms = tointeger(opts.transition_length) or 0
     if ms > 0 then
       params.transition_period = math.min(ms, 60000)
     end
   end
-  klap:request({ method = "set_device_info", params = params }):next(function(response)
+  return params
+end
+
+--- Send a light command to the direct-mode device now.
+--- @param opts table
+--- @return boolean sent false when the command names nothing the light takes.
+local function directSend(opts)
+  if directSchema == "iot" and iotBulb ~= nil then
+    directFlight(iotBulb:execute(opts), function() end, function(err)
+      -- Command failures are logged only; the poll loop decides connectivity.
+      log:error("IOT bulb command failed: %s", Select(err, "error") or err)
+    end)
+    return true
+  end
+
+  local params = smartParams(opts)
+  if params == nil then
+    return false
+  end
+  directFlight(klap:request({ method = "set_device_info", params = params }), function(response)
     local code = tointeger(Select(response, "error_code")) or -1
     if code ~= 0 then
       log:error("set_device_info failed: %s", response)
@@ -2893,6 +2967,60 @@ local function directExecute(opts)
       handleDisconnect()
     end
   end)
+  return true
+end
+
+--- The command first, then the poll, which so reads the light after it.
+function directNext()
+  local waiting = directWaiting
+  directWaiting = nil
+  if waiting ~= nil and directSend(waiting) then
+    return
+  end
+  if directPollWaiting then
+    directPollWaiting = false
+    directPoll()
+  end
+end
+
+--- The fields of a light command that name its color.
+local COLOR_FIELDS = {
+  "has_rgb",
+  "red",
+  "green",
+  "blue",
+  "has_color_temperature",
+  "color_temperature",
+  "has_color_mode",
+  "color_mode",
+  "has_cold_white",
+  "cold_white",
+  "has_warm_white",
+  "warm_white",
+}
+
+--- Send a light command to the direct-mode device, or hold it while a request
+--- is in flight. Commands held together go out as one, merged field by field
+--- with the later value winning; a later color replaces an earlier one whole.
+--- @param opts table
+local function directExecute(opts)
+  directCommands = directCommands + 1
+  if not directBusy then
+    directSend(opts)
+    return
+  end
+  if directWaiting == nil then
+    directWaiting = opts
+    return
+  end
+  if opts.has_rgb or opts.has_color_temperature then
+    for _, field in ipairs(COLOR_FIELDS) do
+      directWaiting[field] = nil
+    end
+  end
+  for field, value in pairs(opts) do
+    directWaiting[field] = value
+  end
 end
 
 --- Dispatch an internal light command to the active backend.
@@ -2925,6 +3053,9 @@ backendStart = function()
   CancelTimer(DIRECT_POLL_TIMER)
   directConnected = false
   transportName = nil
+  -- What waited was for the light as it was configured.
+  directWaiting = nil
+  directPollWaiting = false
 
   -- Force a fresh capability discovery on every (re)connect. The light_v2
   -- proxy resets to the conservative static baseline whenever the driver
