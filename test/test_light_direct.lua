@@ -734,6 +734,46 @@ do
   T.eq("and connects when the light answers", status(), "Connected (SMART)")
 end
 
+--- A scene element setting a level over `rate` ms.
+local function levelStep(level, rate)
+  local step = "<element><delay>0</delay><rate>%d</rate><brightnessEnabled>true</brightnessEnabled>"
+    .. "<brightness>%d</brightness></element>"
+  return step:format(rate, level)
+end
+
+T.section("a rated on from off is one request: no bare on goes ahead of it")
+do
+  light({ device_on = false })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+  T.eq(
+    "a level over a rate: the on, the level and the rate together",
+    flying(),
+    { { device_on = true, brightness = 50, transition_period = 2000 } }
+  )
+  reply()
+  T.eq("with nothing behind it", flying(), {})
+  light({ device_on = false })
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(30, 3000) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq(
+    "a scene step over a rate: the same",
+    flying(),
+    { { device_on = true, brightness = 30, transition_period = 3000 } }
+  )
+  reply()
+  T.eq("with nothing behind it", flying(), {})
+  proxy("CLEAR_ALL_SCENES")
+  bulb({ on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+  T.eq(
+    "a Kasa bulb: the same",
+    flying(),
+    { { on_off = 1, brightness = 50, ignore_default = 1, transition_period = 2000 } }
+  )
+  reply()
+  T.eq("with nothing behind it", flying(), {})
+end
+
 T.eq("no timer or reply handler raised", errors, {})
 
 T.finish()

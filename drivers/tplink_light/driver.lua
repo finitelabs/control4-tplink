@@ -3015,6 +3015,12 @@ local COLOR_FIELDS = {
 --- with the later value winning; a later color replaces an earlier one whole.
 --- @param opts table
 local function directExecute(opts)
+  -- A rated on's pre-on, an on at under 1 %, would go out as a bare on: the
+  -- light would come up at the level it was last at, ahead of its fade.
+  local level = opts.has_brightness and opts.state and math.floor((tonumber(opts.brightness) or 0) * 100 + 0.5)
+  if level and level < 1 and not (opts.has_rgb or opts.has_color_temperature) then
+    return
+  end
   directCommands = directCommands + 1
   if not directBusy then
     directSend(opts)

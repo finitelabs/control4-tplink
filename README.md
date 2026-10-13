@@ -263,6 +263,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a change of IP address or TP-Link account made while a KLAP handshake
   was still under way being answered by that handshake, begun for the old device
   or account, so the new settings were not tried until the next retry.
+- Fixed a ramped On of a TP-Link light in direct mode first switching the light
+  on at the level it was last at, ahead of the fade to the level asked for.
 
 ### Changed
 
