@@ -754,8 +754,13 @@ local function buildColorCmdFields(x, y, mode)
   return nil
 end
 
--- A color as the light takes it, which its reports then read as: its color
--- temperature's point, or a full color on a light with no color temperature.
+-- A color temperature outside the light's range is taken at its nearest end.
+local function clampKelvin(k)
+  return math.max(miredsToKelvin(maxMireds), math.min(miredsToKelvin(minMireds), k))
+end
+
+-- A color as the light takes it, which its reports then read as: the point of
+-- its color temperature, or a full color on a light with no color temperature.
 local function takenColor(x, y, mode)
   if mode ~= LIGHT_COLOR_MODE_CCT then
     return x, y, mode
@@ -765,7 +770,7 @@ local function takenColor(x, y, mode)
   end
   local k = tonumber(C4:ColorXYtoCCT(x, y))
   if k and k > 0 then
-    x, y = C4:ColorCCTtoXY(k)
+    x, y = C4:ColorCCTtoXY(clampKelvin(k))
   end
   return x, y, mode
 end
@@ -1531,7 +1536,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   local targetX, targetY, targetMode
 
   if kelvin and kelvin > 0 and supportsCCT then
-    targetX, targetY = C4:ColorCCTtoXY(kelvin)
+    targetX, targetY = C4:ColorCCTtoXY(clampKelvin(kelvin))
     targetMode = LIGHT_COLOR_MODE_CCT
   elseif incomingMode == LIGHT_COLOR_MODE_CCT and supportsCCT and x and y then
     local k = tonumber(C4:ColorXYtoCCT(x, y))

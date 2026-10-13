@@ -941,6 +941,53 @@ do
   reply()
 end
 
+T.section("a color temperature outside the light's range is told as the light takes it, once")
+do
+  local function kelvinTarget(kelvin)
+    proxy(
+      "SET_COLOR_TARGET",
+      { LIGHT_COLOR_TARGET_COLOR_CORRELATED_TEMPERATURE = kelvin, LIGHT_COLOR_TARGET_COLOR_RATE = 0 }
+    )
+  end
+  local function pointsTold()
+    return told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")
+  end
+  -- The strip takes 2500 to 6500 K, and a color temperature is x here.
+  light()
+  kelvinTarget(2000)
+  T.eq("2000 K: the light is sent the 2500 K it can do", flying(), { { device_on = true, color_temp = 2500 } })
+  T.eq("and the proxy is told that temperature's point", pointsTold(), { 0.25 })
+  reply()
+  run(5000)
+  mark()
+  reply(info({ color_temp = 2500 }))
+  T.eq("which the light's own report is no news of", sent, {})
+  kelvinTarget(9000)
+  T.eq("9000 K: the 6500 K point", pointsTold(), { 0.65 })
+  reply()
+  mark()
+  kelvinTarget(4000)
+  T.eq("4000 K, inside the range: as asked", pointsTold(), { 0.4 })
+  reply()
+  mark()
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_X = 0.2,
+    LIGHT_COLOR_TARGET_Y = 0.4,
+    LIGHT_COLOR_TARGET_MODE = 1,
+    LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+  })
+  T.eq("2000 K given as an xy: the 2500 K point", pointsTold(), { 0.25 })
+  reply()
+  mark()
+  local step = "<element><delay>0</delay><rate>0</rate><colorEnabled>true</colorEnabled><colorX>0.9</colorX>"
+    .. "<colorY>0.4</colorY><colorMode>1</colorMode></element>"
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = step })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq("9000 K in a scene step: the 6500 K point", pointsTold(), { 0.65 })
+  reply()
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.eq("no timer or reply handler raised", errors, {})
 
 T.finish()

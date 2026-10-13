@@ -273,6 +273,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   color it had before. A Tapo light takes no color while it is off, so the
   driver now keeps the color and sends it with the command that turns the light
   on, unless the light's Color On Mode gives that on a color of its own.
+- Fixed a color temperature outside a TP-Link light's range, which programming
+  or a scene can ask for, being shown as asked and then, at the light's next
+  report, as the nearest one the light can do. It is now shown once, as the
+  light takes it.
 
 ### Changed
 
