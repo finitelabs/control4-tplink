@@ -3413,18 +3413,30 @@ function EC.Reconnect()
   backendStart()
 end
 
-function OPC.TP_Link_Username(propertyValue)
-  log:trace("OPC.TP_Link_Username('%s')", propertyValue)
-  if gInitialized then
-    backendStart()
+-- The handler library prints a property's value at Log Level "6 - Ultra".
+OPC.suppressDebug["TP-Link Username"] = true
+OPC.suppressDebug["TP-Link Password"] = true
+
+--- Restart the backend for a changed credential. It must not raise: the
+--- handler library prints the value of a property whose handler does.
+local function credentialChanged()
+  if not gInitialized then
+    return
   end
+  local ok, err = pcall(backendStart)
+  if not ok then
+    log:error("The backend did not start: %s", err)
+  end
+end
+
+function OPC.TP_Link_Username()
+  log:trace("OPC.TP_Link_Username(<redacted>)")
+  credentialChanged()
 end
 
 function OPC.TP_Link_Password()
   log:trace("OPC.TP_Link_Password(<redacted>)")
-  if gInitialized then
-    backendStart()
-  end
+  credentialChanged()
 end
 
 --- @param propertyValue string

@@ -1294,6 +1294,39 @@ do
   proxySetup = ""
 end
 
+T.section("the TP-Link username and password are printed at no log level")
+do
+  local log = require("lib.logging")
+  local USERNAME, PASSWORD = "someone@example.com", "a-word-kept-secret"
+  light()
+  -- Everything on, as Log Level "6 - Ultra" with Log Mode "Print and Log".
+  log:setLogLevel("6 - Ultra")
+  log:setLogMode("Print and Log")
+  DEBUGPRINT = true
+  local _, _, out = T.capture(function()
+    setProperty("TP-Link Username", USERNAME)
+    setProperty("TP-Link Password", PASSWORD)
+  end)
+  T.contains("each change is traced", out, "OPC.TP_Link_Username(<redacted>)")
+  T.excludes("without the username", out, USERNAME)
+  T.excludes("or the password", out, PASSWORD)
+  T.eq("and the backend starts with them", status(), "Connecting (KLAP)...")
+  -- The handler library prints the value of a property whose handler raises.
+  function klap:configure()
+    error("no transport")
+  end
+  _, _, out = T.capture(function()
+    setProperty("TP-Link Username", USERNAME)
+    setProperty("TP-Link Password", PASSWORD)
+  end)
+  T.contains("a start that raises is logged", out, "no transport")
+  T.excludes("without the username", out, USERNAME)
+  T.excludes("or the password", out, PASSWORD)
+  DEBUGPRINT = false
+  log:setLogLevel("3 - Info")
+  log:setLogMode("Off")
+end
+
 T.eq("no timer or reply handler raised", errors, {})
 
 T.finish()

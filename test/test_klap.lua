@@ -513,6 +513,20 @@ T.eq(
   "HS300(US)"
 )
 
+T.section("The account is not traced")
+
+local log = require("lib.logging")
+log:setLogLevel("6 - Ultra")
+log:setLogMode("Print")
+local _, _, traced = T.capture(function()
+  Klap:new():configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+end)
+log:setLogLevel("3 - Info")
+log:setLogMode("Off")
+T.contains("configure traces the device", traced, "127.0.0.1")
+T.excludes("without the username", traced, USERNAME)
+T.excludes("or the password", traced, PASSWORD)
+
 T.section("Optional: probe a real device on the network")
 
 local realIp = os.getenv("TPLINK_TEST_IP")

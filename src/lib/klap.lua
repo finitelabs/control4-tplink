@@ -131,7 +131,7 @@ end
 --- drops a handshake in flight when the device or the account has changed.
 --- @param config { ip: string?, username: string?, password: string? }
 function Klap:configure(config)
-  log:trace("Klap:configure(<ip=%s, username=%s>)", config.ip, config.username)
+  log:trace("Klap:configure(<ip=%s>)", config.ip)
   local changed = (config.ip ~= nil and config.ip ~= self._ip)
     or (config.username ~= nil and config.username ~= self._username)
     or (config.password ~= nil and config.password ~= self._password)

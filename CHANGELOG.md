@@ -172,6 +172,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   light and a scene step used half a second and no on color, where Composer
   showed three quarters of a second and Dim-To-Warm. The driver now reads them
   from the light's settings in the project when it starts.
+- Fixed the TP-Link Outlet and TP-Link Light drivers printing the TP-Link
+  account to the Lua output and the log: the password at `Log Level`
+  `6 - Ultra`, and the username from `5 - Trace` up. Neither is printed at any
+  level now.
 
 ### Changed
 
