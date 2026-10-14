@@ -47,6 +47,16 @@ on/off, brightness with target ramps and stop, color and color temperature with
 ramps, click/hold button rates, advanced lighting scenes, brightness and color
 presets, and dim-to-warm color on-mode.
 
+A Tapo light takes no fade time from a command: its only fades are the short
+ones set in the Tapo app. For these lights the driver makes a ramp itself. It
+sends the light a new level or color as fast as the light answers, a few times a
+second, until the ramp ends, so ramp rates, stops, held buttons and scene fades
+work as they do on other lights. A long fade is many small requests to the
+light. After a fade to off the light itself remembers the last step it was sent
+on the way down, so it comes on dim when it is turned on from the Tapo app.
+Control4 always turns it on at a level of its own. A Kasa bulb takes the fade
+time with each command and fades by itself.
+
 # <span style="color:#4ACBD6">Index</span>
 
 <div style="font-size: small">

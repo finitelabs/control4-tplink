@@ -1,0 +1,58 @@
+     0 5001 HOLD_RATE_UP 3000
+     0 5001 CLICK_RATE_DOWN 750
+     0 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=40}
+     0  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={brightness=40,ignore_default=1,on_off=1}}}
+  1000 5001 LIGHT_BRIGHTNESS_CHANGING {LIGHT_BRIGHTNESS_CURRENT=40,LIGHT_BRIGHTNESS_TARGET=90,RATE=4000}
+  1000  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={brightness=90,ignore_default=1,on_off=1,transition_period=4000}}}
+  3000 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=65}
+  3000  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={brightness=65,ignore_default=1,on_off=1}}}
+  4000 5001 LIGHT_BRIGHTNESS_CHANGING {LIGHT_BRIGHTNESS_CURRENT=65,LIGHT_BRIGHTNESS_TARGET=100,RATE=3000}
+  4000 5001 BUTTON_ACTION {ACTION=1,BUTTON_ID=0}
+  4000  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={brightness=100,ignore_default=1,on_off=1,transition_period=3000}}}
+  5000  req {system={get_sysinfo={}}}
+  5500 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=83}
+  5500 5001 BUTTON_ACTION {ACTION=0,BUTTON_ID=0}
+  5500  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={brightness=83,ignore_default=1,on_off=1}}}
+  6500 5001 LIGHT_COLOR_CHANGING {LIGHT_COLOR_CURRENT_COLOR_MODE=0,LIGHT_COLOR_CURRENT_X=0,LIGHT_COLOR_CURRENT_Y=1,LIGHT_COLOR_TARGET_COLOR_MODE=0,LIGHT_COLOR_TARGET_COLOR_RATE=3000,LIGHT_COLOR_TARGET_RATE=3000,LIGHT_COLOR_TARGET_X=0.66666666666667,LIGHT_COLOR_TARGET_Y=1}
+  6500  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={color_temp=0,hue=240,ignore_default=1,on_off=1,saturation=100,transition_period=3000}}}
+  7500 5001 LIGHT_COLOR_CHANGED {LIGHT_COLOR_CURRENT_COLOR_MODE=0,LIGHT_COLOR_CURRENT_X=0.22222222222222,LIGHT_COLOR_CURRENT_Y=1}
+  7500  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={color_temp=0,hue=80,ignore_default=1,on_off=1,saturation=100}}}
+  8500 5001 LIGHT_COLOR_CHANGING {LIGHT_COLOR_CURRENT_COLOR_MODE=0,LIGHT_COLOR_CURRENT_X=0.22222222222222,LIGHT_COLOR_CURRENT_Y=1,LIGHT_COLOR_TARGET_COLOR_MODE=0,LIGHT_COLOR_TARGET_COLOR_RATE=2000,LIGHT_COLOR_TARGET_RATE=2000,LIGHT_COLOR_TARGET_X=0.33333333333333,LIGHT_COLOR_TARGET_Y=0.5}
+  8500  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={color_temp=0,hue=120,ignore_default=1,on_off=1,saturation=50,transition_period=2000}}}
+ 10000  req {system={get_sysinfo={}}}
+ 10500 5001 LIGHT_COLOR_CHANGED {LIGHT_COLOR_CURRENT_COLOR_MODE=0,LIGHT_COLOR_CURRENT_X=0.33333333333333,LIGHT_COLOR_CURRENT_Y=0.5}
+ 11500 5001 LIGHT_BRIGHTNESS_CHANGING {LIGHT_BRIGHTNESS_CURRENT=83,LIGHT_BRIGHTNESS_TARGET=20,RATE=3000}
+ 11500 5001 LIGHT_COLOR_CHANGING {LIGHT_COLOR_CURRENT_COLOR_MODE=0,LIGHT_COLOR_CURRENT_X=0.33333333333333,LIGHT_COLOR_CURRENT_Y=0.5,LIGHT_COLOR_TARGET_COLOR_MODE=0,LIGHT_COLOR_TARGET_COLOR_RATE=3000,LIGHT_COLOR_TARGET_RATE=3000,LIGHT_COLOR_TARGET_X=0.66666666666667,LIGHT_COLOR_TARGET_Y=1}
+ 11500  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={brightness=20,color_temp=0,hue=240,ignore_default=1,on_off=1,saturation=100,transition_period=3000}}}
+ 14500 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=20}
+ 14500 5001 LIGHT_COLOR_CHANGED {LIGHT_COLOR_CURRENT_COLOR_MODE=0,LIGHT_COLOR_CURRENT_X=0.66666666666667,LIGHT_COLOR_CURRENT_Y=1}
+ 14500 5001 LIGHT_BRIGHTNESS_CHANGING {LIGHT_BRIGHTNESS_CURRENT=20,LIGHT_BRIGHTNESS_TARGET=70,RATE=2000}
+ 14500  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={brightness=70,ignore_default=1,on_off=1,transition_period=2000}}}
+ 15000  req {system={get_sysinfo={}}}
+ 16500 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=70}
+ 17500 5001 LIGHT_BRIGHTNESS_CHANGING {LIGHT_BRIGHTNESS_CURRENT=70,LIGHT_BRIGHTNESS_TARGET=0,RATE=3000}
+ 17500 5001 BUTTON_ACTION {ACTION=1,BUTTON_ID=1}
+ 17500  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={on_off=0,transition_period=3000}}}
+ 17610 5001 LIGHT_BRIGHTNESS_CHANGING {LIGHT_BRIGHTNESS_CURRENT=70,LIGHT_BRIGHTNESS_TARGET=0,RATE=750}
+ 17610 5001 BUTTON_ACTION {ACTION=2,BUTTON_ID=1}
+ 17700  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={on_off=0,transition_period=750}}}
+ 18360 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=0}
+ 18360  300 MATCH_LED_STATE {STATE=false}
+ 18360  302 MATCH_LED_STATE {STATE=true}
+ 18360  301 MATCH_LED_STATE {STATE=false}
+ 19610 5001 LIGHT_BRIGHTNESS_CHANGING {LIGHT_BRIGHTNESS_CURRENT=0,LIGHT_BRIGHTNESS_TARGET=60,RATE=2000}
+ 19610  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={brightness=60,ignore_default=1,on_off=1,transition_period=2000}}}
+ 20000  req {system={get_sysinfo={}}}
+ 21610 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=60}
+ 21610  300 MATCH_LED_STATE {STATE=true}
+ 21610  302 MATCH_LED_STATE {STATE=false}
+ 21610  301 MATCH_LED_STATE {STATE=true}
+ 22610 5001 LIGHT_BRIGHTNESS_CHANGING {LIGHT_BRIGHTNESS_CURRENT=60,LIGHT_BRIGHTNESS_TARGET=10,RATE=1500}
+ 22610  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={brightness=10,ignore_default=1,on_off=1,transition_period=1500}}}
+ 24110 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=10}
+ 24610 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=0}
+ 24610  300 MATCH_LED_STATE {STATE=false}
+ 24610  302 MATCH_LED_STATE {STATE=true}
+ 24610  301 MATCH_LED_STATE {STATE=false}
+ 24610  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={on_off=0}}}
+ 25000  req {system={get_sysinfo={}}}

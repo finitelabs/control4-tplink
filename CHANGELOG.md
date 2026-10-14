@@ -182,6 +182,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   read. The TP-Link Outlet driver sends no poll while one is unanswered, so from
   then on it no longer noticed an output switched at the device or in the Kasa
   or Tapo app, or the device going offline, until the driver was reloaded.
+- Fixed ramp rates doing nothing on a Tapo light. A Tapo light takes no fade
+  time from a command: a ramp, a held button or a scene's fade was over in a
+  fraction of a second while the light was shown as still ramping, and a stop or
+  a button's release pulled the light back from the level it had already
+  reached. The TP-Link Light driver now makes the fade itself, sending the light
+  a new level or color as fast as it answers until the fade ends, and a stop
+  holds the light where it has got to. A long fade is many small requests to the
+  light.
 
 ### Changed
 
