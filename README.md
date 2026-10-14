@@ -90,6 +90,9 @@ modes:
   outlet
 - An on/off device is shown without dimming or color once the driver has
   connected to it
+- Ramp rates, stops, held buttons and scene fades on Tapo lights, which take no
+  fade time from a command: the driver makes the fade in steps, or leaves it to
+  the light's own fades
 - Advanced Lighting Scenes support
 
 # <span style="color:#4ACBD6">Installation</span>
@@ -136,6 +139,20 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 -->
 
 ## Unreleased
+
+### Added
+
+- Added a `Fades` property to the TP-Link Light driver, for a light that takes
+  no fade time from a command. A Tapo light is one: a ramp, a held button or a
+  scene's fade was over in a fraction of a second while the light was shown as
+  still ramping, and a stop or a button's release pulled the light back from the
+  level it had already reached. With `Driver`, the default, the driver makes the
+  fade itself, sending the light a new level or color as fast as it answers
+  until the fade ends, so ramp rates, stops, held buttons and scene fades work.
+  A long fade is many small requests to the light. With `Light` the light fades
+  by itself over the fades set in the Tapo app, which the driver switches on,
+  and Control4 shows those: ramp rates and stops then do nothing. The property
+  is shown only while such a light is connected.
 
 ### Fixed
 
@@ -299,14 +316,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   read. The TP-Link Outlet driver sends no poll while one is unanswered, so from
   then on it no longer noticed an output switched at the device or in the Kasa
   or Tapo app, or the device going offline, until the driver was reloaded.
-- Fixed ramp rates doing nothing on a Tapo light. A Tapo light takes no fade
-  time from a command: a ramp, a held button or a scene's fade was over in a
-  fraction of a second while the light was shown as still ramping, and a stop or
-  a button's release pulled the light back from the level it had already
-  reached. The TP-Link Light driver now makes the fade itself, sending the light
-  a new level or color as fast as it answers until the fade ends, and a stop
-  holds the light where it has got to. A long fade is many small requests to the
-  light.
 
 ### Changed
 

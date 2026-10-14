@@ -140,6 +140,16 @@
         <default>5</default>
         <description>How often to poll the light state in direct mode.</description>
       </property>
+      <property>
+        <name>Fades</name>
+        <type>LIST</type>
+        <items>
+          <item>Driver</item>
+          <item>Light</item>
+        </items>
+        <default>Driver</default>
+        <description>Who makes a fade on a light that takes no fade time from a command, as a Tapo light. Driver: the driver sends the light a new level or color a few times a second until the fade ends, so ramp rates, stops, held buttons and scene fades work. Light: the light fades by itself, over the fades set in the Tapo app, which the driver switches on, and ramp rates and stops do nothing. Shown only while such a light is connected.</description>
+      </property>
     </properties>
     <commands/>
     <actions>

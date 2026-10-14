@@ -189,9 +189,13 @@ local dynamicCapsSent = false
 local rampingBrightness = false
 local rampingColor = false
 
--- Who makes a fade. nil: the light, over the time a command carries. "Driver":
--- the driver, a step at a time, for a light that takes no time from a command.
+-- Who makes a fade. nil: the light, over the time a command carries. Otherwise
+-- the Fades property: "Driver" in steps, or "Light" at the light's own lengths.
 local fades = nil
+
+-- A light's own fades, in milliseconds, once they are read: on from off, off,
+-- and change, between two states while on. 0 for one it has not.
+local ownFades = {}
 
 -- Ramp metadata: { startTime, startLevel, targetLevel, durationMs } and, for
 -- a ramp a scene step primed, that step. Cleared when no ramp is in flight.
@@ -507,6 +511,31 @@ local function kelvinToMireds(k)
   return 1e6 / k
 end
 
+--- Whose a fade's length is: a light that fades by itself has one, its own, and
+--- nothing to stop. The proxy holds the rate range and the stops at run time.
+local function rateCapabilities()
+  local own = fades == "Light"
+  -- A light with no fade between two states has no fixed rate to tell.
+  local fixed = own and (ownFades.change or 0) > 0 and ownFades.change or nil
+  local caps = {
+    supports_brightness_stop = supportsDimming and not own,
+    has_fixed_ramp_rate = fixed ~= nil,
+    fixed_ramp_rate = fixed or 0,
+    brightness_rate_min = fixed or 0,
+    brightness_rate_max = fixed or 65535,
+    supports_color_stop = false,
+  }
+  if supportsColor or supportsCCT then
+    -- 0 is a rate that cannot be changed. 1 is one rate for brightness and
+    -- color: ESPHome's transition_length applies to all aspects equally.
+    caps.color_rate_behavior = own and 0 or 1
+    caps.color_rate_min = 0
+    caps.color_rate_max = 65535
+    caps.supports_color_stop = not own
+  end
+  return caps
+end
+
 local function updateDynamicCapabilities(entity)
   if dynamicCapsSent then
     return
@@ -552,12 +581,7 @@ local function updateDynamicCapabilities(entity)
     dimmer = supportsDimming,
     set_level = supportsDimming,
     supports_target = supportsDimming,
-    supports_brightness_stop = supportsDimming,
     ramp_level = supportsDimming, -- legacy 3.2-era cap; still gates test panel Ramp button
-    has_fixed_ramp_rate = false,
-    fixed_ramp_rate = 0,
-    brightness_rate_min = 0,
-    brightness_rate_max = 65535,
     -- Color
     supports_color = supportsColor,
     supports_color_correlated_temperature = supportsCCT,
@@ -571,13 +595,8 @@ local function updateDynamicCapabilities(entity)
     caps.color_correlated_temperature_min = miredsToKelvin(maxMireds)
     caps.color_correlated_temperature_max = miredsToKelvin(minMireds)
   end
-  if supportsColor or supportsCCT then
-    caps.color_rate_behavior = 1 -- ESPHome's transition_length applies to all aspects equally
-    caps.color_rate_min = 0
-    caps.color_rate_max = 65535
-    caps.supports_color_stop = true
-  else
-    caps.supports_color_stop = false
+  for capability, value in pairs(rateCapabilities()) do
+    caps[capability] = value
   end
   SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
 
@@ -1183,6 +1202,21 @@ local function interpolatedBrightness(line)
   return math.floor(brightnessRamp.startLevel + span * progress + 0.5)
 end
 
+--- How long a change takes: the time asked for, or on a light that fades by
+--- itself its own time for that change, whatever was asked.
+local function fadeTime(rate, from, to)
+  if fades ~= "Light" then
+    return rate
+  end
+  local own = ownFades.change
+  if to == 0 then
+    own = from ~= 0 and ownFades.off
+  elseif from == 0 then
+    own = ownFades.on
+  end
+  return own or 0
+end
+
 local function brightnessRampFinished(targetLevel)
   cancelBrightnessRampTimers()
   if fades == "Driver" and rampingBrightness then
@@ -1204,6 +1238,10 @@ end
 
 -- Halt the in-flight ESPHome transition at our interpolated current level.
 local function brightnessRampStopped()
+  -- A light that fades by itself is on its way: it has no stop to be sent.
+  if fades == "Light" then
+    return
+  end
   cancelBrightnessRampTimers()
   if not rampingBrightness then
     return
@@ -1310,6 +1348,7 @@ local function rampToBrightness(level, rate, presetId, replaced)
     return
   end
 
+  rate = fadeTime(rate, startingLevel, level)
   if rate == 0 then
     setESPHomeBrightness(level, 0)
     notifyBrightnessChanged(level)
@@ -1412,6 +1451,9 @@ local function colorRampFinished(targetX, targetY, targetMode)
 end
 
 local function colorRampStopped()
+  if fades == "Light" then
+    return
+  end
   cancelColorRampTimers()
   if not rampingColor then
     return
@@ -1430,7 +1472,8 @@ local function colorRampStopped()
 end
 
 local function rampToColor(targetX, targetY, targetMode, rate)
-  rate = math.max(0, tointeger(rate) or 0)
+  local lit = isLogicallyOn() and 1 or 0
+  rate = fadeTime(math.max(0, tointeger(rate) or 0), lit, lit)
 
   -- Drop the on color a brightness ramp carries, or its end would report it.
   leaveMergedColor()
@@ -1897,6 +1940,10 @@ local function applySceneStep(step)
   -- picker animation, the local STOP-mid-step interpolation, and the SCENE_
   -- TIMER all agree on when the transition actually completes.
   local rate = math.max(step.brightnessRate or 0, step.colorRate or 0)
+  -- How long the step's fade takes. The scene goes on after the step's own
+  -- rate, whatever a light that fades by itself takes over it.
+  local lit = isLogicallyOn() and 1 or 0
+  local fade = fadeTime(rate, lit, lit)
   local startTime = C4:GetTime()
   -- A level of 0 means "off"; the color block is metadata for the next on.
   -- Don't send color/RGB fields in that case so the device actually turns off.
@@ -1922,22 +1969,23 @@ local function applySceneStep(step)
     -- A color-only step leaves a brightness ramp running, as the bulb does:
     -- only a level replaces it.
     replaced = leaveBrightnessRamp()
+    fade = fadeTime(rate, currentBrightness, level)
     goingOn = level > 0 and currentBrightness == 0
     -- Only prime a ramp when the level actually moves; an explicit step at
     -- the current level with rate>0 would otherwise queue a pointless picker
     -- animation and suppress the next echo for no reason.
-    if supportsDimming and rate > 0 and level ~= currentBrightness then
+    if supportsDimming and fade > 0 and level ~= currentBrightness then
       rampingBrightness = true
       brightnessRamp = {
         startTime = startTime,
         startLevel = currentBrightness,
         targetLevel = level,
-        durationMs = rate,
+        durationMs = fade,
         step = step,
       }
-      notifyBrightnessChanging(level, rate)
+      notifyBrightnessChanging(level, fade)
       -- Ends the ramp when the scene is stopped before the step's timer does.
-      SetTimer("BrightnessRampFinish", rate, function()
+      SetTimer("BrightnessRampFinish", fade, function()
         brightnessRampFinished(level)
       end, false)
     end
@@ -1989,7 +2037,7 @@ local function applySceneStep(step)
     -- A light the driver walks up from off has no color to fade from: it
     -- comes on in the step's.
     local fromOff = fades == "Driver" and currentBrightness == 0
-    if rate > 0 and colorChanged and not fromOff then
+    if fade > 0 and colorChanged and not fromOff then
       rampingColor = true
       colorRamp = {
         startTime = startTime,
@@ -1998,11 +2046,11 @@ local function applySceneStep(step)
         targetX = color.x,
         targetY = color.y,
         targetMode = mode,
-        durationMs = rate,
+        durationMs = fade,
         step = step,
       }
-      notifyColorChanging(color.x, color.y, mode, rate)
-      SetTimer("ColorRampFinish", rate, function()
+      notifyColorChanging(color.x, color.y, mode, fade)
+      SetTimer("ColorRampFinish", fade, function()
         colorRampFinished(color.x, color.y, mode)
       end, false)
     elseif colorChanged or colorInFlight then
@@ -3119,6 +3167,8 @@ local function directPoll()
       return
     end
     local info = Select(response, "result") or {}
+    -- A light that is back may be back with other fades of its own.
+    ownFades.due = ownFades.due or not directConnected
     directConnected = true
     if asked == directCommands then
       local moved = smartRead(info)
@@ -3228,9 +3278,84 @@ local function directSend(opts)
   return true
 end
 
---- The command first, then the poll, which so reads the light after it, then a
---- fade's next step, made only for a light free to take it so none waits.
+--- How long a light takes over its own fade between two states while it is
+--- on, in milliseconds. It reports no length for it: measured on a Tapo strip.
+--- @type number
+local OWN_CHANGE_MS = 1000
+
+--- Read the light's own fades and switch on each that is off, at the length it
+--- has, which is the owner's. Then the proxy is told the rate that is fixed.
+local function readOwnFades()
+  local function tell()
+    SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", rateCapabilities(), "NOTIFY", true)
+  end
+  local function failed(err)
+    log:warn("The light's own fades could not be read or switched on: %s", Select(err, "error") or err)
+    tell()
+  end
+  --- A fade's length in milliseconds, 0 for one that is off or not there.
+  local function length(state, ms)
+    return type(state) == "table" and toboolean(state.enable) and (ms or (tointeger(state.duration) or 0) * 1000) or 0
+  end
+  directFlight(klap:request({ method = "get_on_off_gradually_info", params = {} }), function(response)
+    local info = Select(response, "result")
+    if tointeger(Select(response, "error_code")) ~= 0 or type(info) ~= "table" then
+      failed(response)
+      return
+    end
+    -- An older light answers with one switch for all its fades and no length
+    -- for them: it is switched on as the others are, and told as no fade.
+    local one = info.enable ~= nil
+    local names = one and { "all" } or { "on_state", "off_state", "change_state" }
+    if one then
+      info = { all = info }
+    end
+    --- Switch on the fades that are off, from the `i`th, a request each, and
+    --- then take them all as they are.
+    local function switchOn(i)
+      local name = names[i]
+      local state = info[name]
+      if fades ~= "Light" then
+        return
+      end
+      if name == nil then
+        ownFades = {
+          on = length(info.on_state),
+          off = length(info.off_state),
+          change = length(info.change_state, OWN_CHANGE_MS),
+        }
+        tell()
+      elseif type(state) ~= "table" or toboolean(state.enable) then
+        switchOn(i + 1)
+      else
+        local params = one and { enable = true } or { [name] = { enable = true, duration = state.duration } }
+        directFlight(klap:request({ method = "set_on_off_gradually_info", params = params }), function(answer)
+          state.enable = tointeger(Select(answer, "error_code")) == 0
+          if not state.enable then
+            failed(answer)
+          end
+          switchOn(i + 1)
+        end, failed)
+      end
+    end
+    switchOn(1)
+  end, failed)
+end
+
+--- The light's own fades first when due, then the command, then the poll, which
+--- so reads the light after it, then a fade's next step.
 function directNext()
+  -- An answer's handler may have put a request of its own in flight.
+  if directBusy then
+    return
+  end
+  if ownFades.due then
+    ownFades.due = false
+    if fades == "Light" then
+      readOwnFades()
+      return
+    end
+  end
   local waiting = directWaiting
   directWaiting = nil
   if waiting ~= nil and directSend(waiting) then
@@ -3293,11 +3418,11 @@ local function directExecute(opts, step)
       return
     end
   end
-  -- The steps turn a light the driver walks on and off: it is as the last one
-  -- left it, and a color with no level turns on none that the walk has not.
+  -- A color with no level turns on no light the driver has not. One it walks
+  -- is as its last step left it, and one that fades by itself as it was sent.
   local color = opts.has_rgb or opts.has_color_temperature
-  if fades == "Driver" and rampingBrightness and color and not opts.has_brightness then
-    opts.state = interpolatedBrightness() > 0
+  if fades and rampingBrightness and color and not opts.has_brightness then
+    opts.state = (fades == "Driver" and interpolatedBrightness() or brightnessRamp.targetLevel) > 0
   end
   -- A color for a SMART light that is off is no off: a light turned on since
   -- is left on. It names no state here, so an off it waits with is still one.
@@ -3393,6 +3518,8 @@ backendStart = function(retry)
   directPollWaiting = false
   smartPendingColor = nil
   fades = nil
+  ownFades = {}
+  C4:SetPropertyAttribs("Fades", constants.HIDE_PROPERTY)
 
   -- Force a fresh capability discovery on every (re)connect. The light_v2
   -- proxy resets to the static baseline whenever the driver reloads, so the
@@ -3477,10 +3604,17 @@ backendStart = function(retry)
     iotBulb = bulb
     transportName = name
     directConnected = true
-    -- A light on the SMART schema takes no fade time from a command.
-    fades = schema == "smart" and "Driver" or nil
+    -- A light on the SMART schema takes no fade time from a command, so who
+    -- makes its fades is the installer's choice.
+    if schema == "smart" then
+      fades = Properties["Fades"] or "Driver"
+      ownFades.due = true
+      C4:SetPropertyAttribs("Fades", constants.SHOW_PROPERTY)
+    end
     log:info("Using %s transport for direct control", name)
     applyUpdate(entity, state)
+    -- Its own fades are read now, where Fades leaves the fades to the light.
+    directNext()
   end
 
   --- Probe a transport with the IOT bulb schema.
@@ -3665,4 +3799,27 @@ function OPC.Poll_Rate_Seconds(propertyValue)
   if gInitialized then
     backendStart()
   end
+end
+
+--- @param propertyValue string
+function OPC.Fades(propertyValue)
+  log:trace("OPC.Fades('%s')", propertyValue)
+  -- The choice is a connected light's, one on the SMART schema.
+  if fades == nil or fades == propertyValue then
+    return
+  end
+  -- A ramp in flight ends here, at its target.
+  if rampingBrightness then
+    brightnessRampFinished(brightnessRamp.targetLevel)
+  end
+  if rampingColor then
+    colorRampFinished(colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode)
+  end
+  fades = propertyValue
+  -- For Light the proxy is told once the light's own fades are read.
+  if fades == "Driver" and dynamicCapsSent then
+    SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", rateCapabilities(), "NOTIFY", true)
+  end
+  ownFades.due = true
+  directNext()
 end

@@ -113,6 +113,9 @@ modes:
   outlet
 - An on/off device is shown without dimming or color once the driver has
   connected to it
+- Ramp rates, stops, held buttons and scene fades on Tapo lights, which take no
+  fade time from a command: the driver makes the fade in steps, or leaves it to
+  the light's own fades
 - Advanced Lighting Scenes support
 
 # <span style="color:#4ACBD6">Installation</span>
