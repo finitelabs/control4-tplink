@@ -1987,8 +1987,7 @@ end
 
 T.section("a preset stored on a driver with none is stored under its own key alone")
 do
-  -- persist answers every unset key with the one table it keeps for that: a
-  -- preset written into it is every unset key's answer from then on.
+  -- persist answers an unset key with nil, so a preset stored under one key reaches no other.
   local keys = { "brightness_presets", "color_presets", "color_on_mode", "brightness_on_mode" }
   for _, key in ipairs(keys) do
     persist:delete(key)
@@ -2011,10 +2010,10 @@ do
   T.eq("the brightness presets are the one sent", ids("brightness_presets"), { "10" })
   T.eq("the color presets are the one sent", ids("color_presets"), { "1" })
   T.eq("no Color On Mode is stored", PersistGetValue("color_on_mode"), nil)
-  T.eq("and a key with nothing stored still reads as empty", persist:get("brightness_on_mode"), {})
+  T.eq("and a key with nothing stored still reads as nil", persist:get("brightness_on_mode"), nil)
   proxy("ON")
   proxy("OFF")
-  T.eq("an on and an off later, it still does", persist:get("brightness_on_mode"), {})
+  T.eq("an on and an off later, it still does", persist:get("brightness_on_mode"), nil)
   for _, key in ipairs(keys) do
     persist:delete(key)
   end
