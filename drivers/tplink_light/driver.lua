@@ -1112,10 +1112,50 @@ end
 local mergedColorUntil = 0
 
 ---------------------------------------------------------------------------
+-- Helpers: color notifications
+---------------------------------------------------------------------------
+
+local function notifyColorChanged(x, y, mode)
+  currentColorX = x
+  currentColorY = y
+  currentColorMode = mode
+  log:debug("LIGHT_COLOR_CHANGED: x=%.4f y=%.4f mode=%s", x, y, mode)
+  SendToProxy(PROXY_BINDING, "LIGHT_COLOR_CHANGED", {
+    LIGHT_COLOR_CURRENT_X = x,
+    LIGHT_COLOR_CURRENT_Y = y,
+    LIGHT_COLOR_CURRENT_COLOR_MODE = mode,
+    LIGHT_COLOR_CURRENT_PRESET_ID = currentColorPresetId,
+  }, "NOTIFY")
+end
+
+local function notifyColorChanging(targetX, targetY, mode, rate)
+  log:debug("LIGHT_COLOR_CHANGING: x=%.4f y=%.4f mode=%s rate=%s", targetX, targetY, mode, rate)
+  SendToProxy(PROXY_BINDING, "LIGHT_COLOR_CHANGING", {
+    LIGHT_COLOR_CURRENT_X = currentColorX,
+    LIGHT_COLOR_CURRENT_Y = currentColorY,
+    LIGHT_COLOR_CURRENT_COLOR_MODE = currentColorMode,
+    LIGHT_COLOR_TARGET_X = targetX,
+    LIGHT_COLOR_TARGET_Y = targetY,
+    LIGHT_COLOR_TARGET_COLOR_MODE = mode,
+    -- Spec _10.7 names this LIGHT_COLOR_TARGET_COLOR_RATE; some older docs
+    -- and helper code use LIGHT_COLOR_TARGET_RATE so we send both for safety.
+    LIGHT_COLOR_TARGET_COLOR_RATE = rate,
+    LIGHT_COLOR_TARGET_RATE = rate,
+    LIGHT_COLOR_TARGET_PRESET_ID = currentColorPresetId,
+  }, "NOTIFY", true)
+end
+
+---------------------------------------------------------------------------
 -- Helpers: brightness notifications
 ---------------------------------------------------------------------------
 
 local function endOnCycle()
+  -- A color the driver walks goes on to its end while the light is off, so the
+  -- proxy hears it ahead of the level, where it takes its Previous On.
+  if fades == "Driver" and rampingColor then
+    colorRamp.told = true
+    notifyColorChanged(colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode)
+  end
   -- Snapshot the current color so color_on_mode_previous can restore it on the
   -- next on. Spec _7.4: "the proxy tracks the last color reported by a driver
   -- before a BRIGHTNESS_CHANGED notification occurs with a level of 0." We
@@ -1205,40 +1245,6 @@ local function notifyBrightnessChanging(target, rate, current)
   if target > 0 then
     matchLedState(true)
   end
-end
-
----------------------------------------------------------------------------
--- Helpers: color notifications
----------------------------------------------------------------------------
-
-local function notifyColorChanged(x, y, mode)
-  currentColorX = x
-  currentColorY = y
-  currentColorMode = mode
-  log:debug("LIGHT_COLOR_CHANGED: x=%.4f y=%.4f mode=%s", x, y, mode)
-  SendToProxy(PROXY_BINDING, "LIGHT_COLOR_CHANGED", {
-    LIGHT_COLOR_CURRENT_X = x,
-    LIGHT_COLOR_CURRENT_Y = y,
-    LIGHT_COLOR_CURRENT_COLOR_MODE = mode,
-    LIGHT_COLOR_CURRENT_PRESET_ID = currentColorPresetId,
-  }, "NOTIFY")
-end
-
-local function notifyColorChanging(targetX, targetY, mode, rate)
-  log:debug("LIGHT_COLOR_CHANGING: x=%.4f y=%.4f mode=%s rate=%s", targetX, targetY, mode, rate)
-  SendToProxy(PROXY_BINDING, "LIGHT_COLOR_CHANGING", {
-    LIGHT_COLOR_CURRENT_X = currentColorX,
-    LIGHT_COLOR_CURRENT_Y = currentColorY,
-    LIGHT_COLOR_CURRENT_COLOR_MODE = currentColorMode,
-    LIGHT_COLOR_TARGET_X = targetX,
-    LIGHT_COLOR_TARGET_Y = targetY,
-    LIGHT_COLOR_TARGET_COLOR_MODE = mode,
-    -- Spec _10.7 names this LIGHT_COLOR_TARGET_COLOR_RATE; some older docs
-    -- and helper code use LIGHT_COLOR_TARGET_RATE so we send both for safety.
-    LIGHT_COLOR_TARGET_COLOR_RATE = rate,
-    LIGHT_COLOR_TARGET_RATE = rate,
-    LIGHT_COLOR_TARGET_PRESET_ID = currentColorPresetId,
-  }, "NOTIFY", true)
 end
 
 local leaveColorRamp -- defined with the color ramp helpers below
@@ -1689,6 +1695,8 @@ end
 
 local function colorRampFinished(targetX, targetY, targetMode)
   cancelColorRampTimers()
+  -- One told at an off went out with the preset id the off then dropped.
+  local told = colorRamp and colorRamp.told
   if fades == "Driver" and rampingColor then
     -- The last step, as a level ramp's.
     colorRamp.startTime = C4:GetTime() - colorRamp.durationMs
@@ -1696,7 +1704,9 @@ local function colorRampFinished(targetX, targetY, targetMode)
   end
   rampingColor = false
   colorRamp = nil
-  notifyColorChanged(targetX, targetY, targetMode)
+  if not told then
+    notifyColorChanged(targetX, targetY, targetMode)
+  end
 end
 
 local function colorRampStopped()

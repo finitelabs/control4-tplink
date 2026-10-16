@@ -2329,6 +2329,31 @@ do
   T.eq("and its steps name no color", #each(serve(3000, 250), "hue"), 0)
   forgetSetup()
 
+  walked({}, NO_POLLS)
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 10,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_FADE_PRESET_ID = 0,
+    COLOR_FADE_PRESET_ORIGIN = 0,
+  })
+  colorTarget(BLUE, 10000)
+  serve(2000, 250)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 0 })
+  T.eq(
+    "an off 2 s into a 10 s fade from red to blue: the proxy is told blue ahead of the level",
+    { ends(), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X") },
+    { { "LIGHT_COLOR_CHANGED", "LIGHT_BRIGHTNESS_CHANGED" }, { BLUE[1] } }
+  )
+  serve(9000, 250)
+  T.eq("and nothing more at the fade's end", #told("LIGHT_COLOR_CHANGED"), 1)
+  T.eq("the strip stays off", strip.device_on, false)
+  proxy("ON")
+  T.eq("with Previous, the next on is in blue", flying(), {
+    { device_on = true, brightness = 100, hue = 240, saturation = 100, color_temp = 0 },
+  })
+  forgetSetup()
+
   halfWay()
   setProperty("Fades", "Light")
   serve(1000, 250)

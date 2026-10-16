@@ -222,6 +222,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   a level change took over, and Control4 not being told the color it was left
   in. The color now goes on there over the command that took over, and is told
   when it arrives.
+- Fixed a Tapo light with `Fades` on `Driver` turned off while its color was
+  still fading coming back on, with Color On Mode set to Previous, in the color
+  the fade began in.
 
 ### Changed
 
