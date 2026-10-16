@@ -87,8 +87,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   shown in two colors at every brightness change, the one it was sent and then
   the one it reported, and being sent the level again by a command for the level
   it was already at.
-- Fixed a ramped on of a TP-Link color light with no color temperature
-  restarting a moment in, when the light turns on in a color temperature preset.
+- Fixed a TP-Link color light with no color temperature restarting a moment into
+  a ramp to on, when it turns on in a color temperature preset.
 
 ### Changed
 
