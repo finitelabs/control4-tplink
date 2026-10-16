@@ -773,11 +773,15 @@ function range.bounds()
   return lo, math.max(lo, tonumber(persist:get(P_MAX_ON_LEVEL, 100)) or 100)
 end
 
---- Device brightness (0-1) at level `at` on the line through (1, lo) and
---- (100, hi); extrapolates past either end.
-function range.lineBrightness(at)
+--- Device brightness (percent) at level `at` on the line through (1, lo) and
+--- (100, hi); extrapolates past either end. With no range it is `at` exactly.
+function range.linePercent(at)
   local lo, hi = range.bounds()
-  return (lo + (at - 1) * (hi - lo) / 99) / 100
+  return lo + (at - 1) * ((hi - lo) / 99)
+end
+
+function range.lineBrightness(at)
+  return range.linePercent(at) / 100
 end
 
 function range.toDevice(level)
@@ -848,7 +852,7 @@ function range.rampPlace(ramp, elapsed)
   local off = range.offLevel()
   local from = ramp.startLevel > 0 and (ramp.startAt or ramp.startLevel) or off
   local to = ramp.targetLevel > 0 and (ramp.targetAt or ramp.targetLevel) or off
-  return from + (to - from) * elapsed / ramp.durationMs, off
+  return from + (to - from) * (elapsed / ramp.durationMs), off
 end
 
 --- Level a ramp's line position reads as, and the position if outside the
@@ -877,7 +881,7 @@ function range.walk(ramp)
     return ramp.targetLevel, range.wholePercent(range.endBrightness(ramp.targetLevel, ramp.targetAt))
   end
   local at = range.rampPlace(ramp, elapsed)
-  local percent = range.wholePercent(math.max(0, range.lineBrightness(at)))
+  local percent = math.floor(math.max(0, range.linePercent(at)) + 0.5)
   -- A walk up from off is lit from its first step, as the proxy is told.
   if ramp.targetLevel > 0 then
     percent = math.max(1, percent)

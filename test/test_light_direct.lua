@@ -3972,6 +3972,14 @@ do
     onLevels(20, 80)
   end
   forgetSetup()
+  -- With no range the line is the levels themselves, half percents included.
+  noRange()
+  walked({ device_on = false }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  serve(3000, 250)
+  T.eq("with no range, 3 s into a walk from off to 60 % over 6 s the step in flight is 29 %, from 28.5", flying(), {
+    { device_on = true, brightness = 29 },
+  })
   ranged({ device_on = false })
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   local up = { 2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57, 62, 67, 72, 77, 80 }
