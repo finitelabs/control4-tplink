@@ -1648,6 +1648,7 @@ do
   proxy("SET_COLOR_STOP")
   T.eq("a stop tells the color of that step", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] * 0.485 })
   T.eq("and no step follows it", each(serve(8000, 250), "hue"), { 116 })
+  T.eq("so the strip holds that color past the fade's end", strip.hue, 116)
   colorTarget(BLUE, 10000)
   serve(5000, 250)
   mark()
@@ -3096,7 +3097,7 @@ do
   mark()
   proxy("SET_COLOR_STOP")
   T.eq("a stop 0.3 s into a color's fade: nothing is sent, and nothing told", { flying(), sent }, { {}, {} })
-  serve(2000, 250)
+  T.eq("nor at the fade's end, where the strip has gone", serve(2000, 250), {})
   T.eq("the color is told at the fade's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
 
   mark()
