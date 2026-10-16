@@ -201,6 +201,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a TP-Link light asked for its level during a ramp being shown as stopped
   at the level the ramp began from, so a light turned on over a ramp time was
   shown off again. It is now shown still ramping, from the level it has reached.
+- Fixed the LEDs of keypad buttons bound to a TP-Link light showing the light
+  off while it was turned on over a ramp time, until the ramp ended. They now
+  show it on from the start of the ramp.
 
 ### Changed
 

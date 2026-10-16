@@ -2858,6 +2858,83 @@ do
   })
 end
 
+T.section("the button LEDs follow the light being on: from the start of a ramp up, to the end of a fade to off")
+do
+  local TOP_LINK, TOGGLE_LINK, BOTTOM_LINK = 300, 301, 302
+  --- What the Top Button Link's LED is told since the mark: { ms, STATE }.
+  local function leds()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == TOP_LINK and s.command == "MATCH_LED_STATE" then
+        out[#out + 1] = { s.at, s.params.STATE }
+      end
+    end
+    return out
+  end
+  --- What Request Button Colors tells the Top, Toggle and Bottom LEDs.
+  local function buttonColors()
+    local from, out = #sent, {}
+    proxy("REQUEST_BUTTON_COLORS")
+    for i = from + 1, #sent do
+      if sent[i].command == "MATCH_LED_STATE" then
+        out[sent[i].binding] = sent[i].params.STATE
+      end
+    end
+    return { out[TOP_LINK], out[TOGGLE_LINK], out[BOTTOM_LINK] }
+  end
+  local TOGGLE, CLICK = 2, 2
+  forgetSetup()
+  local ons = {
+    { "Set Brightness Target", "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 } },
+    { "Ramp Scene Up", "RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 2000 } },
+    { "a scene step over 2 s", "ACTIVATE_SCENE", { SCENE_ID = 7 } },
+    { "a Top click", "BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = CLICK } },
+    { "a Toggle hold", "BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS } },
+  }
+  for _, c in ipairs(ons) do
+    walked({ device_on = false }, NO_POLLS)
+    proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(60, 2000) })
+    mark()
+    proxy(c[2], c[3])
+    local rate = told("LIGHT_BRIGHTNESS_CHANGING", "RATE")[1]
+    serve(rate / 2, 250)
+    T.eq(c[1] .. " from off: the LEDs are told on as its ramp begins", leds(), { { 0, true } })
+    T.eq("and Request Button Colors half way says on", buttonColors(), { true, true, false })
+    mark()
+    serve(rate, 250)
+    T.eq("and the LEDs are told nothing more at its end", leds(), {})
+    proxy("CLEAR_ALL_SCENES")
+  end
+
+  -- A Kasa bulb, and a strip that fades by itself.
+  bulb({ on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 2000 })
+  reply()
+  run(3000)
+  T.eq("a Kasa bulb ramped on from off: on as its ramp begins", leds(), { { 0, true } })
+  walked({ device_on = false }, NO_POLLS)
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  serve(3000, 250)
+  T.eq("with Fades on Light: on as its own fade begins", leds(), { { 0, true } })
+
+  -- A fade to off is on until its end, as before, and a ramp between two lit levels is no change.
+  walked({ brightness = 60 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 2000 })
+  serve(1000, 250)
+  T.eq("a fade to off: the LEDs are told nothing half way", leds(), {})
+  T.eq("and Request Button Colors half way says on", buttonColors(), { true, true, false })
+  mark()
+  serve(2000, 250)
+  T.eq("they are told off at the fade's end", leds(), { { 1000, false } })
+  walked({ brightness = 60 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 2000 })
+  serve(3000, 250)
+  T.eq("a rated level from 60 to 30 %: the LEDs are told nothing", leds(), {})
+end
+
 T.section("what a Kasa bulb and a light on an outlet are sent, and the proxy told, is as it was")
 do
   local GREEN = xy(120, 50)
