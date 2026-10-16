@@ -1249,8 +1249,8 @@ end
 
 local leaveColorRamp -- defined with the color ramp helpers below
 
--- A color a replaced fade carried, on a light the driver walks: helpers defined
--- below, in one table as this chunk is near Lua's 200 locals.
+-- A color a replaced fade carried, or one told at an off, on a light the driver
+-- walks: helpers below, in one table as this chunk is near Lua's 200 locals.
 local carry = {}
 
 -- Two-phase fade-up workaround. ESPHome's light_call short-circuits on
@@ -1368,6 +1368,9 @@ local function setESPHomeBrightness(level, rateMs, keepColor, at)
     end
   else
     carry.retime(cmd.transition_length, level > 0)
+    if goingOn then
+      carry.resume()
+    end
   end
 end
 
@@ -1773,6 +1776,21 @@ function carry.retime(ms, on)
   carry.color(ramp.targetX, ramp.targetY, ramp.targetMode, ms, on)
   if rampingColor then
     notifyColorChanging(ramp.targetX, ramp.targetY, ramp.targetMode, ms)
+  end
+end
+
+--- A command with no color turns the light back on while a walk told at an off
+--- goes on: tell the rest of it, from where it has got to, and its end.
+function carry.resume()
+  local ramp = rampingColor and colorRamp
+  if not (ramp and ramp.told) then
+    return
+  end
+  local left = ramp.startTime + ramp.durationMs - C4:GetTime()
+  if left > 0 then
+    ramp.told = false
+    currentColorX, currentColorY, currentColorMode = interpolatedColor(true)
+    notifyColorChanging(ramp.targetX, ramp.targetY, ramp.targetMode, left)
   end
 end
 
@@ -2422,6 +2440,9 @@ local function applySceneStep(step)
     end
     sendLightCommand(cmd)
     carry.retime(fade, cmd.state ~= false)
+    if goingOn then
+      carry.resume()
+    end
     -- A step taken at once is where the light is: what follows starts there.
     -- One landing where a replaced ramp had got to is told too, as its end.
     if level ~= nil and not rampingBrightness and (level ~= currentBrightness or replaced) then

@@ -2355,6 +2355,63 @@ do
   })
   forgetSetup()
 
+  --- With no Color On Mode, the same off, and `on` 2 s after it, while the fade
+  --- walks on. Returns where the color fade the proxy is then told goes from and
+  --- to, and over how long.
+  local function backOn(on)
+    forgetSetup()
+    walked({}, NO_POLLS)
+    colorTarget(BLUE, 10000)
+    serve(2000, 250)
+    proxy("SET_LEVEL", { LEVEL = 0 })
+    serve(2000, 250)
+    mark()
+    on()
+    local fade = told("LIGHT_COLOR_CHANGING")[1] or {}
+    return { fade.LIGHT_COLOR_CURRENT_X, fade.LIGHT_COLOR_TARGET_X, fade.LIGHT_COLOR_TARGET_COLOR_RATE }
+  end
+  local rest = { BLUE[1] * 0.4, BLUE[1], 6000 }
+  T.eq(
+    "with no Color On Mode, an on 2 s after that off: the proxy is told the fade goes on from where it is over its 6 s left",
+    backOn(function()
+      proxy("ON")
+    end),
+    rest
+  )
+  serve(8000, 250)
+  T.eq(
+    "and is told blue as the strip gets there",
+    { told("LIGHT_COLOR_CHANGED", "at"), colorsTold(), strip.hue },
+    { { 6000 }, { BLUE[1] }, 240 }
+  )
+  T.eq(
+    "the same for a ramped on",
+    backOn(function()
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+    end),
+    rest
+  )
+  T.eq(
+    "and for a scene step to a level alone",
+    backOn(function()
+      proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(100, 2000) })
+      proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+    end),
+    rest
+  )
+  proxy("CLEAR_ALL_SCENES")
+  local cyan = xy(180, 100)
+  backOn(function()
+    proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(100, cyan, 2000) })
+    proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  end)
+  T.eq(
+    "a scene step on in a color of its own: the proxy is told that color, and no fade",
+    { told("LIGHT_COLOR_CHANGING"), colorsTold() },
+    { {}, { cyan[1] } }
+  )
+  proxy("CLEAR_ALL_SCENES")
+
   halfWay()
   setProperty("Fades", "Light")
   serve(1000, 250)
