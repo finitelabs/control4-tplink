@@ -1252,6 +1252,33 @@ do
       {}
     )
   end
+  --- A light of `kind` at 50 % with that Dim-To-Warm, set to a full color at
+  --- `x`, `y`, and then given the level again.
+  local function againInColor(kind, x, y)
+    light({ kind }, false)
+    onModeCCT(6500, 2700)
+    proxy("SET_LEVEL", { LEVEL = 50 })
+    run(1000)
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = x,
+      LIGHT_COLOR_TARGET_Y = y,
+      LIGHT_COLOR_TARGET_MODE = FULL,
+      LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+    })
+    run(1000)
+    mark()
+    proxy("SET_LEVEL", { LEVEL = 50 })
+  end
+  -- The mix is showing within the color tolerance, and only in its own mode.
+  againInColor(ColorMode.COLOR_MODE_RGB, (warmX + coolX) / 2 + 2e-3, (warmY + coolY) / 2)
+  T.eq("a color light in a color 2e-3 from the mix, the level again: nothing is sent", commands(), 0)
+  againInColor(ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE, pointX, pointY)
+  T.eq(
+    "a color and color temperature light in a full color at the mix's xy, the level again: it is sent",
+    commands(),
+    1
+  )
+  T.check("and the proxy is told the mix", toldOnce(pointX, pointY, CCT), T.show(sent))
   -- After a rated on the proxy sends the color the on carried, as an xy in
   -- mode CCT: the mix on the line, or an On color that is off the curve.
   local lineX, lineY = (warmX + coolX) / 2, (warmY + coolY) / 2
