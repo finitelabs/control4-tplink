@@ -1636,25 +1636,24 @@ do
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 60000 })
   run(50)
   colorTarget(BLUE, 0)
-  T.eq("a color before a fade up from off has sent its first level: no on without a level", flying(), {})
-  T.eq("it goes with the fade's first level", serve(1000, 250)[1], {
-    at = 350,
-    sent = { device_on = true, brightness = 1, hue = 240, saturation = 100, color_temp = 0 },
+  T.eq("a color before a fade up from off has sent its first level: no on without a level", flying(), {
+    { device_on = true, brightness = 1, hue = 240, saturation = 100, color_temp = 0 },
   })
+  T.eq("it goes with the fade's first level, sent as the color comes", serve(1000, 250)[1].at, 50)
   walked({ device_on = false }, NO_POLLS)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 60000 })
   run(50)
   colorTarget(BLUE, 5000)
   steps = serve(1000, 250)
-  T.eq("a color fading beside it: the first request is the first level, in the color the fade has got to", steps[1], {
-    at = 350,
-    sent = { device_on = true, brightness = 1, hue = 14, saturation = 100, color_temp = 0 },
+  T.eq("a color fading beside it: the first request is the first level, sent as the color comes", steps[1], {
+    at = 50,
+    sent = { device_on = true, brightness = 1 },
   })
-  T.eq("and the color's steps follow", each(steps, "hue"), { 14, 26 })
+  T.eq("and the color's steps follow", each(steps, "hue"), { 12, 24 })
 
   -- Nor is it on at a level the fade has reached and not yet sent.
   walked({ device_on = false })
-  run(4800)
+  run(4950)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 60000 })
   run(350)
   colorTarget(BLUE, 0)
@@ -2699,6 +2698,76 @@ do
   serve(3000, 250)
   T.eq("and the strip ends on both", { strip.brightness, strip.hue }, { 80, 240 })
   proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("a rated on from off is lit by its first step, and told to the proxy as a change from 1")
+do
+  -- The proxy takes LIGHT_STATE from CHANGING's current level: from 0 it showed the light off until CHANGED.
+  --- What the proxy is told of the level since the mark: { "CHANGING", from, to } and { "CHANGED", level }.
+  local function changes()
+    local out = {}
+    for _, s in ipairs(sent) do
+      local p = s.params
+      if s.binding == PROXY and s.command == "LIGHT_BRIGHTNESS_CHANGING" then
+        out[#out + 1] = { "CHANGING", p.LIGHT_BRIGHTNESS_CURRENT, p.LIGHT_BRIGHTNESS_TARGET }
+      elseif s.binding == PROXY and s.command == "LIGHT_BRIGHTNESS_CHANGED" then
+        out[#out + 1] = { "CHANGED", p.LIGHT_BRIGHTNESS_CURRENT }
+      end
+    end
+    return out
+  end
+  local TOGGLE, CLICK = 2, 2
+  forgetSetup()
+  local ons = {
+    { "Set Brightness Target", "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 } },
+    { "Ramp Scene Up", "RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 2000 } },
+    { "a scene step over 2 s", "ACTIVATE_SCENE", { SCENE_ID = 7 } },
+    { "a Top click", "BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = CLICK } },
+    { "a Toggle hold", "BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS } },
+  }
+  for _, c in ipairs(ons) do
+    walked({ device_on = false }, NO_POLLS)
+    proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(60, 2000) })
+    mark()
+    proxy(c[2], c[3])
+    serve(10000, 250)
+    local to = told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET")[1]
+    T.eq(c[1] .. " from off: one CHANGING from 1, then one CHANGED", changes(), {
+      { "CHANGING", 1, to },
+      { "CHANGED", to },
+    })
+    proxy("CLEAR_ALL_SCENES")
+  end
+  -- A slow on to a low level, whose line takes 1.5 s to reach half a level.
+  walked({ device_on = false }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 10, RATE = 30000 })
+  run(100)
+  T.eq("10 % over 30 s from off: the fade's first step lights the strip, at 1 %", flying(), {
+    { device_on = true, brightness = 1 },
+  })
+
+  -- A strip that fades by itself, and a Kasa bulb, are lit by the on itself.
+  walked({ device_on = false }, NO_POLLS)
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  T.eq("with Fades on Light: the on goes at once", flying(), { { device_on = true, brightness = 60 } })
+  serve(3000, 250)
+  T.eq("and is told from 1", changes(), { { "CHANGING", 1, 60 }, { "CHANGED", 60 } })
+  bulb({ on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+  reply()
+  run(3000)
+  T.eq("a Kasa bulb, which fades up from the on: told from 1", changes(), { { "CHANGING", 1, 50 }, { "CHANGED", 50 } })
+
+  -- A fade to off, and a rated level for a light that is on, are told from where it is, as before.
+  for _, to in ipairs({ 30, 0 }) do
+    walked({ brightness = 60 }, NO_POLLS)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = to, RATE = 2000 })
+    serve(3000, 250)
+    T.eq("a rated level to " .. to .. " from 60: from 60", changes(), { { "CHANGING", 60, to }, { "CHANGED", to } })
+  end
 end
 
 T.section("what a Kasa bulb and a light on an outlet are sent, and the proxy told, is as it was")
