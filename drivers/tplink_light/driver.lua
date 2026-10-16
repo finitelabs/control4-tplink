@@ -344,8 +344,22 @@ local function readProxySetup()
     })
   end
 
+  -- The proxy sends a brightness preset only when it changes, so Previous On's
+  -- level is read here too.
+  local levels = Select(setup, "brightnesses", "level") or {}
+  for _, element in ipairs(IsList(levels) and levels or { levels }) do
+    local attr = element._attr or {}
+    if tointeger(attr.id) and tonumber(attr.level) then
+      RFP.UPDATE_BRIGHTNESS_PRESET(
+        PROXY_BINDING,
+        "UPDATE_BRIGHTNESS_PRESET",
+        { ID = attr.id, NAME = attr.name, LEVEL = attr.level }
+      )
+    end
+  end
+
   local levelId = tointeger(setup.light_brightness_on_mode_preset_id)
-  local level = levelId and setupPreset(Select(setup, "brightnesses", "level"), levelId)
+  local level = levelId and setupPreset(levels, levelId)
   if level and tonumber(level.level) then
     RFP.UPDATE_BRIGHTNESS_ON_MODE(
       PROXY_BINDING,
@@ -990,10 +1004,33 @@ local function matchLedState(on)
   SendToProxy(TOGGLE_BINDING, "MATCH_LED_STATE", { STATE = on }, "NOTIFY", true)
 end
 
+-- The last level the proxy was told is a ramp's 1 from off, not one the light
+-- was at.
+local preOnTold = false
+
+local function previousOnLevel()
+  local preset = persist:get(P_BRIGHTNESS_PRESETS, {})[tostring(PREVIOUS_ON_PRESET_ID)]
+  return preset and tonumber(preset.level)
+end
+
 local function notifyBrightnessChanged(level)
   if level == 0 and currentBrightness > 0 then
     endOnCycle()
   end
+  -- The proxy takes Previous On from the last level it was told, so tell the
+  -- one to keep as an off from it.
+  if level == 0 and preOnTold then
+    local keep = currentBrightness > 0 and currentBrightness or previousOnLevel()
+    if keep and keep >= 1 then
+      log:debug("LIGHT_BRIGHTNESS_CHANGING: %s to 0, rate=0", keep)
+      SendToProxy(PROXY_BINDING, "LIGHT_BRIGHTNESS_CHANGING", {
+        LIGHT_BRIGHTNESS_CURRENT = keep,
+        LIGHT_BRIGHTNESS_TARGET = 0,
+        RATE = 0,
+      }, "NOTIFY", true)
+    end
+  end
+  preOnTold = false
   currentBrightness = level
   log:debug("LIGHT_BRIGHTNESS_CHANGED: %s", level)
   -- Echo back the preset id from the most recent SET_BRIGHTNESS_TARGET so the
@@ -1013,6 +1050,7 @@ local function notifyBrightnessChanging(target, rate, current)
   -- The proxy takes the light's state from CURRENT: one on its way up from off
   -- is lit by the first request the fade sends.
   current = current or currentBrightness
+  preOnTold = target > 0 and current < 1
   if target > 0 then
     current = math.max(1, current)
   end
