@@ -31,6 +31,9 @@ local PROXY = 5001
 local now = 1000000
 local queue, order = {}, 0
 
+--- Each timer's entry in the queue, by the handle it was given.
+local entries = setmetatable({}, { __mode = "k" })
+
 function C4:GetTime()
   return now
 end
@@ -39,6 +42,7 @@ function C4:SetTimer(delayMs, callback, repeating)
   order = order + 1
   local t = { at = now + delayMs, order = order }
   local handle = newproxy(true)
+  entries[handle] = t
   getmetatable(handle).__index = {
     Cancel = function()
       t.cancelled = true
@@ -78,6 +82,22 @@ local function run(ms)
     best.fn()
   end
   now = stop
+end
+
+--- The names of the driver's timers still to fall due, sorted.
+local function liveTimers()
+  local queued = {}
+  for _, t in ipairs(queue) do
+    queued[t] = not t.cancelled
+  end
+  local out = {}
+  for name, handle in pairs(Timer) do
+    if type(name) == "string" and queued[entries[handle]] then
+      out[#out + 1] = name
+    end
+  end
+  table.sort(out)
+  return out
 end
 
 -- An error in a timer or in a reply's handler is caught where it is raised.
@@ -2358,6 +2378,107 @@ do
     each(steps, "brightness"),
     levels(),
   }, { { 23 }, { 23 } })
+end
+
+T.section("once a fade has ended, by any way, no timer is left but the poll's and the update check's")
+do
+  local fadeUp = { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 }
+  for _, c in ipairs({
+    {
+      "a level fade run to its end",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+      end,
+    },
+    {
+      "a level fade stopped half way",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+        serve(2000, 250)
+        proxy("SET_BRIGHTNESS_STOP")
+      end,
+    },
+    {
+      "a color fade run to its end",
+      function()
+        colorTarget(BLUE, 4000)
+      end,
+    },
+    {
+      "a color fade stopped half way",
+      function()
+        colorTarget(BLUE, 4000)
+        serve(2000, 250)
+        proxy("SET_COLOR_STOP")
+      end,
+    },
+    {
+      "a fade to off",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+      end,
+    },
+    {
+      "a scene's fades",
+      function()
+        proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(80, BLUE, 2000) .. levelStep(10, 2000) })
+        proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+      end,
+    },
+    {
+      "a fade a level command replaces",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+        serve(2000, 250)
+        proxy("SET_LEVEL", { LEVEL = 40 })
+      end,
+    },
+    {
+      "a fade another hand ends",
+      function()
+        -- Slow enough that the next poll comes before the next step.
+        proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 300000 })
+        serve(9000, 250)
+        strip.brightness = 70
+      end,
+      {},
+    },
+    {
+      "a fade whose step the strip never answers",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+        serve(2000, 250)
+        fail("Klap: request timed out")
+      end,
+    },
+    {
+      "a fade a Reconnect ends",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+        serve(2000, 250)
+        EC.Reconnect()
+        shakeHands()
+      end,
+    },
+    {
+      "a fade that Fades set to Light ends",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+        serve(2000, 250)
+        setProperty("Fades", "Light")
+      end,
+    },
+  }) do
+    walked({ brightness = 5 }, c[3] or NO_POLLS)
+    c[2]()
+    -- Past the 15 s a request in flight at a restart is waited for.
+    serve(20000, 250)
+    while held[1] do
+      reply(info(strip))
+    end
+    T.eq(c[1] .. ": the poll's timer and the update check's alone", liveTimers(), { "DirectPoll", "UpdateCheck" })
+    proxy("CLEAR_ALL_SCENES")
+  end
 end
 
 ---------------------------------------------------------------------------
