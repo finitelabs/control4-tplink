@@ -1788,6 +1788,15 @@ do
   T.eq("the proxy is told the color at the ramp's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
   proxy("OFF")
   serve(1000, 250)
+  colorTarget(BLUE, 0)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 10, RATE = 30000 })
+  run(100)
+  T.eq("off in blue, a slow on's first step, at 1 %, carries it too", flying(), {
+    { device_on = true, brightness = 1, hue = 60, saturation = 20, color_temp = 0 },
+  })
+  serve(31000, 250)
+  proxy("OFF")
+  serve(1000, 250)
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   run(90)
@@ -1860,7 +1869,8 @@ do
   serve(1000, 250)
   T.eq("which is the color the strip holds", { strip.hue, strip.saturation }, { 44, 52 })
 
-  walked({ brightness = 100 }, NO_POLLS)
+  -- At full in the On color, the Dim-To-Warm color for 100 %.
+  walked({ brightness = 100, hue = 60, saturation = 20 }, NO_POLLS)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 10, RATE = 4000 })
   T.eq("a dim with Dim-To-Warm sends no color ahead of its steps", flying(), {})
   steps = serve(1000, 250)
@@ -1916,6 +1926,139 @@ do
     100,
     60,
   })
+  walked({ device_on = false }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  steps = serve(3000, 20)
+  T.eq(
+    "from off, a step names the color only once it has moved on from the last sent, and the last is the target's",
+    { #steps, each(steps, "hue") },
+    { 20, { 32, 35, 38, 41, 44, 47, 50, 53, 56, 59, 60 } }
+  )
+  forgetSetup()
+end
+
+T.section("with Dim-To-Warm a strip that is on walks to the color the proxy is told of, and a fade to off walks none")
+do
+  -- The strip's own proxy: Dim-To-Warm between two presets of one color.
+  local ON = { 0.423358, 0.398951 }
+  forgetSetup()
+  proxySetup = setupFile("setup-727.xml")
+  walked({ brightness = 40 }, NO_POLLS)
+  colorTarget(BLUE, 0)
+  serve(1000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })
+  local fade = told("LIGHT_COLOR_CHANGING")[1] or {}
+  T.eq(
+    "40 to 80 % over 8 s in blue: the proxy is told a fade from blue to the On color over 8 s",
+    { fade.LIGHT_COLOR_CURRENT_X, fade.LIGHT_COLOR_TARGET_X, fade.LIGHT_COLOR_TARGET_COLOR_RATE },
+    { BLUE[1], ON[1], 8000 }
+  )
+  local steps = serve(9000, 250)
+  T.eq("the first step is near blue, not the On color whole", Select(steps, 1, "sent"), {
+    device_on = true,
+    brightness = 41,
+    hue = 239,
+    saturation = 99,
+    color_temp = 0,
+  })
+  --- Whether each step that names a color names where that fade is as it is sent.
+  local function onTheFade(commands)
+    for _, step in ipairs(commands) do
+      local p = math.min(step.at, 8000) / 8000
+      local hue, saturation = step.sent.hue, step.sent.saturation
+      if
+        hue
+        and (
+          math.abs(hue - (240 + (ON[1] * 360 - 240) * p)) > 1
+          or math.abs(saturation - (100 + (ON[2] * 100 - 100) * p)) > 1
+        )
+      then
+        return false
+      end
+    end
+    return true
+  end
+  T.check("each step's color is where the fade is as it is sent", onTheFade(steps), T.show(each(steps, "hue")))
+  T.check("the color moves on with the level", #each(steps, "hue") > 20, #each(steps, "hue"))
+  T.eq("the strip ends at 80 % in the On color", { strip.brightness, strip.hue, strip.saturation }, { 80, 152, 40 })
+  T.eq("where the proxy is told it", told("LIGHT_COLOR_CHANGED", "at"), { 8000 })
+
+  walked({ brightness = 40 }, NO_POLLS)
+  colorTarget(BLUE, 0)
+  serve(1000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 41, RATE = 4000 })
+  steps = serve(5000, 250)
+  T.check("one level over 4 s from blue: the color is walked all the same", #steps > 10, #steps)
+  T.eq("to the On color", { strip.brightness, strip.hue, strip.saturation }, { 41, 152, 40 })
+  walked({ brightness = 40 }, NO_POLLS)
+  colorTarget(BLUE, 0)
+  serve(1000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 60000 })
+  steps = serve(10000, 250)
+  T.eq(
+    "over 60 s: a step names the color only once it has moved on from the last sent",
+    { #steps, #each(steps, "hue") },
+    { 23, 18 }
+  )
+
+  walked({ brightness = 40 }, NO_POLLS)
+  colorTarget(BLUE, 0)
+  serve(1000, 250)
+  local asked = now
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })
+  serve(4000, 250)
+  local step = held[1]
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a stop half way tells the color of the step in flight",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { BLUE[1] + (ON[1] - BLUE[1]) * ((step.at - asked) / 8000) }
+  )
+  serve(1000, 250)
+  T.eq("which the strip holds", { strip.hue, strip.saturation }, { asks(step).hue, asks(step).saturation })
+
+  -- Dim-To-Warm between two color temperatures: from blue the strip is sent
+  -- color temperatures, and reports each as its point.
+  forgetSetup()
+  proxySetup = setupFile("setup-607.xml")
+  walked({ brightness = 40 })
+  colorTarget(BLUE, 0)
+  serve(1000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })
+  serve(4000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  serve(12000, 250)
+  T.eq(
+    "a stop there tells the point of the step's color temperature, which the polls after it read",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_Y"),
+    { 0.4 }
+  )
+
+  -- Two colors apart, and at 80 % in the Dim-To-Warm color for it.
+  forgetSetup()
+  proxySetup = ""
+  walked({ brightness = 80, hue = 54, saturation = 32 }, NO_POLLS)
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 1,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_PRESET_COLOR_X = 60 / 360,
+    COLOR_PRESET_COLOR_Y = 0.2,
+    COLOR_PRESET_COLOR_MODE = 0,
+    COLOR_FADE_PRESET_ID = 2,
+    COLOR_FADE_PRESET_ORIGIN = 1,
+    COLOR_FADE_PRESET_COLOR_X = 30 / 360,
+    COLOR_FADE_PRESET_COLOR_Y = 0.8,
+    COLOR_FADE_PRESET_COLOR_MODE = 0,
+  })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 2000 })
+  steps = serve(3000, 250)
+  T.eq("a fade to off with Dim-To-Warm names no color on its way down", each(steps, "hue"), {})
+  T.eq("so the strip is off in the color it had", { strip.device_on, strip.hue, strip.saturation }, { false, 54, 32 })
+  T.eq("as the proxy is told: no color", told("LIGHT_COLOR_CHANGED"), {})
   forgetSetup()
 end
 
