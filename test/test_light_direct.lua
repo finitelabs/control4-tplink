@@ -1553,6 +1553,35 @@ do
   T.eq("and nothing follows that step", each(serve(4000, 250), "brightness"), { 63 })
 end
 
+T.section("a fade to off ends with the off alone, and the next on from Control4 names its own level")
+do
+  -- The strip takes no level with an off, and one sent ahead of it would show.
+  local BOTTOM, CLICK = 1, 2
+  walked({ brightness = 51 }, NO_POLLS)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(110)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = CLICK })
+  local steps = serve(3000, 250)
+  T.eq("Bottom pressed and clicked from 51 %: the press's step, the click's, and the off alone", {
+    each(steps, "brightness"),
+    Select(steps, #steps, "sent"),
+  }, { { 49, 27, 1 }, { device_on = false } })
+  T.eq("nothing follows the off", #serve(10000, 250), 0)
+  T.eq("so the strip is off at the last step's level", { strip.device_on, strip.brightness }, { false, 1 })
+  proxy("ON")
+  T.eq("the next On is the On level itself", flying(), { { device_on = true, brightness = 100 } })
+  serve(1000, 250)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(110)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = CLICK })
+  serve(3000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 2000 })
+  T.eq("and a ramped on names a level from its first step", Select(serve(3000, 250), 1, "sent"), {
+    device_on = true,
+    brightness = 3,
+  })
+end
+
 T.section("a color with a rate is walked there too")
 do
   -- Red to blue is hue 0 to 240 here, a straight line in x.
