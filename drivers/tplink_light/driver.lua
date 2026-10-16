@@ -1243,6 +1243,10 @@ end
 
 local leaveColorRamp -- defined with the color ramp helpers below
 
+-- A color a replaced fade carried, on a light the driver walks: helpers defined
+-- below, in one table as this chunk is near Lua's 200 locals.
+local carry = {}
+
 -- Two-phase fade-up workaround. ESPHome's light_call short-circuits on
 -- state=false: brightness=0 in the same command is dropped, so the bulb's
 -- stored brightness stays at whatever it was last set to (often 1.0).
@@ -1356,6 +1360,8 @@ local function setESPHomeBrightness(level, rateMs, keepColor, at)
     else
       notifyColorChanged(mergedColor.x, mergedColor.y, mergedColor.mode)
     end
+  else
+    carry.retime(cmd.transition_length, level > 0)
   end
 end
 
@@ -1453,6 +1459,11 @@ local function brightnessRampStopped()
   rampingBrightness = false
   brightnessRamp = nil
   if fades == "Driver" then
+    -- A color a replaced fade carried moves with this ramp: it stops with it.
+    if rampingColor and colorRamp.carried then
+      leaveColorRamp()
+      notifyColorChanged(currentColorX, currentColorY, currentColorMode)
+    end
     -- A step under the Min in a fade to or from off is no level to hold: the
     -- light goes to the Min, or off under half way, the level alone.
     if ramp.sentBrightness and at and at < 1 and (ramp.startLevel == 0 or ramp.targetLevel == 0) then
@@ -1501,6 +1512,13 @@ local function leaveMergedColor()
     end
     currentColorX, currentColorY, currentColorMode = x, y, mode
     brightnessRamp.mergedColor = nil
+    if fades == "Driver" then
+      -- A walk goes on to its color, but one up from off has it with its levels.
+      if brightnessRamp.startLevel > 0 then
+        x, y, mode = merged.x, merged.y, merged.mode
+      end
+      carry.color(x, y, mode, brightnessRamp.startTime + brightnessRamp.durationMs - C4:GetTime())
+    end
   end
 end
 
@@ -1611,13 +1629,17 @@ local function cancelColorRampTimers()
 end
 
 -- Build and send an ESPHome light_command reflecting the given color state.
-local function sendColor(x, y, mode, rateMs)
+--- @param on boolean? Whether the light is to be on, if not as it is now.
+local function sendColor(x, y, mode, rateMs, on)
   if not (supportsColor or supportsCCT) then
     return
   end
   -- isLogicallyOn so that a SET_COLOR_TARGET arriving mid-ramp from off→on
   -- doesn't send state=false (which would cancel the brightness transition).
-  local cmd = { has_state = true, state = isLogicallyOn() }
+  if on == nil then
+    on = isLogicallyOn()
+  end
+  local cmd = { has_state = true, state = on }
   if mode == LIGHT_COLOR_MODE_CCT and supportsCCT then
     local k = tonumber(C4:ColorXYtoCCT(x, y))
     if k and k > 0 then
@@ -1696,6 +1718,52 @@ local function colorRampStopped()
   currentColorY = y
   currentColorMode = mode
   notifyColorChanged(x, y, mode)
+end
+
+--- Walk the light on from the color it is in to one a replaced fade carried,
+--- over `ms`; with no time left, send it and tell it at once.
+--- @param on boolean? Whether the light is to be on, if not as it is now.
+function carry.color(x, y, mode, ms, on)
+  if ms <= 0 then
+    if x ~= currentColorX or y ~= currentColorY then
+      sendColor(x, y, mode, 0, on)
+    end
+    notifyColorChanged(x, y, mode)
+    return
+  end
+  rampingColor = true
+  colorRamp = {
+    startTime = C4:GetTime(),
+    startX = currentColorX,
+    startY = currentColorY,
+    targetX = x,
+    targetY = y,
+    targetMode = mode,
+    durationMs = ms,
+    carried = true,
+  }
+  SetTimer("ColorRampFinish", ms, function()
+    colorRampFinished(x, y, mode)
+  end, false)
+end
+
+--- A command with no color moves a carried one on over its own time, as an
+--- ESPHome light runs one transition for every channel.
+--- @param on boolean Whether the command leaves the light on.
+function carry.retime(ms, on)
+  local ramp = colorRamp
+  if not (ramp and ramp.carried) then
+    return
+  end
+  leaveColorRamp()
+  -- One the light is in already has arrived.
+  if ramp.targetX == currentColorX and ramp.targetY == currentColorY then
+    ms = 0
+  end
+  carry.color(ramp.targetX, ramp.targetY, ramp.targetMode, ms, on)
+  if rampingColor then
+    notifyColorChanging(ramp.targetX, ramp.targetY, ramp.targetMode, ms)
+  end
 end
 
 local function rampToColor(targetX, targetY, targetMode, rate)
@@ -2343,6 +2411,7 @@ local function applySceneStep(step)
       sendPreOn()
     end
     sendLightCommand(cmd)
+    carry.retime(fade, cmd.state ~= false)
     -- A step taken at once is where the light is: what follows starts there.
     -- One landing where a replaced ramp had got to is told too, as its end.
     if level ~= nil and not rampingBrightness and (level ~= currentBrightness or replaced) then
