@@ -2770,6 +2770,94 @@ do
   end
 end
 
+T.section("Get Light Level in a ramp tells the proxy where the ramp has got to, not a level the light stopped at")
+do
+  -- Light V2 takes a CHANGED level as where the brightness stopped: in an on from off, a CHANGED 0 shows it off.
+  --- What the proxy is told of the level since the mark: { "CHANGING", from, to, ms } and { "CHANGED", level }.
+  local function changes()
+    local out = {}
+    for _, s in ipairs(sent) do
+      local p = s.params
+      if s.binding == PROXY and s.command == "LIGHT_BRIGHTNESS_CHANGING" then
+        out[#out + 1] = { "CHANGING", p.LIGHT_BRIGHTNESS_CURRENT, p.LIGHT_BRIGHTNESS_TARGET, p.RATE }
+      elseif s.binding == PROXY and s.command == "LIGHT_BRIGHTNESS_CHANGED" then
+        out[#out + 1] = { "CHANGED", p.LIGHT_BRIGHTNESS_CURRENT }
+      end
+    end
+    return out
+  end
+  --- What the proxy is told to a Get Light Level.
+  local function getLevel()
+    mark()
+    proxy("GET_LIGHT_LEVEL")
+    return changes()
+  end
+
+  -- A Kasa bulb, which fades by the time a command carries.
+  startDriver({ ["Protocol"] = "Legacy", ["Poll Rate (Seconds)"] = "300" })
+  reply(sysinfo({ brightness = 20 }))
+  T.eq("a Kasa bulb at rest: the level it is at", getLevel(), { { "CHANGED", 20 } })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  reply()
+  run(2000)
+  T.eq("half way from 20 to 100 % over 4 s: a ramp from 60, 2 s left", getLevel(), { { "CHANGING", 60, 100, 2000 } })
+  T.eq("and the bulb is sent nothing for it", flying(), {})
+  mark()
+  run(2500)
+  T.eq("the ramp's end is told as before", changes(), { { "CHANGED", 100 } })
+  T.eq("and at rest it is the level the ramp stopped at", getLevel(), { { "CHANGED", 100 } })
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(60, 2000) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  reply()
+  run(500)
+  T.eq("a scene step's ramp, a quarter of the way: from 90, 1.5 s left", getLevel(), { { "CHANGING", 90, 60, 1500 } })
+  proxy("CLEAR_ALL_SCENES")
+
+  bulb({ on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  reply()
+  T.eq("an on from off over 6 s, as it begins: a ramp from 1", getLevel(), { { "CHANGING", 1, 60, 6000 } })
+  run(3000)
+  T.eq("half way: from 30, and no CHANGED 0", getLevel(), { { "CHANGING", 30, 60, 3000 } })
+
+  bulb({ brightness = 60 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 2000 })
+  reply()
+  run(1000)
+  T.eq("half way through a fade to off from 60 %: from 30, 1 s left", getLevel(), { { "CHANGING", 30, 0, 1000 } })
+
+  -- A light on an outlet fades by a command's time too.
+  C4:Bind(900, 1, C4:GetDeviceID(), 1, "TPLINK_LIGHT")
+  startDriver()
+  RFP.UPDATE_STATE(1, "UPDATE_STATE", {
+    entity = SerializeSafe({ supported_color_modes = { require("constants").LightColorMode.COLOR_MODE_BRIGHTNESS } }),
+    state = SerializeSafe({ state = true, brightness = 0.2 }),
+  })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(2000)
+  T.eq("a light on an outlet, half way: from 60, 2 s left", getLevel(), { { "CHANGING", 60, 100, 2000 } })
+  C4:Unbind(C4:GetDeviceID(), 1)
+
+  -- A strip the driver walks is where its last step put it, behind the line.
+  walked({ brightness = 20 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  serve(2000, 250)
+  T.eq("a strip the driver walks, half way: its step in flight", flying(), { { device_on = true, brightness = 57 } })
+  T.eq("the ramp is from that step, at 57 %, 2 s left", getLevel(), { { "CHANGING", 57, 100, 2000 } })
+  serve(3000, 250)
+  T.eq("at rest it is the level the walk ended at", getLevel(), { { "CHANGED", 100 } })
+
+  -- A strip that fades by itself takes a second between two states.
+  walked({ brightness = 20 }, NO_POLLS)
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 6000 })
+  serve(500, 250)
+  T.eq("with Fades on Light, half way through its own fade: from 60, 500 ms left", getLevel(), {
+    { "CHANGING", 60, 100, 500 },
+  })
+end
+
 T.section("what a Kasa bulb and a light on an outlet are sent, and the proxy told, is as it was")
 do
   local GREEN = xy(120, 50)

@@ -1002,11 +1002,12 @@ local function notifyBrightnessChanged(level)
   end
 end
 
-local function notifyBrightnessChanging(target, rate)
+--- @param current number? Where the light has got to, if not where the ramp began.
+local function notifyBrightnessChanging(target, rate, current)
   log:debug("LIGHT_BRIGHTNESS_CHANGING: target=%s rate=%s", target, rate)
   -- The proxy takes the light's state from CURRENT: one on its way up from off
   -- is lit by the first request the fade sends.
-  local current = currentBrightness
+  current = current or currentBrightness
   if target > 0 then
     current = math.max(1, current)
   end
@@ -1853,6 +1854,13 @@ end
 function RFP.GET_LIGHT_LEVEL(idBinding, strCommand, tParams, args)
   log:trace("RFP.GET_LIGHT_LEVEL(%s, %s)", idBinding, strCommand)
   if idBinding ~= PROXY_BINDING then
+    return
+  end
+  if rampingBrightness then
+    -- A CHANGED level is one the light has stopped at: in a ramp, say where it
+    -- has got to and what is left.
+    local left = brightnessRamp.startTime + brightnessRamp.durationMs - C4:GetTime()
+    notifyBrightnessChanging(brightnessRamp.targetLevel, math.max(0, left), interpolatedBrightness())
     return
   end
   notifyBrightnessChanged(currentBrightness)

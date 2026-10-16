@@ -198,6 +198,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   or Tapo app, or the device going offline, until the driver was reloaded.
 - Fixed a TP-Link light turned on over a ramp time being shown as off until the
   ramp ended. The light now comes on at once and is shown on from the start.
+- Fixed a TP-Link light asked for its level during a ramp being shown as stopped
+  at the level the ramp began from, so a light turned on over a ramp time was
+  shown off again. It is now shown still ramping, from the level it has reached.
 
 ### Changed
 
