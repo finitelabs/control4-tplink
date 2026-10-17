@@ -316,6 +316,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   read. The TP-Link Outlet driver sends no poll while one is unanswered, so from
   then on it no longer noticed an output switched at the device or in the Kasa
   or Tapo app, or the device going offline, until the driver was reloaded.
+- Fixed a TP-Link light turned on over a ramp time being shown as off until the
+  ramp ended. The light now comes on at once and is shown on from the start.
 
 ### Changed
 

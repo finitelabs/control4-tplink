@@ -1004,8 +1004,14 @@ end
 
 local function notifyBrightnessChanging(target, rate)
   log:debug("LIGHT_BRIGHTNESS_CHANGING: target=%s rate=%s", target, rate)
+  -- The proxy takes the light's state from CURRENT: one on its way up from off
+  -- is lit by the first request the fade sends.
+  local current = currentBrightness
+  if target > 0 then
+    current = math.max(1, current)
+  end
   SendToProxy(PROXY_BINDING, "LIGHT_BRIGHTNESS_CHANGING", {
-    LIGHT_BRIGHTNESS_CURRENT = currentBrightness,
+    LIGHT_BRIGHTNESS_CURRENT = current,
     LIGHT_BRIGHTNESS_TARGET = target,
     RATE = rate,
     LIGHT_BRIGHTNESS_TARGET_PRESET_ID = currentBrightnessPresetId,
@@ -1199,7 +1205,12 @@ local function interpolatedBrightness(line)
   end
   local progress = elapsed / brightnessRamp.durationMs
   local span = brightnessRamp.targetLevel - brightnessRamp.startLevel
-  return math.floor(brightnessRamp.startLevel + span * progress + 0.5)
+  local level = math.floor(brightnessRamp.startLevel + span * progress + 0.5)
+  -- A walk up from off is lit from its first step, as the proxy is told.
+  if line and brightnessRamp.targetLevel > 0 then
+    return math.max(1, level)
+  end
+  return level
 end
 
 --- How long a change takes: the time asked for, or on a light that fades by
