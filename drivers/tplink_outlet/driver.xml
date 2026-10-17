@@ -188,7 +188,7 @@
         <name>IP Address</name>
         <type>STRING</type>
         <default/>
-        <description>IP address of the Kasa device. Use a DHCP reservation so it does not change.</description>
+        <description>IP address of the Kasa device.</description>
       </property>
       <property>
         <name>Protocol</name>
@@ -199,20 +199,20 @@
           <item>Legacy</item>
         </items>
         <default>Auto</default>
-        <description>Local protocol the device speaks. Auto tries KLAP (post-2024 firmware; SMART and legacy command schemas are auto-detected) and falls back to the legacy port 9999 protocol.</description>
+        <description>Local protocol the device speaks, detected when set to Auto.</description>
       </property>
       <property>
         <name>TP-Link Username</name>
         <type>STRING</type>
         <default/>
-        <description>Email address of the TP-Link (Kasa/Tapo) account the device is bound to. Case sensitive. Required for KLAP firmware; leave blank for legacy-firmware devices.</description>
+        <description>Case-sensitive email of the TP-Link (Kasa/Tapo) account the device is bound to.</description>
       </property>
       <property>
         <name>TP-Link Password</name>
         <type>STRING</type>
         <password>true</password>
         <default/>
-        <description>Password of the TP-Link (Kasa/Tapo) account the device is bound to. Required for KLAP firmware; leave blank for legacy-firmware devices.</description>
+        <description>Password of the TP-Link (Kasa/Tapo) account the device is bound to.</description>
       </property>
       <property>
         <name>Poll Rate (Seconds)</name>
@@ -228,7 +228,7 @@
         <minimum>0</minimum>
         <maximum>300</maximum>
         <default>5</default>
-        <description>How often to poll per-output power usage. 0 disables energy polling.</description>
+        <description>How often to poll per-output power usage, or 0 to turn it off.</description>
       </property>
       <property>
         <name>Device Information</name>

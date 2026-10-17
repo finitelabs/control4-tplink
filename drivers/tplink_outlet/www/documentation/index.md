@@ -37,8 +37,8 @@ goes a step further and also replaces the legacy IOT command schema with the
 SMART schema that Tapo devices speak. This driver implements the KLAP handshake
 and session encryption (both hash generations) and both command schemas,
 auto-detecting the combination the device uses, so devices that stopped
-responding to older drivers after a firmware update — and plugs that never spoke
-the legacy protocol at all — work from the same driver. Devices still on the
+responding to older drivers after a firmware update, and plugs that never spoke
+the legacy protocol at all, work from the same driver. Devices still on the
 original firmware are also supported: the driver falls back to the port 9999
 transport, so the same driver instance continues to work when TP-Link migrates
 the device to KLAP.
@@ -280,13 +280,17 @@ Sets the IP address of the Kasa device (e.g. `192.168.1.50`).
 
 ##### Protocol \[ **_Auto_** | KLAP | Legacy \]
 
-Selects the local protocol. `Auto` (default) tries KLAP first when credentials
-are set and falls back to the legacy port 9999 protocol; without credentials it
-connects over the legacy protocol directly. Over KLAP the driver probes the
-SMART command schema first (newer Kasa plugs like the EP25 v2.6, and Tapo
-plugs), then the legacy IOT schema, and retries the handshake with v1 hashing
-for original Kasa devices that were firmware-updated to KLAP. Pin it to `KLAP`
-or `Legacy` only if you need to skip detection.
+Selects the local protocol. `KLAP` is the encrypted protocol of TP-Link firmware
+since late 2024. `Legacy` is the plaintext port 9999 protocol of Kasa devices on
+original firmware.
+
+`Auto` (default) tries KLAP first when credentials are set and falls back to the
+legacy port 9999 protocol; without credentials it connects over the legacy
+protocol directly. Over KLAP the driver probes the SMART command schema first
+(newer Kasa plugs like the EP25 v2.6, and Tapo plugs), then the legacy IOT
+schema, and retries the handshake with v1 hashing for original Kasa devices that
+were firmware-updated to KLAP. Pin it to `KLAP` or `Legacy` only if you need to
+skip detection.
 
 The detected combination is shown in `Driver Status`: `Connected (SMART)` (KLAP
 transport, SMART schema), `Connected (KLAP)` (KLAP transport, legacy IOT
@@ -414,7 +418,7 @@ reports get variables.
 different TP-Link account (or the password is wrong). Enter the credentials for
 the account that owns the device in the Kasa/Tapo app, exactly as registered
 (the email is case sensitive). Note that in `Auto` mode a mismatch alone does
-not take the device offline — some transitional Kasa firmware answers KLAP with
+not take the device offline: some transitional Kasa firmware answers KLAP with
 unrecognized credentials while still serving the legacy protocol, and the driver
 falls back to it automatically; the mismatch only shows when the legacy probe
 also failed.
@@ -442,8 +446,8 @@ is blocking TCP port 80 to the device.
 **A newer Kasa plug (e.g. EP25 v2.6) or Tapo plug won't connect on any
 protocol**: SMART-schema devices on early firmware use an AES secure-passthrough
 transport this driver does not implement (on the EP25 v2.6 that is firmware
-1.0.2 and older). Update the device firmware in the Kasa/Tapo app — TP-Link's
-updates move these devices to KLAP — then run the [`Reconnect`](#reconnect)
+1.0.2 and older). Update the device firmware in the Kasa/Tapo app (TP-Link's
+updates move these devices to KLAP), then run the [`Reconnect`](#reconnect)
 action. Make sure the TP-Link account credentials are set; SMART-schema devices
 always require them.
 

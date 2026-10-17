@@ -106,7 +106,7 @@
         <name>IP Address</name>
         <type>STRING</type>
         <default/>
-        <description>IP address of the light device for direct control. Leave blank when this driver is bound to a TP-Link Outlet output. Use a DHCP reservation so it does not change.</description>
+        <description>IP address of the light, or blank when bound to a TP-Link Outlet.</description>
       </property>
       <property>
         <name>Protocol</name>
@@ -117,20 +117,20 @@
           <item>Legacy</item>
         </items>
         <default>Auto</default>
-        <description>Local protocol the device speaks. Auto tries KLAP (post-2024 firmware; SMART and IOT bulb command schemas are auto-detected) and falls back to the legacy port 9999 protocol used by KL-series bulbs on original firmware.</description>
+        <description>Local protocol the light speaks, detected when set to Auto.</description>
       </property>
       <property>
         <name>TP-Link Username</name>
         <type>STRING</type>
         <default/>
-        <description>Email address of the TP-Link (Kasa/Tapo) account the device is bound to. Case sensitive. Only used for direct control; required for KLAP firmware, leave blank for legacy-firmware bulbs.</description>
+        <description>Case-sensitive email of the TP-Link (Kasa/Tapo) account the light is bound to.</description>
       </property>
       <property>
         <name>TP-Link Password</name>
         <type>STRING</type>
         <password>true</password>
         <default/>
-        <description>Password of the TP-Link (Kasa/Tapo) account the device is bound to. Only used for direct control; required for KLAP firmware, leave blank for legacy-firmware bulbs.</description>
+        <description>Password of the TP-Link (Kasa/Tapo) account the light is bound to.</description>
       </property>
       <property>
         <name>Poll Rate (Seconds)</name>
@@ -148,7 +148,7 @@
           <item>Light</item>
         </items>
         <default>Driver</default>
-        <description>Who makes a fade on a light that takes no fade time from a command, as a Tapo light. Driver: the driver sends the light a new level or color a few times a second until the fade ends, so ramp rates, stops, held buttons and scene fades work. Light: the light fades by itself, over the fades set in the Tapo app, which the driver switches on, and ramp rates and stops do nothing. Shown only while such a light is connected.</description>
+        <description>Who makes a fade on a Tapo light: the driver or the light itself.</description>
       </property>
     </properties>
     <commands/>

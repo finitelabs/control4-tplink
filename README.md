@@ -80,7 +80,7 @@ modes:
 
 **Key features:**
 
-- **Direct mode**: connects to a TP-Link light — Tapo L900/L920/L930 strips and
+- **Direct mode**: connects to a TP-Link light: Tapo L900/L920/L930 strips and
   Tapo bulbs over KLAP + SMART, or legacy Kasa KL/LB-series bulbs and light
   strips over KLAP or port 9999 with the IOT schema, auto-detected. Brightness,
   color, and color temperature are enabled dynamically from what the device
