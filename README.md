@@ -337,6 +337,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   every level it is sent and shown. A change of either leaves the light where it
   is, shown at its level on the new range, until its next level command moves it
   onto the range.
+- Fixed a Tapo light with `Fades` on `Driver` that was fading to a color, with
+  Dim-To-Warm or in a ramped On's On color, stopping short of it when an Off or
+  a level change took over, and Control4 not being told the color it was left
+  in. The color now goes on there over the command that took over, and is told
+  when it arrives.
+- Fixed a Tapo light with `Fades` on `Driver` turned off while its color was
+  still fading coming back on, with Color On Mode set to Previous, in the color
+  the fade began in.
 
 ### Changed
 

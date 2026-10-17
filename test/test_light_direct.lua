@@ -1648,6 +1648,7 @@ do
   proxy("SET_COLOR_STOP")
   T.eq("a stop tells the color of that step", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] * 0.485 })
   T.eq("and no step follows it", each(serve(8000, 250), "hue"), { 116 })
+  T.eq("so the strip holds that color past the fade's end", strip.hue, 116)
   colorTarget(BLUE, 10000)
   serve(5000, 250)
   mark()
@@ -2145,6 +2146,285 @@ do
   T.eq("10 s in, the end of the fade that carried it", told("LIGHT_COLOR_CHANGED", "at"), { 10000 })
   T.eq("where the proxy is told red", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0 })
   proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("a color a replaced fade carried goes on to its end over the command that replaced it, and is told there")
+do
+  local ON, DIM = xy(60, 20), xy(30, 80)
+  -- 80 %'s Dim-To-Warm color, between DIM and ON.
+  local AT80 = { DIM[1] + (ON[1] - DIM[1]) * 0.8, DIM[2] + (ON[2] - DIM[2]) * 0.8 }
+  local function onMode(fade)
+    proxy("UPDATE_COLOR_ON_MODE", {
+      COLOR_PRESET_ID = 1,
+      COLOR_PRESET_ORIGIN = 1,
+      COLOR_PRESET_COLOR_X = ON[1],
+      COLOR_PRESET_COLOR_Y = ON[2],
+      COLOR_PRESET_COLOR_MODE = 0,
+      COLOR_FADE_PRESET_ID = fade and 2 or 0,
+      COLOR_FADE_PRESET_ORIGIN = fade and 1 or 0,
+      COLOR_FADE_PRESET_COLOR_X = DIM[1],
+      COLOR_FADE_PRESET_COLOR_Y = DIM[2],
+      COLOR_FADE_PRESET_COLOR_MODE = 0,
+    })
+  end
+  --- In blue at 40 %, with Dim-To-Warm: a ramp to 80 % over 8 s, 4 s in.
+  --- Returns the x of the color the strip was last sent.
+  local function halfWay()
+    forgetSetup()
+    walked({ brightness = 40 }, NO_POLLS)
+    onMode(true)
+    colorTarget(BLUE, 0)
+    serve(1000, 250)
+    local asked = now
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })
+    serve(4000, 250)
+    return BLUE[1] + (AT80[1] - BLUE[1]) * ((held[1].at - asked) / 8000)
+  end
+  --- The level and color changes the proxy is told, in order.
+  local function ends()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.command == "LIGHT_COLOR_CHANGED" or s.command == "LIGHT_BRIGHTNESS_CHANGED" then
+        out[#out + 1] = s.command
+      end
+    end
+    return out
+  end
+
+  local left = halfWay()
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  local fade = told("LIGHT_COLOR_CHANGING")[1] or {}
+  T.eq(
+    "a fade to off 4 s into it: the proxy is told the color goes on from where it is over the off's 4 s",
+    { fade.LIGHT_COLOR_CURRENT_X, fade.LIGHT_COLOR_TARGET_X, fade.LIGHT_COLOR_TARGET_COLOR_RATE },
+    { left, AT80[1], 4000 }
+  )
+  local steps = serve(5000, 250)
+  local onTheFade = true
+  for _, step in ipairs(steps) do
+    local p = math.min(step.at, 4000) / 4000
+    if step.at >= 0 and step.sent.hue and math.abs(step.sent.hue - (left + (AT80[1] - left) * p) * 360) > 1 then
+      onTheFade = false
+    end
+  end
+  T.check("each step's color is where that fade is as it is sent", onTheFade, T.show(each(steps, "hue")))
+  T.check("the color moves on as the level falls", #each(steps, "hue") > 10, #each(steps, "hue"))
+  T.eq("the last step is the off, alone", Select(steps, #steps, "sent"), { device_on = false })
+  T.eq("so the strip goes off near 80 %'s color", { strip.device_on, strip.hue, strip.saturation }, { false, 58, 33 })
+  T.eq("the proxy is told the color at the off's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+  T.eq("which is 80 %'s", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { AT80[1] })
+  T.eq("ahead of the level", ends(), { "LIGHT_COLOR_CHANGED", "LIGHT_BRIGHTNESS_CHANGED" })
+
+  halfWay()
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 0 })
+  T.eq(
+    "an off at once: the proxy is told 80 %'s color at once, ahead of the level",
+    { ends(), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X") },
+    { { "LIGHT_COLOR_CHANGED", "LIGHT_BRIGHTNESS_CHANGED" }, { AT80[1] } }
+  )
+  steps = serve(3000, 250)
+  T.eq("and the strip is sent the off alone, after the step in flight", Select(steps, #steps, "sent"), {
+    device_on = false,
+  })
+  T.eq("nothing follows", #steps, 2)
+  serve(300000, 250)
+  T.eq("and its poll reads 80 %'s color, held for the next on: nothing more is told", #told("LIGHT_COLOR_CHANGED"), 1)
+
+  halfWay()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  serve(2000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  local x, y =
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")[1], told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_Y")[1]
+  T.eq("a stop 2 s into that off tells one color", #told("LIGHT_COLOR_CHANGED"), 1)
+  T.eq("and no step follows the one in flight", #serve(5000, 250), 1)
+  T.eq(
+    "so the strip holds the color told, on at the level told",
+    { strip.hue, strip.saturation, strip.brightness },
+    { math.floor((x or 0) * 360 + 0.5), math.floor((y or 0) * 100 + 0.5), levels()[1] }
+  )
+  halfWay()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  serve(2000, 250)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a color stop there tells one color too", #told("LIGHT_COLOR_CHANGED"), 1)
+  steps = serve(3000, 250)
+  T.eq("and the steps after name no color: the level goes on to off", {
+    #each(steps, "hue"),
+    Select(steps, #steps, "sent"),
+  }, { 1, { device_on = false } })
+
+  halfWay()
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(0, 2000) })
+  mark()
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq(
+    "a scene step to off over 2 s: the color goes on over its 2 s",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_COLOR_RATE"),
+    { 2000 }
+  )
+  serve(3000, 250)
+  T.eq("and is told at the step's end", told("LIGHT_COLOR_CHANGED", "at"), { 2000 })
+  proxy("CLEAR_ALL_SCENES")
+  halfWay()
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(0, 0) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  steps = serve(3000, 250)
+  T.eq("a scene step to off at once: the off, alone, and the strip stays off", {
+    Select(steps, #steps, "sent"),
+    strip.device_on,
+  }, { { device_on = false }, false })
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A ramp up from off names each level's own color: none is left to come.
+  forgetSetup()
+  walked({ device_on = false }, NO_POLLS)
+  onMode(true)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })
+  serve(4000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  T.eq(
+    "a ramp up from off faded off 4 s in: the proxy is told the color the strip is in, at once",
+    told("LIGHT_COLOR_CHANGED", "at"),
+    { 0 }
+  )
+  local named = 0
+  for _, step in ipairs(serve(5000, 250)) do
+    named = named + ((step.at >= 0 and step.sent.hue) and 1 or 0)
+  end
+  T.eq("and the steps down name no color", named, 0)
+
+  forgetSetup()
+  walked({ device_on = false }, NO_POLLS)
+  onMode(false)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  serve(1000, 250)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq(
+    "a level a second into a ramped on: the proxy is told the On color the strip came on in, at once",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
+  T.eq(
+    "and the strip is sent the level alone",
+    Select(serve(1000, 250), 2, "sent"),
+    { device_on = true, brightness = 50 }
+  )
+  proxy("OFF")
+  serve(1000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  serve(1000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+  T.eq(
+    "a ramped level a second in: the same, with no color fade told",
+    { told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), told("LIGHT_COLOR_CHANGING") },
+    { { ON[1] }, {} }
+  )
+  T.eq("and its steps name no color", #each(serve(3000, 250), "hue"), 0)
+  forgetSetup()
+
+  walked({}, NO_POLLS)
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 10,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_FADE_PRESET_ID = 0,
+    COLOR_FADE_PRESET_ORIGIN = 0,
+  })
+  colorTarget(BLUE, 10000)
+  serve(2000, 250)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 0 })
+  T.eq(
+    "an off 2 s into a 10 s fade from red to blue: the proxy is told blue ahead of the level",
+    { ends(), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X") },
+    { { "LIGHT_COLOR_CHANGED", "LIGHT_BRIGHTNESS_CHANGED" }, { BLUE[1] } }
+  )
+  serve(9000, 250)
+  T.eq("and nothing more at the fade's end", #told("LIGHT_COLOR_CHANGED"), 1)
+  T.eq("the strip stays off", strip.device_on, false)
+  proxy("ON")
+  T.eq("with Previous, the next on is in blue", flying(), {
+    { device_on = true, brightness = 100, hue = 240, saturation = 100, color_temp = 0 },
+  })
+  forgetSetup()
+
+  --- With no Color On Mode, the same off, and `on` 2 s after it, while the fade
+  --- walks on. Returns where the color fade the proxy is then told goes from and
+  --- to, and over how long.
+  local function backOn(on)
+    forgetSetup()
+    walked({}, NO_POLLS)
+    colorTarget(BLUE, 10000)
+    serve(2000, 250)
+    proxy("SET_LEVEL", { LEVEL = 0 })
+    serve(2000, 250)
+    mark()
+    on()
+    local fade = told("LIGHT_COLOR_CHANGING")[1] or {}
+    return { fade.LIGHT_COLOR_CURRENT_X, fade.LIGHT_COLOR_TARGET_X, fade.LIGHT_COLOR_TARGET_COLOR_RATE }
+  end
+  local rest = { BLUE[1] * 0.4, BLUE[1], 6000 }
+  T.eq(
+    "with no Color On Mode, an on 2 s after that off: the proxy is told the fade goes on from where it is over its 6 s left",
+    backOn(function()
+      proxy("ON")
+    end),
+    rest
+  )
+  serve(8000, 250)
+  T.eq(
+    "and is told blue as the strip gets there",
+    { told("LIGHT_COLOR_CHANGED", "at"), colorsTold(), strip.hue },
+    { { 6000 }, { BLUE[1] }, 240 }
+  )
+  T.eq(
+    "the same for a ramped on",
+    backOn(function()
+      proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+    end),
+    rest
+  )
+  T.eq(
+    "and for a scene step to a level alone",
+    backOn(function()
+      proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(100, 2000) })
+      proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+    end),
+    rest
+  )
+  proxy("CLEAR_ALL_SCENES")
+  local cyan = xy(180, 100)
+  backOn(function()
+    proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(100, cyan, 2000) })
+    proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  end)
+  T.eq(
+    "a scene step on in a color of its own: the proxy is told that color, and no fade",
+    { told("LIGHT_COLOR_CHANGING"), colorsTold() },
+    { {}, { cyan[1] } }
+  )
+  proxy("CLEAR_ALL_SCENES")
+
+  halfWay()
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 8000 })
+  serve(300, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  T.eq(
+    "with Fades on Light, an off in its own fade is one command, and no color fade is told",
+    { serve(3000, 250)[1].sent, told("LIGHT_COLOR_CHANGING") },
+    { { device_on = false }, {} }
+  )
+  forgetSetup()
 end
 
 T.section("a poll due in a fade goes out between two steps, and one that reads another hand's change ends the fade")
@@ -2874,7 +3154,7 @@ do
   mark()
   proxy("SET_COLOR_STOP")
   T.eq("a stop 0.3 s into a color's fade: nothing is sent, and nothing told", { flying(), sent }, { {}, {} })
-  serve(2000, 250)
+  T.eq("nor at the fade's end, where the strip has gone", serve(2000, 250), {})
   T.eq("the color is told at the fade's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
 
   mark()
