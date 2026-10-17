@@ -28,12 +28,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a color sent to a TP-Link light right after it was ramped on, as
   programming that turns a light on and sets its color does, being dropped. The
   light now takes it and keeps it when the ramp ends.
-- Fixed a ramp that also changes a TP-Link light's color, on to the color it
-  turns on in or with Dim-To-Warm, reporting the new color as the one the fade
-  starts from.
-- Fixed a TP-Link light being shown in a scene's color, or going back to a color
-  set while it was off, after a level change or a turn-on had given it its
-  Dim-To-Warm color or the color it turns on in.
+- Fixed a ramp that also changes a TP-Link light's color, as a ramp to on or a
+  Dim-To-Warm dim does, reporting the new color as the one the fade starts from.
+- Fixed a TP-Link light showing a scene's color, or going back to a color set
+  while it was off, after turning on or changing level had given it its on color
+  or Dim-To-Warm color.
 - Fixed an Advanced Lighting scene carrying on with a TP-Link light after the
   light was turned on or off, set to a level or ramped: a later step of the
   scene took the light back, and a scene that flashes the light kept flashing
@@ -53,6 +52,52 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a TP-Link light that was told to stop ramping during an Advanced
   Lighting scene being moved again by the scene's next step. The stop now takes
   the light out of the scene.
+- Fixed a TP-Link light that was told to stop ramping while its color was still
+  fading being put in its Dim-To-Warm color, or the color it turns on in, with
+  the fade cut short. The stop now holds the level and leaves the color fade to
+  finish.
+- Fixed a TP-Link light that was stopped during a ramp losing a color set since
+  the ramp began.
+- Fixed a scene step that sets only a level leaving a TP-Link light in its old
+  color with Dim-To-Warm. The step now takes the Dim-To-Warm color for its
+  level.
+- Fixed Stop Scene Ramp not stopping a TP-Link light: the light carried on to
+  the end of its ramp and was shown as still ramping. It now holds the light
+  where the ramp has got to.
+- Fixed a keypad button bound to a TP-Link light's Top, Bottom or Toggle link,
+  and the light's own button actions, doing nothing.
+- Fixed a held Top or Toggle button ramping a TP-Link light toward its Default
+  On level, which dimmed a brighter light. A hold now ramps toward full until
+  released.
+- Fixed a button pressed, clicked or toggled while a TP-Link light was ramping
+  acting on the level the ramp began from: a light on its way up could be
+  switched off and faded up again, or toggled the wrong way.
+- Fixed a scene step with no ramp time not being shown for a TP-Link light, in
+  level or color, until the light reported it, so the step, command or color
+  fade after it started from the old one.
+- Fixed a color a TP-Link light took while it was off not being picked up until
+  it was next on.
+- Fixed Ramp Scene Up and Down, on a TP-Link light already ramping, starting
+  from the level that ramp began at: the light could drop to its minimum and
+  climb, or not move at all.
+- Fixed a TP-Link light that was ramping not stopping when a command asked for
+  the level it had just reached: the light carried on to the end of its ramp
+  while it was shown at the level asked for.
+- Fixed a TP-Link light with Dim-To-Warm between two color temperatures being
+  shown in two colors at every brightness change, the one it was sent and then
+  the one it reported, and being sent the level again by a command for the level
+  it was already at.
+- Fixed a TP-Link color light with no color temperature restarting a moment into
+  a ramp to on, when it turns on in a color temperature preset.
+
+### Changed
+
+- With Dim-To-Warm, a color set on a TP-Link light now lasts until its
+  brightness next changes, when the light takes its Dim-To-Warm color again. It
+  used to last until the light was turned off.
+- With Dim-To-Warm, a brightness command for the level a TP-Link light is
+  already at now returns a color set on it to its Dim-To-Warm color. It used to
+  do nothing.
 
 ## v20261002 - 2026-10-02
 
