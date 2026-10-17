@@ -280,13 +280,17 @@ Sets the IP address of the Kasa device (e.g. `192.168.1.50`).
 
 ##### Protocol \[ **_Auto_** | KLAP | Legacy \]
 
-Selects the local protocol. `Auto` (default) tries KLAP first when credentials
-are set and falls back to the legacy port 9999 protocol; without credentials it
-connects over the legacy protocol directly. Over KLAP the driver probes the
-SMART command schema first (newer Kasa plugs like the EP25 v2.6, and Tapo
-plugs), then the legacy IOT schema, and retries the handshake with v1 hashing
-for original Kasa devices that were firmware-updated to KLAP. Pin it to `KLAP`
-or `Legacy` only if you need to skip detection.
+Selects the local protocol. `KLAP` is the encrypted protocol of TP-Link firmware
+since late 2024. `Legacy` is the plaintext port 9999 protocol of Kasa devices on
+original firmware.
+
+`Auto` (default) tries KLAP first when credentials are set and falls back to the
+legacy port 9999 protocol; without credentials it connects over the legacy
+protocol directly. Over KLAP the driver probes the SMART command schema first
+(newer Kasa plugs like the EP25 v2.6, and Tapo plugs), then the legacy IOT
+schema, and retries the handshake with v1 hashing for original Kasa devices that
+were firmware-updated to KLAP. Pin it to `KLAP` or `Legacy` only if you need to
+skip detection.
 
 The detected combination is shown in `Driver Status`: `Connected (SMART)` (KLAP
 transport, SMART schema), `Connected (KLAP)` (KLAP transport, legacy IOT

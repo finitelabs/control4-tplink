@@ -156,11 +156,16 @@ outlet. Use a DHCP reservation so it does not change.
 
 ### Protocol \[ **_Auto_** | KLAP | Legacy \]
 
-Selects the local protocol for direct mode. `Auto` (default) tries KLAP first
-when credentials are set — probing the SMART schema, then the IOT bulb schema,
-with both KLAP hash generations — and falls back to the legacy port 9999
-protocol; without credentials it connects over the legacy protocol directly. Pin
-it to `KLAP` or `Legacy` only if you need to skip detection.
+Selects the local protocol for direct mode. `KLAP` is the encrypted protocol of
+TP-Link firmware since late 2024, used by Tapo lights and by Kasa bulbs updated
+to it. `Legacy` is the port 9999 protocol of Kasa KL-series bulbs on original
+firmware.
+
+`Auto` (default) tries KLAP first when credentials are set and falls back to the
+legacy protocol; without credentials it connects over the legacy protocol
+directly. Over KLAP it probes the SMART schema, then the IOT bulb schema, with
+both KLAP hash generations. Pin it to `KLAP` or `Legacy` only if you need to
+skip detection.
 
 ### TP-Link Username / TP-Link Password
 
