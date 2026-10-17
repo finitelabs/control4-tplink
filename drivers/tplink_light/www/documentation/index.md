@@ -47,6 +47,11 @@ on/off, brightness with target ramps and stop, color and color temperature with
 ramps, click/hold button rates, advanced lighting scenes, brightness and color
 presets, and dim-to-warm color on-mode.
 
+A Tapo light takes no fade time from a command: its only fades are the short
+ones set in the Tapo app. The `Fades` property chooses who makes a fade on such
+a light, the driver or the light. A Kasa bulb takes the fade time with each
+command and fades by itself.
+
 # <span style="color:#4ACBD6">Index</span>
 
 <div style="font-size: small">
@@ -167,6 +172,54 @@ blank for KL-series bulbs on original firmware.
 ### Poll Rate (Seconds) [ 2 - 300 ]
 
 How often the light state is polled in direct mode. Default is `5`.
+
+### Fades \[ **_Driver_** | Light \]
+
+Who makes a fade on a light that takes no fade time from a command. A Tapo light
+is one: whatever ramp rate it is sent, it changes over its own short fades, the
+ones set in the Tapo app. The property is shown only while such a light is
+connected. A Kasa bulb fades over the time each command carries, and a light
+bound to an outlet only switches, so neither has the choice.
+
+- `Driver` (default): the driver makes the fade. It sends the light a new level
+  or color as fast as the light answers, a few times a second, until the fade
+  ends. Ramp rates, stops, held buttons and scene fades work as they do on other
+  lights. What it costs:
+  - A fade sends the light a request each time the level or the color has moved
+    on and the light has answered the last one, at most ten a second. A Tapo
+    light strip answers about five a second: a quick fade skips levels to keep
+    up, and a slow one is a request for each level it crosses, 100 from off to
+    full however long it takes.
+  - A quick fade is a few coarse steps: an on over 750 ms is three or four. The
+    light takes each step over its own fade between states where that is on in
+    the Tapo app, and at once where it is off.
+  - A level or an off set from the Tapo app or another controller during a fade
+    is mostly overridden by the fade's next step. The driver ends the fade and
+    leaves the light as it was set only if it polls the light first, which is
+    seldom in a quick fade and common in one so slow that the level moves less
+    often than the light is polled.
+  - A fade ends where it is if the light stops answering part way, or if the
+    driver reconnects to it: Control4 shows where the light is when it next
+    answers.
+  - After a fade to off the light itself remembers the last step it was sent on
+    the way down, so it comes on dim when it is turned on from the Tapo app.
+    Control4 always turns it on at a level of its own.
+- `Light`: the light fades by itself. When `Light` is chosen, and each time the
+  light connects, the driver switches on the light's own fades that are off (to
+  on, to off and between two states), each at the length already set in the Tapo
+  app. A change is then one command, and Control4 shows the light's own fade:
+  the length set for an on or an off, and about a second between two states. An
+  older Tapo light has one switch for all its fades and gives no length for
+  them, and some report no fade between two states: the driver switches on what
+  the light has, and Control4 shows a change it has no length for at once. What
+  it costs:
+  - Ramp rates are the light's. A rate set in Composer, on a keypad or in a
+    scene does nothing, though a scene still waits out a step's ramp time before
+    its next step.
+  - A stop does nothing, and a held button takes the light all the way up or
+    down. A click is two commands: its press is sent as a hold, to full or to
+    off, and the click's own level after it.
+  - The fades the driver switched on stay on when `Driver` is chosen again.
 
 ## Driver Actions
 

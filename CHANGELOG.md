@@ -20,6 +20,20 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added a `Fades` property to the TP-Link Light driver, for a light that takes
+  no fade time from a command. A Tapo light is one: a ramp, a held button or a
+  scene's fade was over in a fraction of a second while the light was shown as
+  still ramping, and a stop or a button's release pulled the light back from the
+  level it had already reached. With `Driver`, the default, the driver makes the
+  fade itself, sending the light a new level or color as fast as it answers
+  until the fade ends, so ramp rates, stops, held buttons and scene fades work.
+  A long fade is many small requests to the light. With `Light` the light fades
+  by itself over the fades set in the Tapo app, which the driver switches on,
+  and Control4 shows those: ramp rates and stops then do nothing. The property
+  is shown only while such a light is connected.
+
 ### Fixed
 
 - Fixed an Advanced Lighting scene set to flash, with no delay or ramp time on

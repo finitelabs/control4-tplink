@@ -140,11 +140,15 @@ package.loaded["lib.legacy"] = {
 
 local BULB_SERVICE = "smartlife.iot.smartbulb.lightingservice"
 
---- What a held request asks: "poll", or the params of the command it carries.
+--- What a held request asks: "poll", "fades" for a read of the light's own
+--- fades, or the params of the command or the setting it carries.
 local function asks(request)
   local payload = request.payload
   if payload.method == "get_device_info" or Select(payload, "system", "get_sysinfo") then
     return "poll"
+  end
+  if payload.method == "get_on_off_gradually_info" then
+    return "fades"
   end
   return payload.params or Select(payload, BULB_SERVICE, "transition_light_state")
 end
@@ -265,6 +269,12 @@ end
 
 local sent, statuses, start = {}, {}, now
 
+--- Whether each property is hidden, as the driver last set it.
+local hidden = {}
+function C4:SetPropertyAttribs(name, attrib)
+  hidden[name] = attrib == 1
+end
+
 function C4:UpdateProperty(name, value)
   Properties[name] = value
   if name == "Driver Status" then
@@ -317,8 +327,8 @@ local function shakeHands()
 end
 
 --- A color strip connected over KLAP with the SMART schema, as info() has it.
-local function light(fields)
-  startDriver()
+local function light(fields, properties)
+  startDriver(properties)
   shakeHands()
   reply(info(fields))
   mark()
@@ -443,17 +453,23 @@ do
     { device_on = true, hue = 240, saturation = 100, color_temp = 0 }
   )
   proxy("SET_LEVEL", { LEVEL = 10 })
-  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 3000 })
-  proxy("SET_LEVEL", { LEVEL = 30 })
-  T.eq("a rate and then none: no transition", merged(), { device_on = true, brightness = 30 })
-  proxy("SET_LEVEL", { LEVEL = 10 })
-  proxy("SET_LEVEL", { LEVEL = 30 })
-  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 3000 })
-  T.eq("none and then a rate: the rate", merged(), { device_on = true, brightness = 80, transition_period = 3000 })
-  proxy("SET_LEVEL", { LEVEL = 10 })
   proxy("SET_LEVEL", { LEVEL = 60 })
   proxy("OFF")
   T.eq("a level and then an off: the off alone", merged(), { device_on = false })
+  -- A fade time, on a light that takes one from a command.
+  bulb()
+  proxy("SET_LEVEL", { LEVEL = 10 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 3000 })
+  proxy("SET_LEVEL", { LEVEL = 30 })
+  T.eq("a rate and then none: no transition", merged(), { on_off = 1, brightness = 30, ignore_default = 1 })
+  proxy("SET_LEVEL", { LEVEL = 10 })
+  proxy("SET_LEVEL", { LEVEL = 30 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 3000 })
+  T.eq(
+    "none and then a rate: the rate",
+    merged(),
+    { on_off = 1, brightness = 80, ignore_default = 1, transition_period = 3000 }
+  )
 end
 
 T.section("a poll takes its turn with the commands, and one sent before a command is not news of the light")
@@ -758,41 +774,39 @@ end
 
 T.section("a rated on from off is one request: no bare on goes ahead of it")
 do
-  light({ device_on = false })
+  local off = { on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } }
+  bulb(off)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
   T.eq(
     "a level over a rate: the on, the level and the rate together",
-    flying(),
-    { { device_on = true, brightness = 50, transition_period = 2000 } }
-  )
-  reply()
-  T.eq("with nothing behind it", flying(), {})
-  light({ device_on = false })
-  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(30, 3000) })
-  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
-  T.eq(
-    "a scene step over a rate: the same",
-    flying(),
-    { { device_on = true, brightness = 30, transition_period = 3000 } }
-  )
-  reply()
-  T.eq("with nothing behind it", flying(), {})
-  proxy("CLEAR_ALL_SCENES")
-  bulb({ on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } })
-  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
-  T.eq(
-    "a Kasa bulb: the same",
     flying(),
     { { on_off = 1, brightness = 50, ignore_default = 1, transition_period = 2000 } }
   )
   reply()
   T.eq("with nothing behind it", flying(), {})
+  bulb(off)
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(30, 3000) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq(
+    "a scene step over a rate: the same",
+    flying(),
+    { { on_off = 1, brightness = 30, ignore_default = 1, transition_period = 3000 } }
+  )
+  reply()
+  T.eq("with nothing behind it", flying(), {})
+  proxy("CLEAR_ALL_SCENES")
+  -- A strip the driver walks up: its first request is the fade's first step.
+  light({ device_on = false })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+  T.eq("a strip is sent nothing until the fade has a level for it", flying(), {})
+  run(100)
+  T.eq("and then an on at that level, with no bare on ahead of it", flying(), { { device_on = true, brightness = 3 } })
 end
 
-T.section("a ramp's end sends the light nothing: it has held the level and the color since the command")
+T.section("a ramp's end sends a light that fades by a command's time nothing: it has held both since the command")
 do
   -- Each ramp ends before the first poll is due, with nothing else in flight.
-  light()
+  bulb()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 2000 })
   reply()
   run(2200)
@@ -804,12 +818,6 @@ do
   run(2200)
   T.eq("a color ramp: nothing is sent at its end", flying(), {})
   T.eq("where the proxy is told the color", told("LIGHT_COLOR_CHANGED", "at"), { 2000 })
-  bulb()
-  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 2000 })
-  reply()
-  run(2200)
-  T.eq("a Kasa bulb's level ramp: nothing is sent at its end", flying(), {})
-  T.eq("where the proxy is told the level", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 2000 })
 end
 
 T.section("a color set while a SMART light is off is kept, and goes out with the command that turns it on")
@@ -1230,12 +1238,16 @@ do
   light({ device_on = false })
   proxy("ON")
   T.eq("an on goes to the level of the mode's preset", answered().brightness, 20)
+  mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80 })
-  T.eq("a target with no rate ramps at the proxy's default", answered().transition_period, 750)
+  T.eq("a target with no rate ramps at the proxy's default", told("LIGHT_BRIGHTNESS_CHANGING", "RATE"), { 750 })
   run(1000)
+  settle()
+  mark()
   proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_X = 0.5, LIGHT_COLOR_TARGET_Y = 0.5 })
-  T.eq("and a color with no rate fades at it", answered().transition_period, 750)
+  T.eq("and a color with no rate fades at it", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_COLOR_RATE"), { 750 })
   run(1000)
+  settle()
   -- The proxy sends the mode when it changes, and a preset when it is edited:
   -- the on level follows both.
   --- An edit of preset 10 and then its removal, on a light whose mode is that
@@ -1285,14 +1297,1581 @@ do
     answered(),
     { device_on = true, brightness = 100, hue = 152, saturation = 40, color_temp = 0 }
   )
+  mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30 })
+  T.eq("a level with no rate fades over the proxy's 750 ms", told("LIGHT_BRIGHTNESS_CHANGING", "RATE"), { 750 })
+  run(100)
   T.eq(
-    "a level with no rate goes out over the proxy's 750 ms, in the Dim-To-Warm color",
+    "in steps that name no color: the two Dim-To-Warm colors are one",
     answered(),
-    { device_on = true, brightness = 30, hue = 152, saturation = 40, color_temp = 0, transition_period = 750 }
+    { device_on = true, brightness = 91 }
   )
   forgetSetup()
   proxySetup = ""
+end
+
+---------------------------------------------------------------------------
+-- A fade the driver makes itself
+---------------------------------------------------------------------------
+
+--- What the stand-in strip holds: what it was connected with, and every
+--- command it has answered since.
+local strip = {}
+
+--- The strip's own fades, as it answers a read of them: all on, a second each
+--- way, as a Tapo strip comes.
+local own = {}
+
+--- The most requests the strip has had in flight together since it connected.
+local busiest = 0
+
+--- A strip connected as light() connects one, whose answers serve() gives.
+local function walked(fields, properties)
+  strip, busiest = info(fields), 0
+  own = {
+    on_state = { enable = true, duration = 1, max_duration = 60 },
+    off_state = { enable = true, duration = 1, max_duration = 60 },
+    change_state = { enable = true },
+  }
+  light(fields, properties)
+end
+
+local NO_POLLS = { ["Poll Rate (Seconds)"] = "300" }
+
+--- Let time pass to the next timer that falls due, or to `at` where that is
+--- sooner, and no further than `stop`.
+local function advance(stop, at)
+  local to = math.min(stop, at or stop)
+  for _, t in ipairs(queue) do
+    if not t.cancelled and t.at > now and t.at < to then
+      to = t.at
+    end
+  end
+  run(to - now)
+end
+
+--- Let `ms` pass on a strip that answers each request `takes` ms after it is
+--- made. Returns each command and setting answered, and how many polls were.
+local function serve(ms, takes)
+  local commands, polls, stop = {}, 0, now + ms
+  while now < stop do
+    local request = held[1]
+    busiest = math.max(busiest, #held)
+    if request == nil or now - request.at < takes then
+      advance(stop, request and request.at + takes)
+    elseif asks(request) == "poll" then
+      polls = polls + 1
+      reply(info(strip))
+    elseif asks(request) == "fades" then
+      local answer = {}
+      for name, state in pairs(own) do
+        answer[name] = type(state) == "table"
+            and { enable = state.enable, duration = state.duration, max_duration = state.max_duration }
+          or state
+      end
+      reply(answer)
+    else
+      local holds = request.payload.method == "set_on_off_gradually_info" and own or strip
+      for field, value in pairs(asks(request)) do
+        holds[field] = type(value) == "table" and { enable = value.enable, duration = value.duration } or value
+      end
+      commands[#commands + 1] = { at = request.at - start, sent = asks(request) }
+      reply()
+    end
+  end
+  return commands, polls
+end
+
+--- Each `field` of the commands serve() returned that name it, or "at", the
+--- ms each was sent at.
+local function each(commands, field)
+  local out = {}
+  for _, command in ipairs(commands) do
+    out[#out + 1] = field == "at" and command.at or command.sent[field]
+  end
+  return out
+end
+
+--- Whether each command went out `ms` after the one before it.
+local function spaced(commands, ms)
+  for i = 2, #commands do
+    if commands[i].at - commands[i - 1].at ~= ms then
+      return false
+    end
+  end
+  return true
+end
+
+--- A scene element fading to a level and a color over `rate` ms.
+local function colorStep(level, color, rate)
+  local step = "<element><delay>0</delay><rate>%d</rate><brightnessEnabled>true</brightnessEnabled>"
+    .. "<brightness>%d</brightness><colorEnabled>true</colorEnabled><colorX>%s</colorX><colorY>%s</colorY>"
+    .. "<colorMode>0</colorMode></element>"
+  return step:format(rate, level, color[1], color[2])
+end
+
+local TOP, PRESS, RELEASE = 0, 1, 0
+
+T.section("a level with a rate is walked there in steps, each sent as the strip answers the one before")
+do
+  --- Where a ramp from 5 to 100 % over 10 s is `ms` in, as a whole level.
+  local function line(ms)
+    return math.floor(5 + 95 * math.min(ms, 10000) / 10000 + 0.5)
+  end
+  --- Whether each step names the level the line is at as it is sent.
+  local function onTheLine(steps)
+    for _, step in ipairs(steps) do
+      if step.sent.brightness ~= line(step.at) or step.sent.device_on ~= true then
+        return false
+      end
+    end
+    return true
+  end
+  walked({ brightness = 5 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  T.eq(
+    "5 to 100 % over 10 s: the proxy is told the ramp and its rate",
+    told("LIGHT_BRIGHTNESS_CHANGING"),
+    { { LIGHT_BRIGHTNESS_CURRENT = 5, LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 } }
+  )
+  T.eq("the strip is sent nothing while the level has not moved", flying(), {})
+  local steps = serve(11000, 250)
+  T.eq("its first step is the first level on, with no fade time", steps[1], {
+    at = 100,
+    sent = { device_on = true, brightness = 6 },
+  })
+  T.check("a strip that takes 250 ms is sent a step every 250 ms", spaced(steps, 250), T.show(each(steps, "at")))
+  T.eq("41 in all", #steps, 41)
+  T.check("each the level the line is at as it is sent", onTheLine(steps), T.show(each(steps, "brightness")))
+  T.eq("the last is the target itself", Select(steps, #steps, "sent"), { device_on = true, brightness = 100 })
+  T.eq("never two requests in flight", busiest, 1)
+  T.eq("the proxy is told the level once, at the ramp's end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 10000 })
+  T.eq("which is the target", levels(), { 100 })
+  T.eq("and nothing is sent after", serve(3000, 250), {})
+
+  walked({ brightness = 5 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  steps = serve(13000, 1200)
+  T.check("a strip that takes 1200 ms is sent a step every 1200 ms", spaced(steps, 1200), T.show(each(steps, "at")))
+  T.eq("10 in all, each several levels on", each(steps, "brightness"), { 6, 17, 29, 40, 52, 63, 74, 86, 97, 100 })
+  T.eq("the proxy is told the level at the ramp's end all the same", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 10000 })
+  T.eq("and the target goes out when the strip has answered the step before", Select(steps, #steps, "at"), 10900)
+  T.eq("never two requests in flight", busiest, 1)
+
+  -- A strip that answers at once is not sent a step for each answer.
+  walked({ brightness = 1 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  steps = serve(3000, 20)
+  T.check(
+    "a strip that takes 20 ms is sent a step every 100 ms, and no more",
+    spaced(steps, 100),
+    T.show(each(steps, "at"))
+  )
+  T.eq(
+    "20 in all, the last the target at the ramp's end",
+    { #steps, Select(steps, #steps, "at"), strip.brightness },
+    { 20, 2000, 100 }
+  )
+  local timers = order
+  run(60000)
+  T.eq("and with the fade over the driver looks for no next step", order - timers, 0)
+  walked({ brightness = 1 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 1950 })
+  steps = serve(3000, 20)
+  T.eq(
+    "a ramp's last step goes at the ramp's end, however soon after the one before",
+    { Select(steps, #steps - 1, "at"), Select(steps, #steps, "at"), strip.brightness },
+    { 1900, 1950, 100 }
+  )
+end
+
+T.section("a rate of 0, and a change of one level over any rate, are one command")
+do
+  walked({ brightness = 50 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 0 })
+  T.eq("a rate of 0: the level at once", flying(), { { device_on = true, brightness = 80 } })
+  T.eq("which the proxy is told at once", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 0 })
+  T.eq("and nothing follows", each(serve(3000, 250), "brightness"), { 80 })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 81, RATE = 4000 })
+  T.eq("one level over 4 s: one command", each(serve(6000, 250), "brightness"), { 81 })
+  T.eq("and the level told at the ramp's end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 4000 })
+  mark()
+  colorTarget(BLUE, 0)
+  T.eq("a color with a rate of 0: the color at once", flying(), {
+    { device_on = true, hue = 240, saturation = 100, color_temp = 0 },
+  })
+  T.eq("and nothing follows", #serve(3000, 250), 1)
+end
+
+T.section("a stop stops the steps: the strip is left at the last one sent, and that level is told")
+do
+  walked({ brightness = 5 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  serve(5000, 250)
+  T.eq("half way through 5 to 100 % a step is in flight", flying(), { { device_on = true, brightness = 51 } })
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop tells the level of that step", levels(), { 51 })
+  T.eq("and sends nothing", flying(), { { device_on = true, brightness = 51 } })
+  T.eq("no step follows", #serve(8000, 250), 1)
+  T.eq("so the strip holds the level told", strip.brightness, 51)
+  T.eq("and the proxy is told nothing at what was the ramp's end", levels(), { 51 })
+
+  -- A ramp that replaces a fade starts where the strip is, behind the line.
+  walked({ brightness = 5 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  serve(5000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 60000 })
+  T.eq(
+    "a ramp that replaces a fade starts from the step the strip was last sent",
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 51 }
+  )
+  proxy("SET_BRIGHTNESS_STOP")
+  serve(1000, 250)
+  T.eq(
+    "so a stop before its first step tells the level the strip holds",
+    { levels(), strip.brightness },
+    { { 51 }, 51 }
+  )
+
+  -- A held button is a ramp that the release stops.
+  walked({ brightness = 30 }, NO_POLLS)
+  proxy("SET_HOLD_RATE_UP", { RATE = 5000 })
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  T.eq("Top held from 30 %: a ramp to full at the hold rate", told("LIGHT_BRIGHTNESS_CHANGING"), {
+    { LIGHT_BRIGHTNESS_CURRENT = 30, LIGHT_BRIGHTNESS_TARGET = 100, RATE = 5000 },
+  })
+  local steps = serve(2500, 250)
+  T.eq("in steps as the strip answers", each(steps, "brightness"), { 31, 35, 38, 42, 45, 49, 52, 56, 59 })
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE })
+  T.eq("its release half way tells the level of the step last sent", levels(), { 63 })
+  T.eq("and nothing follows that step", each(serve(4000, 250), "brightness"), { 63 })
+end
+
+T.section("a color with a rate is walked there too")
+do
+  -- Red to blue is hue 0 to 240 here, a straight line in x.
+  walked({}, NO_POLLS)
+  colorTarget(BLUE, 10000)
+  T.eq("red to blue over 10 s: the proxy is told the fade and its rate", told("LIGHT_COLOR_CHANGING"), {
+    {
+      LIGHT_COLOR_CURRENT_X = 0,
+      LIGHT_COLOR_CURRENT_Y = 1,
+      LIGHT_COLOR_CURRENT_COLOR_MODE = 0,
+      LIGHT_COLOR_TARGET_X = BLUE[1],
+      LIGHT_COLOR_TARGET_Y = BLUE[2],
+      LIGHT_COLOR_TARGET_COLOR_MODE = 0,
+      LIGHT_COLOR_TARGET_COLOR_RATE = 10000,
+      LIGHT_COLOR_TARGET_RATE = 10000,
+    },
+  })
+  local steps = serve(11000, 250)
+  T.eq("its first step is the color the line has got to, with no fade time", steps[1], {
+    at = 100,
+    sent = { device_on = true, hue = 2, saturation = 100, color_temp = 0 },
+  })
+  T.check("a step as the strip answers the one before", spaced(steps, 250), T.show(each(steps, "at")))
+  local onTheLine = true
+  for _, step in ipairs(steps) do
+    onTheLine = onTheLine and step.sent.hue == math.floor(240 * math.min(step.at, 10000) / 10000 + 0.5)
+  end
+  T.check("each the hue the line is at as it is sent", onTheLine, T.show(each(steps, "hue")))
+  T.eq("the last is the target itself", Select(steps, #steps, "sent"), {
+    device_on = true,
+    hue = 240,
+    saturation = 100,
+    color_temp = 0,
+  })
+  T.eq("the proxy is told the color once, at the fade's end", told("LIGHT_COLOR_CHANGED", "at"), { 10000 })
+  T.eq("which is the target", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
+  T.eq("never two requests in flight", busiest, 1)
+
+  walked({}, NO_POLLS)
+  colorTarget(BLUE, 10000)
+  serve(5000, 250)
+  T.eq("half way a step is in flight", Select(flying(), 1, "hue"), 116)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a stop tells the color of that step", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] * 0.485 })
+  T.eq("and no step follows it", each(serve(8000, 250), "hue"), { 116 })
+  colorTarget(BLUE, 10000)
+  serve(5000, 250)
+  mark()
+  colorTarget(xy(0, 100), 60000)
+  T.eq(
+    "a color fade that replaces another starts from the color the strip was last sent",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { BLUE[1] * 0.485 + (BLUE[1] - BLUE[1] * 0.485) * 0.495 }
+  )
+
+  -- Hue 0 to 3: the fade's end is nearer the step before it than two colors
+  -- the driver tells apart.
+  walked({}, NO_POLLS)
+  colorTarget(xy(3, 100), 2000)
+  T.eq("a fade of a few degrees ends on its color all the same", each(serve(3000, 250), "hue"), { 2, 3 })
+
+  walked({}, NO_POLLS)
+  colorTarget(BLUE, 10000)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 2000 })
+  local steps = serve(3000, 250)
+  T.eq("a ramp to off beside a color fade ends with the off", Select(steps, #steps, "sent"), { device_on = false })
+  T.eq("and the strip is off", strip.device_on, false)
+
+  -- A color for a strip that is off has nothing to walk: it is kept for the on.
+  walked({ device_on = false }, NO_POLLS)
+  colorTarget(BLUE, 2000)
+  T.eq("a color over a rate for a strip that is off: nothing is sent", serve(3000, 250), {})
+  proxy("ON")
+  T.eq("and the on carries it", flying(), {
+    { device_on = true, brightness = 100, hue = 240, saturation = 100, color_temp = 0 },
+  })
+
+  -- A strip the driver walks up from off is off until the walk's first level.
+  walked({ device_on = false }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 60000 })
+  run(50)
+  colorTarget(BLUE, 0)
+  T.eq("a color before a fade up from off has sent its first level: no on without a level", flying(), {})
+  T.eq("it goes with the fade's first level", serve(1000, 250)[1], {
+    at = 350,
+    sent = { device_on = true, brightness = 1, hue = 240, saturation = 100, color_temp = 0 },
+  })
+  walked({ device_on = false }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 60000 })
+  run(50)
+  colorTarget(BLUE, 5000)
+  steps = serve(1000, 250)
+  T.eq("a color fading beside it: the first request is the first level, in the color the fade has got to", steps[1], {
+    at = 350,
+    sent = { device_on = true, brightness = 1, hue = 14, saturation = 100, color_temp = 0 },
+  })
+  T.eq("and the color's steps follow", each(steps, "hue"), { 14, 26 })
+
+  -- Nor is it on at a level the fade has reached and not yet sent.
+  walked({ device_on = false })
+  run(4800)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 60000 })
+  run(350)
+  colorTarget(BLUE, 0)
+  T.eq("a color while the fade's first level waits for a poll's answer waits with it", flying(), { "poll" })
+  T.eq("and goes with that level", Select(serve(1000, 250), 1, "sent"), {
+    device_on = true,
+    brightness = 1,
+    hue = 240,
+    saturation = 100,
+    color_temp = 0,
+  })
+
+  -- And one the driver has walked to off is off, though its ramp runs on.
+  walked({ brightness = 2 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 60000 })
+  steps = serve(50000, 250)
+  T.eq(
+    "2 % to off over 60 s: the off is sent 45 s in",
+    { each(steps, "at"), strip.device_on },
+    { { 15100, 45050 }, false }
+  )
+  mark()
+  colorTarget(BLUE, 0)
+  T.eq("a color after the off, before the ramp's end, turns no strip on: it is kept", flying(), {})
+  serve(15000, 250)
+  T.eq("so the strip is off at the ramp's end, as the proxy is told", { strip.device_on, levels() }, { false, { 0 } })
+  proxy("ON")
+  T.eq("and the next on carries the color", Select(flying(), 1, "hue"), 240)
+end
+
+T.section("a scene step with a ramp time fades: its level and its color walked together")
+do
+  walked({ brightness = 20 }, NO_POLLS)
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(80, BLUE, 4000) })
+  mark()
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  local steps = serve(5000, 250)
+  T.eq("20 to 80 % and red to blue over 4 s: a step names both", steps[1], {
+    at = 100,
+    sent = { device_on = true, brightness = 22, hue = 6, saturation = 100, color_temp = 0 },
+  })
+  T.check("a step as the strip answers the one before", spaced(steps, 250), T.show(each(steps, "at")))
+  T.eq("the last is the step's own level and color", Select(steps, #steps, "sent"), {
+    device_on = true,
+    brightness = 80,
+    hue = 240,
+    saturation = 100,
+    color_temp = 0,
+  })
+  T.eq("the level is told once, at the step's end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 4000 })
+  T.eq("and the color", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A level the step names and no ramp walks is not dropped with the rest.
+  walked({ brightness = 80 }, NO_POLLS)
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(80, BLUE, 4000) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq("a step to the level the strip is at, and to blue over 4 s: the level goes at once", flying(), {
+    { device_on = true, brightness = 80 },
+  })
+  T.eq("and the color in steps", Select(serve(5000, 250), 2, "sent"), {
+    device_on = true,
+    hue = 15,
+    saturation = 100,
+    color_temp = 0,
+  })
+  proxy("CLEAR_ALL_SCENES")
+
+  -- From off there is no color to fade from.
+  walked({ device_on = false }, NO_POLLS)
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(60, BLUE, 3000) })
+  mark()
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq(
+    "a step that fades the strip up from off: the proxy is told its color at once",
+    told("LIGHT_COLOR_CHANGED", "at"),
+    { 0 }
+  )
+  steps = serve(4000, 250)
+  T.eq("the strip comes on in it, at the fade's first level", steps[1], {
+    at = 100,
+    sent = { device_on = true, brightness = 2, hue = 240, saturation = 100, color_temp = 0 },
+  })
+  T.eq("and the steps after name the level alone", Select(steps, 2, "sent"), { device_on = true, brightness = 7 })
+  T.eq("up to the step's level", Select(steps, #steps, "sent"), { device_on = true, brightness = 60 })
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A strip that only switches has nothing to walk.
+  startDriver(NO_POLLS)
+  shakeHands()
+  reply({ device_on = true })
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(0, 3000) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq("a step with a ramp time for a strip that only switches: the off, at once", flying(), { { device_on = false } })
+  proxy("CLEAR_ALL_SCENES")
+end
+
+T.section(
+  "the color a ramp carries goes with its steps: the color the strip turns on in, or the Dim-To-Warm color for each level"
+)
+do
+  local ON, DIM = xy(60, 20), xy(30, 80)
+  --- A Color On Mode of the preset ON, with Dim-To-Warm down to DIM if `fade`.
+  local function onMode(fade)
+    proxy("UPDATE_COLOR_ON_MODE", {
+      COLOR_PRESET_ID = 1,
+      COLOR_PRESET_ORIGIN = 1,
+      COLOR_PRESET_COLOR_X = ON[1],
+      COLOR_PRESET_COLOR_Y = ON[2],
+      COLOR_PRESET_COLOR_MODE = 0,
+      COLOR_FADE_PRESET_ID = fade and 2 or 0,
+      COLOR_FADE_PRESET_ORIGIN = fade and 1 or 0,
+      COLOR_FADE_PRESET_COLOR_X = DIM[1],
+      COLOR_FADE_PRESET_COLOR_Y = DIM[2],
+      COLOR_FADE_PRESET_COLOR_MODE = 0,
+    })
+  end
+  forgetSetup()
+  walked({ device_on = false }, NO_POLLS)
+  onMode(false)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  local steps = serve(5000, 250)
+  T.eq("a ramped on with a preset On color: the strip comes on in it", Select(steps, 1, "sent"), {
+    device_on = true,
+    brightness = 3,
+    hue = 60,
+    saturation = 20,
+    color_temp = 0,
+  })
+  T.eq("and the steps after name the level alone", Select(steps, 2, "sent"), { device_on = true, brightness = 9 })
+  T.eq("the proxy is told the color at the ramp's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+  proxy("OFF")
+  serve(1000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(90)
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a stop before the on's first step: the strip, sent nothing, is told as off",
+    { flying(), levels() },
+    { {}, { 0 } }
+  )
+  T.eq(
+    "and in the color it has, to end the change to the On color it was told of",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
+  -- Off in blue, a ramped on in the On color, and a color before its first step.
+  colorTarget(BLUE, 0)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  mark()
+  colorTarget(xy(120, 50), 2000)
+  T.eq(
+    "a color before the on's first step fades from the color the strip has, not the On color it was never sent",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { BLUE[1] }
+  )
+  serve(5000, 250)
+  proxy("OFF")
+  serve(1000, 250)
+  -- Off in blue, a ramped on in the On color, and a level a second into it.
+  colorTarget(BLUE, 0)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  serve(1000, 250)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  serve(1000, 250)
+  mark()
+  colorTarget(xy(120, 50), 2000)
+  T.eq(
+    "a level command a second into the on leaves the strip in the On color it came on in",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
+
+  forgetSetup()
+  walked({ device_on = false }, NO_POLLS)
+  onMode(true)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  steps = serve(2000, 250)
+  T.eq("with Dim-To-Warm it comes on in the color for its first level", Select(steps, 1, "sent"), {
+    device_on = true,
+    brightness = 3,
+    hue = 31,
+    saturation = 78,
+    color_temp = 0,
+  })
+  T.eq("and each step is in the color for its own", Select(steps, #steps, "sent"), {
+    device_on = true,
+    brightness = 40,
+    hue = 42,
+    saturation = 56,
+    color_temp = 0,
+  })
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop tells the level of the step last sent", levels(), { 46 })
+  T.eq(
+    "and its Dim-To-Warm color, not the ramp's last",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { DIM[1] + (ON[1] - DIM[1]) * 0.46 }
+  )
+  serve(1000, 250)
+  T.eq("which is the color the strip holds", { strip.hue, strip.saturation }, { 44, 52 })
+
+  walked({ brightness = 100 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 10, RATE = 4000 })
+  T.eq("a dim with Dim-To-Warm sends no color ahead of its steps", flying(), {})
+  steps = serve(1000, 250)
+  T.eq("its first step is the first level down, in that level's color", Select(steps, 1, "sent"), {
+    device_on = true,
+    brightness = 98,
+    hue = 59,
+    saturation = 21,
+    color_temp = 0,
+  })
+  colorTarget(BLUE, 0)
+  T.eq("a color set during the dim is the strip's from there: no step after it names another", {
+    Select(flying(), 1, "hue"),
+    each(serve(2000, 250), "hue"),
+  }, { 54, { 54, 240 } })
+  serve(2000, 250)
+  T.eq("to the dim's end", { strip.brightness, strip.hue }, { 10, 240 })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 2000 })
+  steps = serve(3000, 250)
+  T.eq("a ramp to off with Dim-To-Warm ends with the off, alone", Select(steps, #steps, "sent"), { device_on = false })
+
+  -- A stop tells the color a step carried only while no other was set since.
+  walked({ brightness = 100 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 10, RATE = 4000 })
+  serve(1000, 250)
+  colorTarget(BLUE, 0)
+  serve(1000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a stop after a color was set during the dim tells the level and no color: the strip is in the one set",
+    { levels(), told("LIGHT_COLOR_CHANGED") },
+    { { 58 }, {} }
+  )
+
+  -- A scene step that sets a level alone fades the color to the formula's
+  -- for that level, from one set since: a ramp of the color's own.
+  walked({ brightness = 50, hue = 61, saturation = 21 }, NO_POLLS)
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(100, 4000) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq("beside a color fade of its own a level's steps name no Dim-To-Warm color", each(serve(1000, 250), "hue"), {})
+  proxy("CLEAR_ALL_SCENES")
+
+  -- Two Dim-To-Warm colors six levels apart are one color to the driver.
+  forgetSetup()
+  walked({ brightness = 90, hue = 57, saturation = 20 }, NO_POLLS)
+  DIM = xy(30, 20)
+  onMode(true)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  serve(3000, 250)
+  T.eq("a ramp ends in the color for its last level, however near the step before", { strip.brightness, strip.hue }, {
+    100,
+    60,
+  })
+  forgetSetup()
+end
+
+T.section("a level command over a fade that carries a color leaves the color's own steps to run to their end")
+do
+  -- Blue at 20 %, a scene step to red at 90 % over 10 s, and 5 s in a level
+  -- alone: 40 % over 4 s.
+  walked({ brightness = 20, hue = 240 }, NO_POLLS)
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(90, xy(0, 100), 10000) })
+  mark()
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  serve(5000, 250)
+  T.eq("half way a step is in flight, on its way up and to red", flying(), {
+    { device_on = true, brightness = 54, hue = 124, saturation = 100, color_temp = 0 },
+  })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 40, RATE = 4000 })
+  local steps = serve(6000, 250)
+  T.eq(
+    "the level turns for 40 % from the step the strip was last sent",
+    each(steps, "brightness"),
+    { 54, 53, 52, 51, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40 }
+  )
+  T.eq("and is told 9 s in, at the end of its own ramp", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 9000 })
+  T.eq(
+    "the hue runs on, a step as the strip answers the one before",
+    each(steps, "hue"),
+    { 124, 118, 112, 106, 100, 94, 88, 82, 76, 70, 64, 58, 52, 46, 40, 34, 28, 24, 16, 10, 4, 0 }
+  )
+  T.eq("the color's last step is red, alone", Select(steps, #steps, "sent"), {
+    device_on = true,
+    hue = 0,
+    saturation = 100,
+    color_temp = 0,
+  })
+  T.eq("10 s in, the end of the fade that carried it", told("LIGHT_COLOR_CHANGED", "at"), { 10000 })
+  T.eq("where the proxy is told red", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0 })
+  proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("a poll due in a fade goes out between two steps, and one that reads another hand's change ends the fade")
+do
+  walked({ brightness = 5 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  local steps, polls = serve(9900, 250)
+  T.eq("a poll every 5 s: one is answered in the first 9.9 s of a 10 s fade", polls, 1)
+  T.eq("which reads the step before it and tells the proxy nothing", sent[2], nil)
+  T.eq("the steps go on either side of it", #steps, 38)
+  T.eq("never two requests in flight", busiest, 1)
+  serve(2000, 250)
+  T.eq("and the fade ends on its target", { strip.brightness, levels() }, { 100, { 100 } })
+
+  -- A slow fade leaves the strip free between steps: 5 to 100 % over 5 min.
+  walked({ brightness = 5 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 300000 })
+  serve(9000, 250)
+  T.eq("9 s into a 5 min fade the strip is at 8 %", strip.brightness, 8)
+  -- The Tapo app, or another controller, sets 70 %.
+  strip.brightness = 70
+  mark()
+  serve(1500, 250)
+  T.eq("another hand's 70 %, read by the next poll, is told", levels(), { 70 })
+  T.eq("and the strip keeps it: no step follows", { strip.brightness, #serve(20000, 250) }, { 70, 0 })
+  T.eq("nor is the proxy told the fade's target at what was its end", #serve(300000, 250) + #levels(), 1)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 2000 })
+  T.eq("a fade asked for after it starts from there", each(serve(3000, 250), "brightness")[1], 71)
+
+  --- What the proxy is told of the level, and how many steps follow, when
+  --- another hand sets `field` 9 s into a 5 min fade up from 5 %.
+  local function otherHand(field, value, connected)
+    connected = connected or {}
+    connected.brightness = 5
+    walked(connected)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 300000 })
+    serve(9000, 250)
+    strip[field] = value
+    mark()
+    serve(1500, 250)
+    return { levels(), #serve(20000, 250) }
+  end
+  T.eq("switched off by another hand: told, and the fade over", otherHand("device_on", false), { { 0 }, 0 })
+  T.eq("put back where the fade began: told all the same", otherHand("brightness", 5), { { 5 }, 0 })
+  T.eq("another saturation: the fade is over", otherHand("saturation", 50)[2], 0)
+  T.eq("a color temperature: the fade is over", otherHand("color_temp", 3000)[2], 0)
+  -- A strip in a color temperature keeps a hue it does not show.
+  T.check(
+    "a hue read beside a color temperature is no one's change: the fade goes on",
+    otherHand("hue", 77, { color_temp = 3000 })[2] > 0
+  )
+
+  -- Its color changed by another hand while the driver fades its level.
+  walked({ brightness = 5 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 300000 })
+  serve(9000, 250)
+  strip.hue = 120
+  mark()
+  serve(1500, 250)
+  T.eq("a color that is not the driver's ends the fade too", { levels(), strip.brightness }, { { 8 }, 8 })
+  T.eq("and is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 120 / 360 })
+  T.eq("with no step after", #serve(20000, 250), 0)
+
+  -- A color put back where its fade began.
+  walked({})
+  colorTarget(BLUE, 300000)
+  serve(9700, 250)
+  strip.hue = 0
+  mark()
+  serve(800, 250)
+  T.eq("a color put back where its fade began is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0 })
+  T.eq("and the fade over", #serve(20000, 250), 0)
+
+  -- The color a ramped on carries, told as changing, when the level is moved.
+  forgetSetup()
+  walked({ device_on = false })
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 1,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_PRESET_COLOR_X = 0,
+    COLOR_PRESET_COLOR_Y = 1,
+    COLOR_PRESET_COLOR_MODE = 0,
+    COLOR_FADE_PRESET_ID = 0,
+    COLOR_FADE_PRESET_ORIGIN = 0,
+  })
+  proxy(
+    "SET_COLOR_TARGET",
+    { LIGHT_COLOR_TARGET_X = BLUE[1], LIGHT_COLOR_TARGET_Y = BLUE[2], LIGHT_COLOR_TARGET_MODE = 0 }
+  )
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 300000 })
+  serve(9000, 250)
+  strip.brightness = 70
+  mark()
+  serve(1500, 250)
+  T.eq("another hand in a ramped on: the color it was to end in is told as it reads", {
+    levels(),
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+  }, { { 70 }, { 0 } })
+  forgetSetup()
+
+  -- What the strip held before a fade was asked for is no part of the fade.
+  walked({ brightness = 50 })
+  serve(6000, 250)
+  strip = info({ brightness = 80, color_temp = 3000 })
+  setProperty("IP Address", "192.0.2.25")
+  shakeHands()
+  reply(info(strip))
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 300000 })
+  T.eq(
+    "what the last strip held is not this one's: its first poll ends no fade",
+    each(serve(20000, 250), "brightness"),
+    { 81 }
+  )
+
+  --- What follows a fade from 50 to 100 % over `rate` ms, asked a second after
+  --- another hand set a hue: the colors told in its first 20 s, and its steps.
+  local function setBefore(rate)
+    walked({ brightness = 50 })
+    serve(6000, 250)
+    strip.hue = 120
+    run(1000)
+    mark()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = rate })
+    local steps = serve(20000, 250)
+    return { told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), levels(), each(steps, "brightness") }
+  end
+  T.eq(
+    "a color another hand set before a 5 min fade was asked for is told by the fade's first poll, and ends no fade",
+    setBefore(300000),
+    { { 120 / 360 }, {}, { 51, 52, 53 } }
+  )
+  local quick = setBefore(60000)
+  T.eq(
+    "nor one of 1 min, whose first steps go out before that poll",
+    { quick[1], quick[2], quick[3][1], quick[3][#quick[3]] },
+    { { 120 / 360 }, {}, 51, 66 }
+  )
+
+  -- A scene's fade that another hand ends takes the scene's later steps with it.
+  walked({ brightness = 20 })
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(80, 600000) .. levelStep(10, 2000) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  serve(9000, 250)
+  strip.brightness = 30
+  mark()
+  serve(2000, 250)
+  T.eq("another hand's 30 % in a scene's first step is told", levels(), { 30 })
+  T.eq(
+    "and the scene is over: its next step, due at the first's end, sends nothing",
+    { #serve(600000, 250), strip.brightness, levels() },
+    { 0, 30, { 30 } }
+  )
+  proxy("CLEAR_ALL_SCENES")
+
+  -- The strip's own report of what it was sent is no news in a color fade.
+  walked({})
+  colorTarget(BLUE, 300000)
+  serve(21000, 250)
+  T.eq("four polls into a 5 min color fade the proxy has been told no color", told("LIGHT_COLOR_CHANGED", "at"), {})
+  T.check("and the steps go on", strip.hue > 10, strip.hue)
+end
+
+T.section("a fade ends where it is when the strip stops answering or the backend is started again, and is told as read")
+do
+  walked({ brightness = 5 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  serve(2000, 250)
+  mark()
+  fail("Klap: request timed out")
+  T.eq("a step the strip never answers: no step follows", #serve(20000, 250), 0)
+  serve(300000, 250)
+  T.eq("and the strip is told at the step before it once it is read", levels(), { 0, 20 })
+
+  -- A Reconnect 2 s into a 4 s fade, and the strip found again at 8 s.
+  walked({ brightness = 5 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  serve(2050, 250)
+  mark()
+  EC.Reconnect()
+  run(6000)
+  T.eq("a Reconnect that outlasts the fade: nothing is told at its end, the target never sent", sent, {})
+  shakeHands()
+  local steps = serve(8000, 250)
+  T.eq("the strip found again is told at the step it was last sent", levels(), { 49 })
+  T.eq("and is sent no step after that one", each(steps, "brightness"), { 49 })
+
+  walked({}, NO_POLLS)
+  colorTarget(BLUE, 4000)
+  serve(2050, 250)
+  mark()
+  setProperty("Protocol", "KLAP")
+  run(6000)
+  T.eq("a color's fade that a change of Protocol outlasts: nothing is told at its end", sent, {})
+  shakeHands()
+  serve(8000, 250)
+  T.check(
+    "the strip is told in the color it was last sent",
+    #colorsTold() == 1 and math.abs(colorsTold()[1] - 111 / 360) < 1e-3,
+    T.show(colorsTold())
+  )
+  setProperty("Protocol", "Auto")
+
+  walked({ brightness = 20 }, NO_POLLS)
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(80, BLUE, 4000) .. levelStep(10, 2000) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  serve(2050, 250)
+  mark()
+  EC.Reconnect()
+  run(6000)
+  T.eq("a scene's step that a Reconnect outlasts: nothing told at its end, and its next step sends nothing", {
+    sent,
+    flying(),
+  }, { {}, { { device_on = true, brightness = 48, hue = 111, saturation = 100, color_temp = 0 } } })
+  shakeHands()
+  serve(8000, 250)
+  T.eq("the strip found again is told at that step, and the scene is over", { levels(), #serve(8000, 250) }, {
+    { 48 },
+    0,
+  })
+  proxy("CLEAR_ALL_SCENES")
+
+  walked({ brightness = 5 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  serve(2050, 250)
+  mark()
+  EC.Reconnect()
+  run(300)
+  shakeHands()
+  steps = serve(12000, 250)
+  T.eq("a Reconnect the strip answers at once: the fade is not taken up again", {
+    each(steps, "brightness"),
+    levels(),
+  }, { { 23 }, { 23 } })
+end
+
+---------------------------------------------------------------------------
+-- The Fades property
+---------------------------------------------------------------------------
+
+--- The capabilities that say whose a fade's length is, as the proxy was last
+--- told them since the mark.
+local function rates()
+  local out = {}
+  for _, capabilities in ipairs(told("DYNAMIC_CAPABILITIES_CHANGED")) do
+    for _, name in ipairs({
+      "has_fixed_ramp_rate",
+      "fixed_ramp_rate",
+      "brightness_rate_min",
+      "brightness_rate_max",
+      "color_rate_behavior",
+      "color_rate_min",
+      "color_rate_max",
+      "supports_brightness_stop",
+      "supports_color_stop",
+    }) do
+      if capabilities[name] ~= nil then
+        out[name] = capabilities[name]
+      end
+    end
+  end
+  return out
+end
+
+local DRIVERS = {
+  has_fixed_ramp_rate = false,
+  fixed_ramp_rate = 0,
+  brightness_rate_min = 0,
+  brightness_rate_max = 65535,
+  color_rate_behavior = 1,
+  color_rate_min = 0,
+  color_rate_max = 65535,
+  supports_brightness_stop = true,
+  supports_color_stop = true,
+}
+
+--- The same for a light that fades by itself, `ms` between two states.
+local function lights(ms)
+  return {
+    has_fixed_ramp_rate = true,
+    fixed_ramp_rate = ms,
+    brightness_rate_min = ms,
+    brightness_rate_max = ms,
+    color_rate_behavior = 0,
+    color_rate_min = 0,
+    color_rate_max = 65535,
+    supports_brightness_stop = false,
+    supports_color_stop = false,
+  }
+end
+
+T.section("Fades is shown for a strip on the SMART schema, and hidden for a Kasa bulb and a light on an outlet")
+do
+  startDriver()
+  T.eq("while no light is connected it is hidden", hidden["Fades"], true)
+  shakeHands()
+  reply(info())
+  T.eq("a strip on the SMART schema: shown", hidden["Fades"], false)
+  T.eq("with the capabilities of a light whose fades take a rate, and stop", rates(), DRIVERS)
+  startDriver({ ["Protocol"] = "Legacy" })
+  reply(sysinfo())
+  T.eq("a Kasa bulb on the IOT schema: hidden", hidden["Fades"], true)
+  T.eq("with the capabilities it had", rates(), DRIVERS)
+  setProperty("Fades", "Light")
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 2000 })
+  T.eq(
+    "and Light means nothing to it: the bulb is sent the rate, and nothing else",
+    flying(),
+    { { on_off = 1, brightness = 30, ignore_default = 1, transition_period = 2000 } }
+  )
+  light()
+  setProperty("Fades", "Driver")
+  T.eq("on a strip, the mode it is already in is no change: nothing is sent or told", { flying(), sent }, { {}, {} })
+  C4:Bind(900, 1, C4:GetDeviceID(), 1, "TPLINK_LIGHT")
+  startDriver({ ["Fades"] = "Light" })
+  RFP.UPDATE_STATE(1, "UPDATE_STATE", {
+    entity = SerializeSafe({ supported_color_modes = { require("constants").LightColorMode.COLOR_MODE_ON_OFF } }),
+    state = SerializeSafe({ state = true }),
+  })
+  T.eq("a light bound to an outlet: hidden", hidden["Fades"], true)
+  T.eq("with no fixed rate, whatever the property was left at", rates().has_fixed_ramp_rate, false)
+  C4:Unbind(C4:GetDeviceID(), 1)
+end
+
+T.section("Fades set to Light: the strip's own fades are read, and those that are off switched on at their own lengths")
+do
+  walked({}, NO_POLLS)
+  -- On in 3 s but switched off, off in 2 s, and no fade between two states.
+  own.on_state = { enable = false, duration = 3, max_duration = 60 }
+  own.off_state = { enable = true, duration = 2, max_duration = 60 }
+  own.change_state = { enable = false }
+  mark()
+  setProperty("Fades", "Light")
+  T.eq("choosing Light: the strip's own fades are read", flying(), { "fades" })
+  T.eq("and the proxy is told nothing of rates until they are", rates(), {})
+  local settings = serve(2000, 250)
+  T.eq("the two that are off are switched on, the on fade at the 3 s it has", each(settings, "on_state"), {
+    { enable = true, duration = 3 },
+  })
+  T.eq("and the fade between states, which has no length", each(settings, "change_state"), { { enable = true } })
+  T.eq("a request each, and none for the one that was on", #settings, 2)
+  T.eq("one at a time", busiest, 1)
+  T.eq("so the strip keeps each length its owner set", { own.on_state.duration, own.off_state.duration }, { 3, 2 })
+  T.eq("the proxy is told a fixed rate, the strip's second between two states, and no stop", rates(), lights(1000))
+
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 40, RATE = 5000 })
+  T.eq("a level over 5 s: one command, with no fade time", flying(), { { device_on = true, brightness = 40 } })
+  T.eq("the proxy is told the strip's own second, not the rate asked", told("LIGHT_BRIGHTNESS_CHANGING"), {
+    { LIGHT_BRIGHTNESS_CURRENT = 100, LIGHT_BRIGHTNESS_TARGET = 40, RATE = 1000 },
+  })
+  T.eq("and nothing follows that command", #serve(6000, 250), 1)
+  T.eq("the level is told when the strip has faded there", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 1000 })
+
+  mark()
+  proxy("OFF")
+  T.eq("an off, which carries no rate: one command", flying(), { { device_on = false } })
+  T.eq("told over the strip's 2 s off", told("LIGHT_BRIGHTNESS_CHANGING", "RATE"), { 2000 })
+  serve(3000, 250)
+  T.eq("and as off at their end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 2000 })
+
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 80 })
+  T.eq("a level from off: one command", flying(), { { device_on = true, brightness = 80 } })
+  T.eq("told over the strip's 3 s on", told("LIGHT_BRIGHTNESS_CHANGING", "RATE"), { 3000 })
+  serve(4000, 250)
+  T.eq("and at its end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 3000 })
+
+  mark()
+  colorTarget(BLUE, 5000)
+  T.eq("a color over 5 s: one command", flying(), { { device_on = true, hue = 240, saturation = 100, color_temp = 0 } })
+  T.eq("told over the strip's second", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_COLOR_RATE"), { 1000 })
+  T.eq("with nothing after it", #serve(6000, 250), 1)
+  T.eq("and at its end", told("LIGHT_COLOR_CHANGED", "at"), { 1000 })
+
+  proxy("OFF")
+  serve(3000, 250)
+  mark()
+  colorTarget(xy(120, 50), 5000)
+  T.eq("a color for the strip while it is off is kept, and told at once", {
+    flying(),
+    told("LIGHT_COLOR_CHANGED", "at"),
+  }, { {}, { 0 } })
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(50, 4000) })
+  mark()
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq("a scene step that fades the strip up from off is told over its 3 s on", {
+    #flying(),
+    told("LIGHT_BRIGHTNESS_CHANGING", "RATE"),
+  }, { 1, { 3000 } })
+  serve(5000, 250)
+  colorTarget(BLUE, 0)
+  serve(2000, 250)
+
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(60, xy(0, 100), 4000) .. levelStep(30, 0) })
+  mark()
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq("a scene step that fades for 4 s: one command", flying(), {
+    { device_on = true, brightness = 60, hue = 0, saturation = 100, color_temp = 0 },
+  })
+  T.eq("told over the strip's second", told("LIGHT_BRIGHTNESS_CHANGING", "RATE"), { 1000 })
+  T.eq("its color too", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_COLOR_RATE"), { 1000 })
+  local steps = serve(6000, 250)
+  T.eq("the scene's next step comes after the step's own 4 s", each(steps, "at"), { 0, 4000 })
+  T.eq("the step's level and color are told at the end of the strip's second", {
+    told("LIGHT_BRIGHTNESS_CHANGED", "at")[1],
+    told("LIGHT_COLOR_CHANGED", "at"),
+  }, { 1000, { 1000 } })
+  T.eq("and the next step, which has no ramp time, over the strip's second too", {
+    told("LIGHT_BRIGHTNESS_CHANGING", "RATE"),
+    told("LIGHT_BRIGHTNESS_CHANGED", "at")[2],
+  }, { { 1000, 1000 }, 5000 })
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A color that replaces a step's starts from where the strip's second has got to.
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(60, BLUE, 4000) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  serve(500, 250)
+  mark()
+  colorTarget(xy(120, 50), 0)
+  local from = told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X")[1]
+  T.eq(
+    "a color 0.5 s into a step's is told from half way through the strip's second, not an eighth of the step's 4 s",
+    from and math.floor(from * 360 + 0.5),
+    120
+  )
+  serve(6000, 250)
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A step that sets a color alone, with a ramp time and with none.
+  local COLOR_ONLY = "<element><delay>0</delay><rate>%d</rate><brightnessEnabled>false</brightnessEnabled>"
+    .. "<colorEnabled>true</colorEnabled><colorX>%s</colorX><colorY>%s</colorY><colorMode>0</colorMode></element>"
+  for _, rate in ipairs({ 4000, 0 }) do
+    proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = COLOR_ONLY:format(rate, rate == 0 and BLUE[1] or 0.5, 1) })
+    mark()
+    proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+    T.eq("a scene step that sets a color alone, ramp time " .. rate .. ": one command", #flying(), 1)
+    serve(6000, 250)
+    T.eq("told over the strip's second, and at its end", {
+      told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_COLOR_RATE"),
+      told("LIGHT_COLOR_CHANGED", "at"),
+    }, { { 1000 }, { 1000 } })
+    proxy("CLEAR_ALL_SCENES")
+  end
+
+  -- The strip is off from the off on, whatever its own fade is at.
+  walked({ brightness = 13 }, NO_POLLS)
+  own.off_state.duration = 30
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  proxy("OFF")
+  serve(2000, 250)
+  colorTarget(BLUE, 0)
+  T.eq("a color 2 s into the strip's 30 s off turns no strip back on: it is kept", flying(), {})
+  serve(30000, 250)
+  T.eq("so the strip is off at the fade's end, as the proxy is told", { strip.device_on, levels() }, { false, { 0 } })
+  proxy("ON")
+  T.eq("and the next on carries the color", Select(flying(), 1, "hue"), 240)
+
+  -- What the strip held before a command is no part of the fade it begins.
+  walked({ brightness = 80 }, { ["Fades"] = "Light" })
+  serve(6000, 250)
+  strip.hue = 120
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(50, 4000) .. levelStep(30, 0) })
+  run(3500)
+  mark()
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  steps = serve(6000, 250)
+  T.eq(
+    "a color another hand set before a scene, read by a poll in its first step's fade, is told",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { 120 / 360 }
+  )
+  T.eq("and is no end to the step, nor to the scene: its next step runs", each(steps, "brightness"), { 50, 30 })
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A command made while the fades are read and switched on.
+  walked({}, NO_POLLS)
+  own.change_state = { enable = false }
+  setProperty("Fades", "Light")
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  T.eq("a command made while the fades are read waits", flying(), { "fades" })
+  steps = serve(2000, 250)
+  T.eq("for the fade that is off to be switched on too", { Select(steps, 1, "sent"), Select(steps, 2, "sent") }, {
+    { change_state = { enable = true } },
+    { device_on = true, brightness = 40 },
+  })
+  T.eq("each as the one before is answered", { each(steps, "at"), busiest }, { { 250, 500 }, 1 })
+
+  -- Light chosen while one command is in flight and another waits.
+  walked({}, NO_POLLS)
+  proxy("SET_LEVEL", { LEVEL = 30 })
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  setProperty("Fades", "Light")
+  T.eq("Light chosen while a command waits: the read goes ahead of it, alone", {
+    #flying(),
+    each(serve(300, 250), "brightness"),
+    flying(),
+  }, { 1, { 30 }, { "fades" } })
+  T.eq("and the command behind the read", { each(serve(1000, 250), "brightness"), busiest }, { { 40 }, 1 })
+
+  -- Driver chosen again before the strip has answered the read.
+  walked({}, NO_POLLS)
+  own.on_state = { enable = false, duration = 3, max_duration = 60 }
+  setProperty("Fades", "Light")
+  setProperty("Fades", "Driver")
+  T.eq("Driver chosen before the read is answered: nothing is switched on", #serve(2000, 250), 0)
+
+  -- A strip that refuses the write.
+  walked({ device_on = false }, NO_POLLS)
+  own.on_state = { enable = false, duration = 3, max_duration = 60 }
+  setProperty("Fades", "Light")
+  serve(300, 250)
+  T.eq("a strip asked to switch its on fade on", Select(flying(), 1, "on_state"), { enable = true, duration = 3 })
+  local write = table.remove(held, 1)
+  if write then
+    write.d:resolve({ error_code = -1008 })
+  end
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  T.eq("a fade the strip would not switch on is none: an on is told at once", told("LIGHT_BRIGHTNESS_CHANGED", "at"), {
+    0,
+  })
+
+  -- A write the strip never answers.
+  walked({}, NO_POLLS)
+  own.on_state.enable, own.off_state.enable = false, false
+  setProperty("Fades", "Light")
+  serve(300, 250)
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  mark()
+  fail("Klap: request timed out")
+  T.eq(
+    "a write the strip does not answer: no other is tried ahead of the command that waits",
+    flying(),
+    { { device_on = true, brightness = 40 } }
+  )
+  T.eq("and the proxy is told no fixed rate", rates().has_fixed_ramp_rate, false)
+end
+
+T.section("Fades set to Light on a strip with one switch for its fades, or with no fade between two states")
+do
+  -- An older strip answers with one switch for all its fades, and no length.
+  walked({ brightness = 80 }, NO_POLLS)
+  own = { enable = false }
+  mark()
+  setProperty("Fades", "Light")
+  local settings = serve(1000, 250)
+  T.eq("a strip whose fades are one switch that is off: it is switched on", each(settings, "enable"), { true })
+  T.eq("with that one request", { #settings, own.enable }, { 1, true })
+  local caps = rates()
+  T.eq(
+    "the proxy is told no stop, and no fixed rate: the strip gives its fade no length",
+    { caps.supports_brightness_stop, caps.has_fixed_ramp_rate, caps.fixed_ramp_rate, caps.brightness_rate_max },
+    { false, false, 0, 65535 }
+  )
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 40, RATE = 5000 })
+  T.eq("a level over 5 s is one command", flying(), { { device_on = true, brightness = 40 } })
+  T.eq("told at once, with no length to tell it over", {
+    told("LIGHT_BRIGHTNESS_CHANGING"),
+    told("LIGHT_BRIGHTNESS_CHANGED", "at"),
+  }, { {}, { 0 } })
+  serve(1000, 250)
+  mark()
+  proxy("OFF")
+  T.eq("and so an off", { flying(), told("LIGHT_BRIGHTNESS_CHANGED", "at") }, { { { device_on = false } }, { 0 } })
+
+  walked({}, NO_POLLS)
+  own = { enable = true }
+  mark()
+  setProperty("Fades", "Light")
+  T.eq("one switch that is on: nothing is written", serve(1000, 250), {})
+  T.eq(
+    "and the proxy told the same",
+    { rates().supports_brightness_stop, rates().has_fixed_ramp_rate },
+    { false, false }
+  )
+
+  -- A fade on and a fade off, each with its length, and no switch between.
+  walked({ brightness = 80 }, NO_POLLS)
+  own = {
+    on_state = { enable = false, duration = 5, max_duration = 60 },
+    off_state = { enable = true, duration = 10, max_duration = 60 },
+  }
+  mark()
+  setProperty("Fades", "Light")
+  T.eq(
+    "a strip with no fade between two states: its on fade, which is off, is switched on",
+    each(serve(1000, 250), "on_state"),
+    { { enable = true, duration = 5 } }
+  )
+  T.eq(
+    "and the proxy is told no fixed rate, not one of 0",
+    { rates().has_fixed_ramp_rate, rates().fixed_ramp_rate, rates().brightness_rate_min, rates().brightness_rate_max },
+    { false, 0, 0, 65535 }
+  )
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 40, RATE = 5000 })
+  T.eq("a level between two states is told at once", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 0 })
+  serve(1000, 250)
+  mark()
+  proxy("OFF")
+  T.eq("an off over the strip's 10 s", told("LIGHT_BRIGHTNESS_CHANGING", "RATE"), { 10000 })
+  serve(11000, 250)
+  mark()
+  proxy("ON")
+  T.eq("and an on over its 5 s", told("LIGHT_BRIGHTNESS_CHANGING", "RATE"), { 5000 })
+end
+
+T.section("with Fades on Light a stop sends nothing, and a held button goes to its end")
+do
+  walked({ brightness = 30 }, NO_POLLS)
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 90, RATE = 5000 })
+  serve(300, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  proxy("SET_COLOR_STOP")
+  T.eq("a stop 0.3 s into a level's fade: nothing is sent, and nothing told", { flying(), sent }, { {}, {} })
+  serve(2000, 250)
+  T.eq("the level is told at the fade's end, where the strip has gone", levels(), { 90 })
+  colorTarget(BLUE, 5000)
+  serve(300, 250)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a stop 0.3 s into a color's fade: nothing is sent, and nothing told", { flying(), sent }, { {}, {} })
+  serve(2000, 250)
+  T.eq("the color is told at the fade's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
+
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  T.eq("Top held: one command, for full", flying(), { { device_on = true, brightness = 100 } })
+  serve(300, 250)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE })
+  T.eq("its release sends nothing", flying(), {})
+  serve(2000, 250)
+  T.eq("and the strip is told at full, where it went", { strip.brightness, levels() }, { 100, { 100 } })
+
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 40, RATE = 5000 })
+  serve(300, 250)
+  EC.Reconnect()
+  run(6000)
+  T.eq(
+    "a Reconnect in the strip's own fade: the level it was sent is told at the fade's end",
+    { levels(), told("LIGHT_BRIGHTNESS_CHANGED", "at") },
+    { { 40 }, { 1000 } }
+  )
+end
+
+T.section("the strip's own fades are read at each connect while Fades is Light, and not while it is Driver")
+do
+  walked({}, { ["Fades"] = "Light" })
+  T.eq("a strip that connects with Fades on Light: its own fades are read", flying(), { "fades" })
+  T.eq("which are all on: nothing is switched", #serve(1000, 250), 0)
+  T.eq("and the proxy is told the fixed rate", rates(), lights(1000))
+  -- The strip goes away, and comes back.
+  run(4000)
+  fail("Klap: request timed out")
+  mark()
+  run(5000)
+  reply(info())
+  T.eq("a strip that comes back is read again", flying(), { "fades" })
+  serve(1000, 250)
+  T.eq("and the proxy told the fixed rate with its capabilities", rates(), lights(1000))
+  setProperty("Poll Rate (Seconds)", "10")
+  shakeHands()
+  mark()
+  reply(info())
+  T.eq("and when the backend is started again", flying(), { "fades" })
+  T.eq("with no fixed rate told until they are", rates().has_fixed_ramp_rate, false)
+  serve(1000, 250)
+  -- The strip is away when Driver is chosen.
+  run(9000)
+  fail("Klap: request timed out")
+  mark()
+  setProperty("Fades", "Driver")
+  T.eq("Driver chosen while the strip is away: the proxy is told nothing of rates yet", rates(), {})
+  run(10000)
+  reply(info())
+  T.eq("and the driver's with the strip's capabilities when it is back", rates(), DRIVERS)
+
+  walked({}, NO_POLLS)
+  run(4000)
+  T.eq("a strip that connects with Fades on Driver is asked nothing of its fades", flying(), {})
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  mark()
+  setProperty("Fades", "Driver")
+  T.eq("choosing Driver again writes the strip nothing: its fades stay as they are", flying(), {})
+  T.eq("and the proxy is told rates and stops are the driver's", rates(), DRIVERS)
+
+  -- A light that has no such setting to read.
+  walked({}, { ["Fades"] = "Light", ["Poll Rate (Seconds)"] = "300" })
+  local read = table.remove(held, 1)
+  if read then
+    read.d:resolve({ error_code = -1001, result = {} })
+  end
+  T.eq(
+    "fades that cannot be read: the proxy is told no stop, and no fixed rate",
+    { rates().supports_brightness_stop, rates().has_fixed_ramp_rate, rates().brightness_rate_max },
+    { false, false, 65535 }
+  )
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 40, RATE = 5000 })
+  T.eq("a level is still one command", flying(), { { device_on = true, brightness = 40 } })
+  T.eq("told at once, with no fade known to wait for", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 0 })
+end
+
+T.section("changing Fades while a ramp runs ends the ramp at its target")
+do
+  walked({ brightness = 5 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  serve(4000, 250)
+  mark()
+  setProperty("Fades", "Light")
+  T.eq("Driver to Light 4 s into a 10 s fade: the proxy is told the target at once", levels(), { 100 })
+  local after = serve(3000, 250)
+  T.eq("the strip is sent it behind the step in flight, and no step after", each(after, "brightness"), { 42, 100 })
+  T.eq("and nothing is told at what was the fade's end", #serve(8000, 250) + #levels(), 1)
+
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 20, RATE = 5000 })
+  serve(300, 250)
+  mark()
+  setProperty("Fades", "Driver")
+  T.eq("Light to Driver 0.3 s into the strip's own fade: the proxy is told the target at once", levels(), { 20 })
+  T.eq("and the strip, on its way there, is sent nothing", serve(3000, 250), {})
+
+  -- A color fading too.
+  walked({ brightness = 20 }, NO_POLLS)
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(80, BLUE, 8000) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  serve(4000, 250)
+  mark()
+  setProperty("Fades", "Light")
+  T.eq("with a color fading too: both are told at their targets", {
+    levels(),
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+  }, { { 80 }, { tonumber(tostring(BLUE[1])) } })
+  serve(3000, 250)
+  T.eq("and the strip ends on both", { strip.brightness, strip.hue }, { 80, 240 })
+  proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("what a Kasa bulb and a light on an outlet are sent, and the proxy told, is as it was")
+do
+  local GREEN = xy(120, 50)
+  local BOTTOM, CLICK = 1, 2
+
+  --- A table as text, its keys in order.
+  local function dump(value)
+    if type(value) ~= "table" then
+      return tostring(value)
+    end
+    local keys, parts = {}, {}
+    for key in pairs(value) do
+      keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a, b)
+      return tostring(a) < tostring(b)
+    end)
+    for i, key in ipairs(keys) do
+      parts[i] = tostring(key) .. "=" .. dump(value[key])
+    end
+    return "{" .. table.concat(parts, ",") .. "}"
+  end
+
+  --- An evening's commands: levels, ramps and their stops, a held button, a
+  --- click, colors and a scene. `pass(ms)` lets the time between them pass.
+  local function evening(pass)
+    proxy("SET_HOLD_RATE_UP", { RATE = 3000 })
+    proxy("SET_CLICK_RATE_DOWN", { RATE = 750 })
+    proxy("SET_LEVEL", { LEVEL = 40 })
+    pass(1000)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 90, RATE = 4000 })
+    pass(2000)
+    proxy("SET_BRIGHTNESS_STOP")
+    pass(1000)
+    proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+    pass(1500)
+    proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE })
+    pass(1000)
+    colorTarget(BLUE, 3000)
+    pass(1000)
+    proxy("SET_COLOR_STOP")
+    pass(1000)
+    colorTarget(GREEN, 2000)
+    pass(3000)
+    proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(20, BLUE, 3000) .. levelStep(70, 2000) })
+    proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+    pass(6000)
+    proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+    pass(110)
+    proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = CLICK })
+    pass(2000)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 2000 })
+    pass(3000)
+    proxy("RAMP_TO_LEVEL", { LEVEL = 10, TIME = 1500 })
+    pass(2000)
+    proxy("OFF")
+    pass(1000)
+    proxy("CLEAR_ALL_SCENES")
+  end
+
+  --- What the driver sent and told since the mark, a line each: the ms, the
+  --- binding and the command with its params, an outlet's command opened.
+  local function transcript(requests)
+    local lines = {}
+    for _, s in ipairs(sent) do
+      local params = s.command == "ENTITY_COMMAND" and DeserializeSafe(s.params.body) or s.params
+      lines[#lines + 1] = { s.at, ("%6d %4d %s %s"):format(s.at, s.binding, s.command, dump(params)) }
+    end
+    for _, request in ipairs(requests or {}) do
+      lines[#lines + 1] = { request.at, ("%6d  req %s"):format(request.at, dump(request.payload)) }
+    end
+    -- By time, and as made within one ms: the sort keeps no order of its own.
+    for i, line in ipairs(lines) do
+      line[3] = i
+    end
+    table.sort(lines, function(a, b)
+      return a[1] < b[1] or (a[1] == b[1] and a[3] < b[3])
+    end)
+    for i, line in ipairs(lines) do
+      lines[i] = line[2]
+    end
+    return table.concat(lines, "\n") .. "\n"
+  end
+
+  --- The transcript recorded on the commit before, and the first line of
+  --- `got` that is not its line.
+  local function recorded(name, got)
+    local f = assert(io.open(HERE .. "/light_sent/" .. name, "rb"))
+    local want = f:read("*a")
+    f:close()
+    local wanted = want:gmatch("[^\n]*")
+    for line in got:gmatch("[^\n]*") do
+      local was = wanted()
+      if line ~= was then
+        return want, ("got %q, want %q"):format(line, tostring(was))
+      end
+    end
+    return want
+  end
+
+  -- The driver goes from a strip it walked to a Kasa bulb.
+  light()
+  setProperty("Protocol", "Legacy")
+  reply(sysinfo())
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 30, RATE = 2000 })
+  T.eq(
+    "a Kasa bulb found after a strip is sent the rate, as one found first",
+    flying(),
+    { { on_off = 1, brightness = 30, ignore_default = 1, transition_period = 2000 } }
+  )
+  T.eq("and has no Fades to choose", hidden["Fades"], true)
+
+  -- A Kasa bulb that answers each request 200 ms after it is made.
+  forgetSetup()
+  bulb()
+  local bulbState = { on_off = 1, brightness = 100, hue = 0, saturation = 100, color_temp = 0 }
+  local requests, seen = {}, {}
+  evening(function(ms)
+    local stop = now + ms
+    while now < stop do
+      for _, request in ipairs(held) do
+        if not seen[request] then
+          seen[request] = true
+          requests[#requests + 1] = { at = request.at - start, payload = request.payload }
+        end
+      end
+      local request = held[1]
+      if request == nil or now - request.at < 200 then
+        advance(stop, request and request.at + 200)
+      elseif asks(request) == "poll" then
+        local on = bulbState.on_off == 1
+        reply(sysinfo(on and bulbState or { on_off = 0, dft_on_state = bulbState }))
+      else
+        for field, value in pairs(asks(request)) do
+          bulbState[field] = value
+        end
+        reply()
+      end
+    end
+  end)
+  local got = transcript(requests)
+  local want, difference = recorded("kasa-bulb.txt", got)
+  T.check("a Kasa bulb on the IOT schema: every request and every notify", got == want, difference)
+
+  -- A light bound to a TP-Link Outlet output: one that dims and takes a color,
+  -- which pins the light code, and one that only switches, as an outlet does.
+  local Mode = require("constants").LightColorMode
+  for name, modes in pairs({
+    ["outlet-color.txt"] = { Mode.COLOR_MODE_RGB_COLOR_TEMPERATURE },
+    ["outlet-switch.txt"] = { Mode.COLOR_MODE_ON_OFF },
+  }) do
+    C4:Bind(900, 1, C4:GetDeviceID(), 1, "TPLINK_LIGHT")
+    startDriver()
+    RFP.UPDATE_STATE(1, "UPDATE_STATE", {
+      entity = SerializeSafe({ supported_color_modes = modes, min_mireds = 153, max_mireds = 400 }),
+      state = SerializeSafe({
+        state = true,
+        brightness = 1.0,
+        color_mode = Mode.COLOR_MODE_RGB,
+        red = 1,
+        green = 0,
+        blue = 0,
+      }),
+    })
+    mark()
+    evening(run)
+    got = transcript()
+    want, difference = recorded(name, got)
+    T.check("a light on an outlet, " .. name .. ": every command and every notify", got == want, difference)
+    C4:Unbind(C4:GetDeviceID(), 1)
+  end
 end
 
 T.section("dimming is declared in driver.xml, and turned off at run time for a light that only switches")
