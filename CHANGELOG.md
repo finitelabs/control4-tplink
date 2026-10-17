@@ -119,6 +119,69 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   the first ramp was heading for.
 - Fixed a ramped On of a TP-Link light cut short by a level command leaving the
   light shown as still changing color.
+- Fixed a TP-Link light in direct mode resting at a level or color that was not
+  the last one asked for, after presses in quick succession or a dragged slider,
+  while it was shown at the last one: commands that reached the light together
+  were taken in another order. The light is now sent one command at a time, and
+  what is asked while it answers goes out next as one command with the latest
+  values.
+- Fixed a TP-Link light in direct mode being shown, for a few seconds after a
+  command, at the level or color it had just before it, when the driver's poll
+  of the light was already on its way as the command was made.
+- Fixed the TP-Link Light driver showing
+  `Disconnected: Legacy: request timed out` in `Driver Status` for a light that
+  was connected and working, after the username and password were entered, or
+  after any two connection properties were changed a few seconds apart. A
+  connection attempt went on acting after a later one had replaced it: it could
+  write its own result over the status, and could leave the driver connected
+  over a protocol the `Protocol` property excludes.
+- Fixed `Driver Status` of the TP-Link Light driver flipping between
+  `Connecting` and the reason the light was not found, every poll, while the
+  driver kept trying. The reason now stays until an attempt ends another way.
+- Fixed the TP-Link Light and TP-Link Outlet drivers failing to connect to a
+  device that was answering, until the next retry, when a connection property
+  was changed or Reconnect was run at the moment a KLAP handshake was half done.
+  The session that handshake made had lost its cookie, and the device refused
+  every request on it.
+- Fixed a change of IP address or TP-Link account made while a KLAP handshake
+  was still under way being answered by that handshake, begun for the old device
+  or account, so the new settings were not tried until the next retry.
+- Fixed a ramped On of a TP-Link light in direct mode first switching the light
+  on at the level it was last at, ahead of the fade to the level asked for.
+- Fixed the TP-Link Light driver sending a light its level again when a ramp
+  ended, and its color again when a color fade ended. The light already held
+  both, and the extra command was one more for it to answer while others waited.
+- Fixed a color picked for a Tapo light while it was off being lost: the color
+  was shown for a few seconds and then went back, and the light came on in the
+  color it had before. A Tapo light takes no color while it is off, so the
+  driver now keeps the color and sends it with the command that turns the light
+  on, unless the light's Color On Mode gives that on a color of its own.
+- Fixed a color temperature outside a TP-Link light's range, which programming
+  or a scene can ask for, being shown as asked and then, at the light's next
+  report, as the nearest one the light can do. It is now shown once, as the
+  light takes it.
+- Fixed a color change sent to a TP-Link light with no ramp time being taken at
+  once on a light whose default ramp rate had never been set. It now takes the
+  default ramp rate, as a level change does.
+- Fixed the TP-Link Light driver storing a light's brightness presets among its
+  color presets, and the two together as its Color On Mode, when a preset
+  reached a driver that had stored none yet.
+- Fixed the TP-Link Light driver not knowing a light's Color On Mode, the level
+  it turns on to, or its default ramp rate until one of them was next changed in
+  Composer. A level command with no ramp time, a keypad button bound to the
+  light and a scene step used half a second and no on color, where Composer
+  showed three quarters of a second and Dim-To-Warm. The driver now reads them
+  from the light's settings in the project when it starts.
+- Fixed the TP-Link Outlet and TP-Link Light drivers printing the TP-Link
+  account to the Lua output and the log: the password at `Log Level`
+  `6 - Ultra`, and the username from `5 - Trace` up. Neither is printed at any
+  level now.
+- Fixed a request to a TP-Link device being left with neither an answer nor a
+  failure in two cases: over KLAP when the driver reconnected while the request
+  was on its way, and over either protocol when the device's reply could not be
+  read. The TP-Link Outlet driver sends no poll while one is unanswered, so from
+  then on it no longer noticed an output switched at the device or in the Kasa
+  or Tapo app, or the device going offline, until the driver was reloaded.
 
 ### Changed
 
@@ -128,6 +191,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - With Dim-To-Warm, a brightness command for the level a TP-Link light is
   already at now returns a color set on it to its Dim-To-Warm color. It used to
   do nothing.
+- The TP-Link Light driver now declares a light as a dimmer and turns dimming
+  off once it has connected to one that only switches, a light bound to a
+  TP-Link Outlet output. It used to declare none and turn dimming on at connect.
+  The proxy announces its default ramp rate when dimming turns on, before
+  Composer has the light's color capabilities, and at a color light's first
+  connect Composer showed "Error setting default color rate from driver".
+  Declaring dimming is expected to end that. A lamp on a TP-Link Outlet is now
+  shown as a dimmer until the outlet first reports, and stays one to anything
+  that reads the driver's declared capabilities alone, as a HomeKit bridge may.
 
 ## v20261002 - 2026-10-02
 

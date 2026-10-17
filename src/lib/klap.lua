@@ -127,10 +127,14 @@ function Klap:new(opts)
   return instance
 end
 
---- Configures the transport. Resets any established session on change.
+--- Configures the transport. Resets any established session on change, and
+--- drops a handshake in flight when the device or the account has changed.
 --- @param config { ip: string?, username: string?, password: string? }
 function Klap:configure(config)
-  log:trace("Klap:configure(<ip=%s, username=%s>)", config.ip, config.username)
+  log:trace("Klap:configure(<ip=%s>)", config.ip)
+  local changed = (config.ip ~= nil and config.ip ~= self._ip)
+    or (config.username ~= nil and config.username ~= self._username)
+    or (config.password ~= nil and config.password ~= self._password)
   if config.ip ~= nil then
     self._ip = config.ip
   end
@@ -139,6 +143,13 @@ function Klap:configure(config)
   end
   if config.password ~= nil then
     self._password = config.password
+  end
+  -- A handshake in flight is with the device and account as they were: its
+  -- waiters are told now, and its result is not this configuration's session.
+  local dropped = self._connecting
+  if changed and dropped then
+    self._connecting = nil
+    dropped:reject({ error = "Klap: connection reset" })
   end
   self:reset()
 end
@@ -211,10 +222,14 @@ function Klap:connect()
   self:reset()
 
   local localSeed = randomSeed()
+  local superseded = { error = "Klap: connection reset" }
 
   http
     :post(self:_url("/app/handshake1"), localSeed, {}, { timeout = REQUEST_TIMEOUT, cookies_enable = false })
     :next(function(response)
+      if self._connecting ~= d then
+        return deferred.new():reject(superseded)
+      end
       local body = response.body or ""
       if #body < 48 then
         return deferred.new():reject({ error = "Klap: short handshake1 response (" .. #body .. " bytes)" })
@@ -232,7 +247,9 @@ function Klap:connect()
         })
       end
 
-      self._cookie = extractSessionCookie(response.headers)
+      -- The handshake's own until it has made the session: a reset between
+      -- its two steps must leave it the cookie the second goes out with.
+      local cookie = extractSessionCookie(response.headers)
       local payload = self._authVersion == 1 and C4:Hash("SHA256", remoteSeed .. auth, RAW)
         or C4:Hash("SHA256", remoteSeed .. localSeed .. auth, RAW)
 
@@ -240,10 +257,14 @@ function Klap:connect()
         :post(
           self:_url("/app/handshake2"),
           payload,
-          { Cookie = self._cookie },
+          { Cookie = cookie },
           { timeout = REQUEST_TIMEOUT, cookies_enable = false }
         )
         :next(function()
+          if self._connecting ~= d then
+            return deferred.new():reject(superseded)
+          end
+          self._cookie = cookie
           local seeds = localSeed .. remoteSeed .. auth
           self._key = string.sub(C4:Hash("SHA256", "lsk" .. seeds, RAW), 1, 16)
           local ivFull = C4:Hash("SHA256", "iv" .. seeds, RAW)
@@ -259,6 +280,10 @@ function Klap:connect()
       self._connecting = nil
       d:resolve(result)
     end, function(err)
+      -- Dropped by configure, which told its waiters: the session is another's.
+      if self._connecting ~= d then
+        return
+      end
       self._connecting = nil
       self:reset()
       if Select(err, "code") == 403 then
@@ -295,9 +320,12 @@ function Klap:_send(payload)
   local seq = self._seq
   local seqBytes = packInt32BE(seq)
   local iv = self._iv .. seqBytes
+  -- The answer is read with the key the request goes out under: a reset
+  -- before it comes leaves the transport none, and C4:Decrypt raises on that.
+  local key = self._key
 
   local plaintext = JSON:encode(payload)
-  local ciphertext, encryptErr = C4:Encrypt("AES-128-CBC", self._key, iv, plaintext, CIPHER_OPTIONS)
+  local ciphertext, encryptErr = C4:Encrypt("AES-128-CBC", key, iv, plaintext, CIPHER_OPTIONS)
   if not ciphertext then
     return d:reject({ error = "Klap: encryption failed: " .. tostring(encryptErr) })
   end
@@ -313,13 +341,13 @@ function Klap:_send(payload)
     )
     :next(function(response)
       local body = response.body or ""
-      local plaintextResponse, decryptErr =
-        C4:Decrypt("AES-128-CBC", self._key, iv, string.sub(body, 33), CIPHER_OPTIONS)
+      local plaintextResponse, decryptErr = C4:Decrypt("AES-128-CBC", key, iv, string.sub(body, 33), CIPHER_OPTIONS)
       if not plaintextResponse then
         return d:reject({ error = "Klap: decryption failed: " .. tostring(decryptErr) })
       end
-      local decoded = JSON:decode(plaintextResponse)
-      if decoded == nil then
+      -- JSON:decode raises on text that is not JSON.
+      local ok, decoded = pcall(JSON.decode, JSON, plaintextResponse)
+      if not ok or decoded == nil then
         return d:reject({ error = "Klap: response is not valid JSON: " .. tostring(plaintextResponse) })
       end
       d:resolve(decoded)

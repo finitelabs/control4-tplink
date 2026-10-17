@@ -288,6 +288,74 @@ function OPC.Update_Channel(propertyValue)
 end
 --#endif
 
+--- The attributes of the element in `list` with this id, and this origin
+--- where one is given.
+local function setupPreset(list, id, origin)
+  list = list or {}
+  for _, element in ipairs(IsList(list) and list or { list }) do
+    local attr = element._attr or {}
+    if tointeger(attr.id) == id and (origin == nil or tointeger(attr.origin) == origin) then
+      return attr
+    end
+  end
+end
+
+-- The proxy sends its on modes and default rates only when they change, never
+-- at start. Its setup holds them, and it is the authority.
+local function readProxySetup()
+  local ok, setup = pcall(function()
+    return Select(ParseXml(SendUIRequest(C4:GetProxyDevices(), "GET_SETUP", {})), "setup")
+  end)
+  if not ok or type(setup) ~= "table" then
+    log:warn("The proxy's setup could not be read: %s", ok and "no setup in its answer" or setup)
+    return
+  end
+
+  -- A preset id means one preset only with its origin: the device's own and
+  -- the Color Agent's both count from 1.
+  local colors = Select(setup, "colors", "color")
+  local onId, onOrigin =
+    tointeger(setup.light_color_on_mode_preset_id), tointeger(setup.light_color_on_mode_preset_origin)
+  local fadeId = tointeger(setup.light_color_on_mode_fade_preset_id)
+  local fadeOrigin = tointeger(setup.light_color_on_mode_fade_preset_origin)
+  local on = onId and onOrigin and setupPreset(colors, onId, onOrigin)
+  local fade = fadeId and (fadeOrigin or 0) > 0 and setupPreset(colors, fadeId, fadeOrigin) or nil
+  if on and fadeOrigin and (fadeOrigin == 0 or fade) then
+    fade = fade or {}
+    RFP.UPDATE_COLOR_ON_MODE(PROXY_BINDING, "UPDATE_COLOR_ON_MODE", {
+      COLOR_PRESET_ID = onId,
+      COLOR_PRESET_ORIGIN = onOrigin,
+      COLOR_PRESET_COLOR_X = on.color_x,
+      COLOR_PRESET_COLOR_Y = on.color_y,
+      COLOR_PRESET_COLOR_MODE = on.color_mode,
+      COLOR_FADE_PRESET_ID = fadeId,
+      COLOR_FADE_PRESET_ORIGIN = fadeOrigin,
+      COLOR_FADE_PRESET_COLOR_X = fade.color_x,
+      COLOR_FADE_PRESET_COLOR_Y = fade.color_y,
+      COLOR_FADE_PRESET_COLOR_MODE = fade.color_mode,
+    })
+  end
+
+  local levelId = tointeger(setup.light_brightness_on_mode_preset_id)
+  local level = levelId and setupPreset(Select(setup, "brightnesses", "level"), levelId)
+  if level and tonumber(level.level) then
+    RFP.UPDATE_BRIGHTNESS_ON_MODE(
+      PROXY_BINDING,
+      "UPDATE_BRIGHTNESS_ON_MODE",
+      { BRIGHTNESS_PRESET_ID = levelId, BRIGHTNESS_PRESET_LEVEL = level.level }
+    )
+  end
+
+  local rate = tointeger(setup.light_brightness_rate_default)
+  if rate then
+    RFP.UPDATE_BRIGHTNESS_RATE_DEFAULT(PROXY_BINDING, "UPDATE_BRIGHTNESS_RATE_DEFAULT", { RATE = rate })
+  end
+  rate = tointeger(setup.light_color_rate_default)
+  if rate then
+    RFP.UPDATE_COLOR_RATE_DEFAULT(PROXY_BINDING, "UPDATE_COLOR_RATE_DEFAULT", { RATE = rate })
+  end
+end
+
 ---------------------------------------------------------------------------
 -- Driver lifecycle
 ---------------------------------------------------------------------------
@@ -338,6 +406,7 @@ function OnDriverLateInit()
   UpdateProperty("Driver Status", "Disconnected")
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   backendStart()
+  readProxySetup()
 end
 
 ---------------------------------------------------------------------------
@@ -518,7 +587,7 @@ local function updateDynamicCapabilities(entity)
     [constants.ButtonIds.TOGGLE] = "Toggle",
   }
   for buttonId, name in pairs(buttonNames) do
-    local colors = persist:get(P_BUTTON_COLORS) or {}
+    local colors = persist:get(P_BUTTON_COLORS, {})
     local saved = colors[tostring(buttonId)] or {}
     SendToProxy(PROXY_BINDING, "BUTTON_INFO", {
       BUTTON_ID = buttonId,
@@ -587,8 +656,7 @@ local function getPresetLevel()
 end
 
 local function getOnBrightness()
-  local onMode = persist:get(P_ON_MODE)
-  local level = onMode and tointeger(onMode.level)
+  local level = tointeger(persist:get(P_ON_MODE, {}).level)
   if level and level >= 1 then
     return math.min(level, 100)
   end
@@ -606,12 +674,9 @@ end
 -- Rate" setting; the brightness and color defaults are the same value. If
 -- nothing has been persisted yet for color we fall back to the brightness
 -- default rather than the hard-coded constant so the two can never drift.
+-- Read as a number: a key never stored reads as nil.
 local function getDefaultColorRate()
-  local colorRate = persist:get(P_COLOR_RATE_DEFAULT)
-  if colorRate ~= nil then
-    return colorRate
-  end
-  return getDefaultRate()
+  return tointeger(persist:get(P_COLOR_RATE_DEFAULT)) or getDefaultRate()
 end
 
 local function getClickRateUp()
@@ -754,8 +819,13 @@ local function buildColorCmdFields(x, y, mode)
   return nil
 end
 
--- A color as the light takes it, which its reports then read as: its color
--- temperature's point, or a full color on a light with no color temperature.
+-- A color temperature outside the light's range is taken at its nearest end.
+local function clampKelvin(k)
+  return math.max(miredsToKelvin(maxMireds), math.min(miredsToKelvin(minMireds), k))
+end
+
+-- A color as the light takes it, which its reports then read as: the point of
+-- its color temperature, or a full color on a light with no color temperature.
 local function takenColor(x, y, mode)
   if mode ~= LIGHT_COLOR_MODE_CCT then
     return x, y, mode
@@ -765,7 +835,7 @@ local function takenColor(x, y, mode)
   end
   local k = tonumber(C4:ColorXYtoCCT(x, y))
   if k and k > 0 then
-    x, y = C4:ColorCCTtoXY(k)
+    x, y = C4:ColorCCTtoXY(clampKelvin(k))
   end
   return x, y, mode
 end
@@ -777,10 +847,7 @@ end
 -- both via UPDATE_COLOR_ON_MODE (onPreset = on color, fadePreset = dim
 -- color). Returns nil if either color is missing or fade mode isn't active.
 local function computeFadeColor(brightness)
-  local mode = persist:get(P_COLOR_ON_MODE)
-  if not mode then
-    return nil
-  end
+  local mode = persist:get(P_COLOR_ON_MODE, {})
   local onPreset = mode.onPreset
   local dimPreset = mode.fadePreset
   if not onPreset or not dimPreset then
@@ -804,8 +871,8 @@ local function getColorOnModeKind()
   if not (supportsColor or supportsCCT) then
     return COLOR_ON_MODE_NONE
   end
-  local mode = persist:get(P_COLOR_ON_MODE)
-  if not mode or not mode.fadePreset then
+  local mode = persist:get(P_COLOR_ON_MODE, {})
+  if not mode.fadePreset then
     return COLOR_ON_MODE_NONE
   end
   local fadeOrigin = mode.fadePreset.origin
@@ -845,14 +912,13 @@ local function resolveOnColor(brightnessLevel)
     return computeFadeColor(brightnessLevel)
   end
   if kind == COLOR_ON_MODE_PREVIOUS then
-    local prev = persist:get(P_PREVIOUS_COLOR)
-    if prev and prev.x and prev.y then
+    local prev = persist:get(P_PREVIOUS_COLOR, {})
+    if prev.x and prev.y then
       return { x = prev.x, y = prev.y, mode = prev.mode or LIGHT_COLOR_MODE_FULL }
     end
   end
   if kind == COLOR_ON_MODE_PRESET then
-    local mode = persist:get(P_COLOR_ON_MODE)
-    local onPreset = mode and mode.onPreset
+    local onPreset = persist:get(P_COLOR_ON_MODE, {}).onPreset
     if onPreset and onPreset.x and onPreset.y then
       local x, y, colorMode = takenColor(onPreset.x, onPreset.y, onPreset.mode or LIGHT_COLOR_MODE_FULL)
       return { x = x, y = y, mode = colorMode }
@@ -1016,7 +1082,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor)
   --      the SET_COLOR_TARGET handler skip a redundant ESPHome cmd that
   --      would otherwise cancel and restart the in-flight transition.
   local mergedColor = nil
-  -- A ramp's end, and a stop after a color was set, re-send the level alone.
+  -- A stop after a color was set sends the level alone.
   if not keepColor then
     if level > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE then
       mergedColor = computeFadeColor(level)
@@ -1228,11 +1294,9 @@ local function rampToBrightness(level, rate, presetId, replaced)
   -- Single ESPHome command - the bulb handles the physical transition.
   setESPHomeBrightness(level, rate)
   notifyBrightnessChanging(level, rate)
+  -- Nothing is sent at the end: the light has held the level as its state
+  -- since the command, and one sent again is one more request to answer.
   SetTimer("BrightnessRampFinish", rate, function()
-    -- Belt-and-suspenders: snap state with a 0-transition cmd at target so
-    -- our state matches the bulb's even if the transition completed slightly
-    -- before/after our timer.
-    setESPHomeBrightness(level, 0, true)
     brightnessRampFinished(level)
   end, false)
 end
@@ -1356,10 +1420,6 @@ local function rampToColor(targetX, targetY, targetMode, rate)
   -- Mode change is logically instantaneous; mid-ramp we're interpolating XY.
   currentColorMode = targetMode
   SetTimer("ColorRampFinish", rate, function()
-    sendColor(targetX, targetY, targetMode, 0)
-    currentColorX = targetX
-    currentColorY = targetY
-    currentColorMode = targetMode
     colorRampFinished(targetX, targetY, targetMode)
   end, false)
 end
@@ -1522,7 +1582,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   -- LIGHT_COLOR_CHANGED notifies report it as the current preset.
   local presetId = tointeger(Select(tParams, "LIGHT_COLOR_TARGET_PRESET_ID"))
   if presetId ~= nil and not (x and y) and not (kelvin and kelvin > 0) then
-    local preset = (persist:get(P_COLOR_PRESETS) or {})[tostring(presetId)]
+    local preset = persist:get(P_COLOR_PRESETS, {})[tostring(presetId)]
     if preset then
       x = preset.x
       y = preset.y
@@ -1537,7 +1597,7 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   local targetX, targetY, targetMode
 
   if kelvin and kelvin > 0 and supportsCCT then
-    targetX, targetY = C4:ColorCCTtoXY(kelvin)
+    targetX, targetY = C4:ColorCCTtoXY(clampKelvin(kelvin))
     targetMode = LIGHT_COLOR_MODE_CCT
   elseif incomingMode == LIGHT_COLOR_MODE_CCT and supportsCCT and x and y then
     local k = tonumber(C4:ColorXYtoCCT(x, y))
@@ -2125,6 +2185,9 @@ function RFP.UPDATE_BRIGHTNESS_ON_MODE(idBinding, strCommand, tParams, args)
   local presetId = tointeger(Select(tParams, "BRIGHTNESS_PRESET_ID"))
   local presetLevel = tonumber(Select(tParams, "BRIGHTNESS_PRESET_LEVEL")) or DEFAULT_PRESET_LEVEL
   persist:set(P_ON_MODE, { id = presetId, level = presetLevel })
+  -- The preset whose edits the on level follows, as UPDATE_BRIGHTNESS_PRESET
+  -- brings them.
+  persist:set(P_BRIGHTNESS_ON_MODE_PRESET, presetId)
 end
 
 -- Per spec _21.2: SET_BRIGHTNESS_ON_MODE is sent by the proxy to tell the
@@ -2142,7 +2205,7 @@ function RFP.SET_BRIGHTNESS_ON_MODE(idBinding, strCommand, tParams, args)
   end
   persist:set(P_BRIGHTNESS_ON_MODE_PRESET, presetId)
   -- Look up the preset's current level so getOnBrightness uses it immediately.
-  local presets = persist:get(P_BRIGHTNESS_PRESETS) or {}
+  local presets = persist:get(P_BRIGHTNESS_PRESETS, {})
   local preset = presets[tostring(presetId)]
   if preset and preset.level then
     persist:set(P_ON_MODE, { id = presetId, level = preset.level })
@@ -2161,7 +2224,7 @@ function RFP.UPDATE_BRIGHTNESS_PRESET(idBinding, strCommand, tParams, args)
   if presetId == nil then
     return
   end
-  local presets = persist:get(P_BRIGHTNESS_PRESETS) or {}
+  local presets = persist:get(P_BRIGHTNESS_PRESETS, {})
   local key = tostring(presetId)
   if command == "REMOVED" then
     presets[key] = nil
@@ -2216,7 +2279,7 @@ function RFP.UPDATE_COLOR_PRESET(idBinding, strCommand, tParams, args)
   if presetId == nil then
     return
   end
-  local presets = persist:get(P_COLOR_PRESETS) or {}
+  local presets = persist:get(P_COLOR_PRESETS, {})
   local key = tostring(presetId)
   if command == "REMOVED" then
     presets[key] = nil
@@ -2231,8 +2294,8 @@ function RFP.UPDATE_COLOR_PRESET(idBinding, strCommand, tParams, args)
   end
   persist:set(P_COLOR_PRESETS, presets)
   -- The on and dim colors follow an edit of the preset the on mode names.
-  local onMode = persist:get(P_COLOR_ON_MODE)
-  if onMode and presets[key] then
+  local onMode = persist:get(P_COLOR_ON_MODE, {})
+  if onMode.onPreset and presets[key] then
     for _, p in ipairs({ onMode.onPreset, onMode.fadePreset }) do
       if p.id == presetId and p.origin == PRESET_ORIGIN_DEVICE then
         p.x, p.y, p.mode = presets[key].x, presets[key].y, presets[key].mode
@@ -2735,6 +2798,16 @@ end
 --- @type boolean
 local directConnected = false
 
+--- Counts backendStart, as sceneGeneration counts scenes: a connect attempt,
+--- and the answer to a poll or a command, does nothing once it has moved on.
+--- @type number
+local backendGeneration = 0
+
+--- Whether a connect attempt is still probing. The poll timer's retry waits
+--- for it: a start would replace it before it had found or failed to find.
+--- @type boolean
+local directDetecting = false
+
 --- Map a SMART get_device_info result to the entity shape applyUpdate expects.
 --- @param info table
 --- @return table entity
@@ -2787,12 +2860,81 @@ local function synthesizeState(info)
   return state
 end
 
+--- A direct-mode light serves one request at a time, and those in flight
+--- together in an order of its own: one goes out, and the rest wait for it.
+--- @type boolean
+local directBusy = false
+
+--- The command waiting for the request in flight, every later one merged in.
+--- @type table?
+local directWaiting = nil
+
+--- Whether a poll waits for the request in flight.
+--- @type boolean
+local directPollWaiting = false
+
+--- Counts the commands made. A poll sent before the latest reads the light as
+--- it was before that command.
+--- @type number
+local directCommands = 0
+
+--- The color a SMART light was given while off, which it would ignore. It is
+--- held here and goes out with the next command that turns the light on.
+--- @type table?
+local smartPendingColor = nil
+
+local directNext -- defined below, after what it sends
+
+--- How long a request in flight is waited for, in milliseconds: past the
+--- transports' own timeouts, 10 s for a KLAP post and 5 s on the legacy port.
+--- @type number
+local DIRECT_ANSWER_MS = 15000
+
+local DIRECT_ANSWER_TIMER = "DirectAnswer"
+
+--- Put a request in flight, and send what waited for it once its answer or
+--- its failure is in. One with neither after DIRECT_ANSWER_MS has failed: a
+--- request its transport never settled would hold every later one.
+--- @param request Deferred
+--- @param onAnswer fun(response: table)
+--- @param onFail fun(err: table)
+local function directFlight(request, onAnswer, onFail)
+  local generation = backendGeneration
+  local over = false
+  directBusy = true
+  local function landed(handler)
+    return function(value)
+      if over or generation ~= backendGeneration then
+        return
+      end
+      over = true
+      CancelTimer(DIRECT_ANSWER_TIMER)
+      directBusy = false
+      handler(value)
+      directNext()
+    end
+  end
+  -- Set first: a request settled already lands inside next().
+  SetTimer(DIRECT_ANSWER_TIMER, DIRECT_ANSWER_MS, function()
+    landed(onFail)({ error = "no answer from the light" })
+  end)
+  request:next(landed(onAnswer), landed(onFail))
+end
+
 --- Poll the direct-mode device and feed the result into applyUpdate.
 local function directPoll()
+  if directBusy then
+    directPollWaiting = true
+    return
+  end
+  local asked = directCommands
+
   if directSchema == "iot" and iotBulb ~= nil then
-    iotBulb:poll():next(function(result)
+    directFlight(iotBulb:poll(), function(result)
       directConnected = true
-      applyUpdate(result.entity, result.state)
+      if asked == directCommands then
+        applyUpdate(result.entity, result.state)
+      end
     end, function(err)
       log:warn("IOT bulb poll failed: %s", Select(err, "error") or err)
       if directConnected then
@@ -2806,7 +2948,7 @@ local function directPoll()
     return
   end
 
-  klap:request({ method = "get_device_info", params = {} }):next(function(response)
+  directFlight(klap:request({ method = "get_device_info", params = {} }), function(response)
     if tointeger(Select(response, "error_code")) ~= 0 then
       log:warn("get_device_info failed: %s", response)
       if directConnected then
@@ -2817,7 +2959,17 @@ local function directPoll()
     end
     local info = Select(response, "result") or {}
     directConnected = true
-    applyUpdate(synthesizeEntity(info), synthesizeState(info))
+    if asked == directCommands then
+      if toboolean(info.device_on) then
+        -- Turned on by another hand, in the color it had.
+        smartPendingColor = nil
+      end
+      -- The color held for a light that is off is the one it will come on in.
+      for field, value in pairs(smartPendingColor or {}) do
+        info[field] = value
+      end
+      applyUpdate(synthesizeEntity(info), synthesizeState(info))
+    end
   end, function(err)
     log:warn("get_device_info failed: %s", Select(err, "error") or err)
     if directConnected then
@@ -2830,21 +2982,14 @@ local function directPoll()
   end)
 end
 
---- Translate an internal light command (ESPHome light_command shape) to a
---- SMART set_device_info request. When the command carries a ramp rate it is
---- forwarded as the SMART transition_period (milliseconds) so the bulb fades
---- brightness, color, and on/off itself; the proxy layer's local ramp tracking
---- still drives CHANGING/CHANGED notification timing.
+--- Translate an internal light command (ESPHome light_command shape) to the
+--- params of a SMART set_device_info request. A ramp rate the command carries
+--- is sent as the SMART transition_period (milliseconds); the proxy layer's
+--- local ramp tracking drives CHANGING/CHANGED notification timing. A color for
+--- a light that is off is held (smartPendingColor), and added to the next on.
 --- @param opts table
-local function directExecute(opts)
-  if directSchema == "iot" and iotBulb ~= nil then
-    iotBulb:execute(opts):next(nil, function(err)
-      -- Command failures are logged only; the poll loop decides connectivity.
-      log:error("IOT bulb command failed: %s", Select(err, "error") or err)
-    end)
-    return
-  end
-
+--- @return table? params nil when the command names nothing to send.
+local function smartParams(opts)
   local params = {}
   if opts.has_state then
     params.device_on = opts.state and true or false
@@ -2868,20 +3013,50 @@ local function directExecute(opts)
     params.saturation = math.max(0, math.min(100, math.floor((sat or 0) + 0.5)))
     params.color_temp = 0
   end
-  if IsEmpty(params) then
-    return
+  local color = params.color_temp ~= nil
+  -- No on with it: the light is off, or is being turned off.
+  if color and not params.device_on then
+    smartPendingColor = { hue = params.hue, saturation = params.saturation, color_temp = params.color_temp }
+    params.hue, params.saturation, params.color_temp = nil, nil, nil
+  elseif color then
+    smartPendingColor = nil
+  elseif params.device_on then
+    for field, value in pairs(smartPendingColor or {}) do
+      params[field] = value
+    end
+    smartPendingColor = nil
   end
-  -- The SMART firmware honors an inline transition_period (milliseconds) on
-  -- set_device_info, fading the change over that span. Mirror the proxy ramp's
-  -- rate so device-side transitions match programmed ramp rates. Cap at the
-  -- 60s gradual-transition ceiling the firmware advertises.
+  if IsEmpty(params) then
+    return nil
+  end
+  -- The proxy ramp's rate, sent as an inline transition_period (milliseconds)
+  -- and capped at the 60 s ceiling the firmware advertises for its own fades.
   if opts.has_transition_length then
     local ms = tointeger(opts.transition_length) or 0
     if ms > 0 then
       params.transition_period = math.min(ms, 60000)
     end
   end
-  klap:request({ method = "set_device_info", params = params }):next(function(response)
+  return params
+end
+
+--- Send a light command to the direct-mode device now.
+--- @param opts table
+--- @return boolean sent false when the command names nothing to send.
+local function directSend(opts)
+  if directSchema == "iot" and iotBulb ~= nil then
+    directFlight(iotBulb:execute(opts), function() end, function(err)
+      -- Command failures are logged only; the poll loop decides connectivity.
+      log:error("IOT bulb command failed: %s", Select(err, "error") or err)
+    end)
+    return true
+  end
+
+  local params = smartParams(opts)
+  if params == nil then
+    return false
+  end
+  directFlight(klap:request({ method = "set_device_info", params = params }), function(response)
     local code = tointeger(Select(response, "error_code")) or -1
     if code ~= 0 then
       log:error("set_device_info failed: %s", response)
@@ -2893,6 +3068,71 @@ local function directExecute(opts)
       handleDisconnect()
     end
   end)
+  return true
+end
+
+--- The command first, then the poll, which so reads the light after it.
+function directNext()
+  local waiting = directWaiting
+  directWaiting = nil
+  if waiting ~= nil and directSend(waiting) then
+    return
+  end
+  if directPollWaiting then
+    directPollWaiting = false
+    directPoll()
+  end
+end
+
+--- The fields of a light command that name its color.
+local COLOR_FIELDS = {
+  "has_rgb",
+  "red",
+  "green",
+  "blue",
+  "has_color_temperature",
+  "color_temperature",
+  "has_color_mode",
+  "color_mode",
+  "has_cold_white",
+  "cold_white",
+  "has_warm_white",
+  "warm_white",
+}
+
+--- Send a light command to the direct-mode device, or hold it while a request
+--- is in flight. Commands held together go out as one, merged field by field
+--- with the later value winning; a later color replaces an earlier one whole.
+--- @param opts table
+local function directExecute(opts)
+  -- A rated on's pre-on, an on at under 1 %, would go out as a bare on: the
+  -- light would come up at the level it was last at, ahead of its fade.
+  local level = opts.has_brightness and opts.state and math.floor((tonumber(opts.brightness) or 0) * 100 + 0.5)
+  if level and level < 1 and not (opts.has_rgb or opts.has_color_temperature) then
+    return
+  end
+  -- A color for a SMART light that is off is no off: a light turned on since
+  -- is left on. It names no state here, so an off it waits with is still one.
+  if directSchema ~= "iot" and opts.state == false and (opts.has_rgb or opts.has_color_temperature) then
+    opts.has_state, opts.state = nil, nil
+  end
+  directCommands = directCommands + 1
+  if not directBusy then
+    directSend(opts)
+    return
+  end
+  if directWaiting == nil then
+    directWaiting = opts
+    return
+  end
+  if opts.has_rgb or opts.has_color_temperature then
+    for _, field in ipairs(COLOR_FIELDS) do
+      directWaiting[field] = nil
+    end
+  end
+  for field, value in pairs(opts) do
+    directWaiting[field] = value
+  end
 end
 
 --- Dispatch an internal light command to the active backend.
@@ -2921,16 +3161,24 @@ local function setNetworkPropertiesAttribs(attrib)
 end
 
 --- Select and start the appropriate backend from current bindings/properties.
-backendStart = function()
+--- @param retry boolean? The poll timer trying again after no light was found.
+backendStart = function(retry)
   CancelTimer(DIRECT_POLL_TIMER)
+  backendGeneration = backendGeneration + 1
+  local generation = backendGeneration
+  directDetecting = false
   directConnected = false
   transportName = nil
+  -- The request in flight and what waited were for the backend as it was.
+  directBusy = false
+  directWaiting = nil
+  directPollWaiting = false
+  smartPendingColor = nil
 
   -- Force a fresh capability discovery on every (re)connect. The light_v2
-  -- proxy resets to the conservative static baseline whenever the driver
-  -- reloads, so the dynamic capabilities must be re-emitted; clearing ENTITY
-  -- makes the next state update count as the first and re-run
-  -- updateDynamicCapabilities.
+  -- proxy resets to the static baseline whenever the driver reloads, so the
+  -- dynamic capabilities must be re-emitted; clearing ENTITY makes the next
+  -- state update count as the first and re-run updateDynamicCapabilities.
   ENTITY = nil
   STATE = nil
   dynamicCapsSent = false
@@ -2964,9 +3212,39 @@ backendStart = function()
   klap:configure(config)
   klapV1:configure(config)
   legacy:configure({ ip = ip })
+  -- A probe the last attempt left on the legacy port would hold this one's.
+  legacy:reset()
 
   local mode = Properties["Protocol"] or "Auto"
   local hasCredentials = not IsEmpty(Properties["TP-Link Username"]) and not IsEmpty(Properties["TP-Link Password"])
+
+  --- A continuation of this attempt: one that comes in after the backend has
+  --- been started again does nothing.
+  --- @param continuation function
+  --- @return function
+  local function live(continuation)
+    return function(...)
+      if generation == backendGeneration then
+        continuation(...)
+      end
+    end
+  end
+
+  --- Say which transport is being tried. A retry says nothing: the reason the
+  --- last attempt failed for stays up until this one ends another way.
+  --- @param name string
+  local function connecting(name)
+    if not retry then
+      UpdateProperty("Driver Status", "Connecting (" .. name .. ")...")
+    end
+  end
+
+  --- End this attempt with no light found. The poll timer tries again.
+  --- @param reason string
+  local function failed(reason)
+    directDetecting = false
+    UpdateProperty("Driver Status", "Disconnected: " .. reason)
+  end
 
   --- Adopt a probed schema/transport and apply its first poll result.
   --- @param schema string "smart" or "iot"
@@ -2975,6 +3253,7 @@ backendStart = function()
   --- @param entity table
   --- @param state table
   local function adopt(schema, bulb, name, entity, state)
+    directDetecting = false
     directSchema = schema
     iotBulb = bulb
     transportName = name
@@ -2989,44 +3268,49 @@ backendStart = function()
   --- @param onFail fun(reason: string)
   local function tryIotBulb(transport, name, onFail)
     local bulb = IotBulb:new(transport)
-    bulb:poll():next(function(result)
-      adopt("iot", bulb, name, result.entity, result.state)
-    end, function(err)
-      onFail(Select(err, "error") or "no response")
-    end)
+    bulb:poll():next(
+      live(function(result)
+        adopt("iot", bulb, name, result.entity, result.state)
+      end),
+      live(function(err)
+        onFail(Select(err, "error") or "no response")
+      end)
+    )
   end
 
   --- Probe the established KLAP v2 session with the SMART schema.
   --- @param onFail fun(reason: string)
   local function trySmart(onFail)
-    klap:request({ method = "get_device_info", params = {} }):next(function(response)
-      if tointeger(Select(response, "error_code")) == 0 then
-        local info = Select(response, "result") or {}
-        adopt("smart", nil, "SMART", synthesizeEntity(info), synthesizeState(info))
-      else
-        onFail("device rejected get_device_info over KLAP")
-      end
-    end, function(err)
-      onFail(Select(err, "error") or "SMART request failed")
-    end)
+    klap:request({ method = "get_device_info", params = {} }):next(
+      live(function(response)
+        if tointeger(Select(response, "error_code")) == 0 then
+          local info = Select(response, "result") or {}
+          adopt("smart", nil, "SMART", synthesizeEntity(info), synthesizeState(info))
+        else
+          onFail("device rejected get_device_info over KLAP")
+        end
+      end),
+      live(function(err)
+        onFail(Select(err, "error") or "SMART request failed")
+      end)
+    )
   end
 
   --- Probe the legacy port 9999 transport, the last resort in Auto mode.
   --- @param klapReason string? The KLAP failure that led here, for the status.
   --- @param klapCode number? HTTP status of a refused KLAP handshake, if any.
   local function tryLegacy(klapReason, klapCode)
-    UpdateProperty("Driver Status", "Connecting (Legacy)...")
+    connecting("Legacy")
     tryIotBulb(legacy, "Legacy", function(legacyReason)
       if klapCode == 403 then
         log:info("Legacy probe failed: %s", legacyReason)
-        UpdateProperty("Driver Status", "Disconnected: " .. klapReason)
+        failed(klapReason)
         return
       end
       if mode == "Auto" and not hasCredentials then
         legacyReason = legacyReason .. " (set TP-Link credentials if this device is on KLAP firmware)"
       end
-      local reason = klapReason and ("KLAP: " .. klapReason .. " / Legacy: " .. legacyReason) or legacyReason
-      UpdateProperty("Driver Status", "Disconnected: " .. reason)
+      failed(klapReason and ("KLAP: " .. klapReason .. " / Legacy: " .. legacyReason) or legacyReason)
     end)
   end
 
@@ -3035,7 +3319,7 @@ backendStart = function()
   --- @param code number? HTTP status of a refused handshake, if any.
   local function onKlapFail(reason, code)
     if mode == "KLAP" then
-      UpdateProperty("Driver Status", "Disconnected: " .. reason)
+      failed(reason)
     else
       log:info("KLAP probe failed (%s); trying legacy protocol", reason)
       tryLegacy(reason, code)
@@ -3047,25 +3331,31 @@ backendStart = function()
   --- on KLAP firmware). A v2 auth mismatch retries the handshake with v1
   --- hashing before falling back.
   local function tryKlap()
-    UpdateProperty("Driver Status", "Connecting (KLAP)...")
-    klap:connect():next(function()
-      trySmart(function(smartReason)
-        log:info("SMART probe failed (%s); trying IOT bulb schema over KLAP", smartReason)
-        tryIotBulb(klap, "KLAP", onKlapFail)
+    connecting("KLAP")
+    klap:connect():next(
+      live(function()
+        trySmart(function(smartReason)
+          log:info("SMART probe failed (%s); trying IOT bulb schema over KLAP", smartReason)
+          tryIotBulb(klap, "KLAP", onKlapFail)
+        end)
+      end),
+      live(function(err)
+        local reason = Select(err, "error") or "KLAP connection failed"
+        if string.find(reason, "auth mismatch", 1, true) == nil then
+          onKlapFail(reason, Select(err, "code"))
+          return
+        end
+        log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
+        klapV1:connect():next(
+          live(function()
+            tryIotBulb(klapV1, "KLAP", onKlapFail)
+          end),
+          live(function(v1Err)
+            onKlapFail(Select(v1Err, "error") or "KLAP connection failed", Select(v1Err, "code"))
+          end)
+        )
       end)
-    end, function(err)
-      local reason = Select(err, "error") or "KLAP connection failed"
-      if string.find(reason, "auth mismatch", 1, true) == nil then
-        onKlapFail(reason, Select(err, "code"))
-        return
-      end
-      log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
-      klapV1:connect():next(function()
-        tryIotBulb(klapV1, "KLAP", onKlapFail)
-      end, function(v1Err)
-        onKlapFail(Select(v1Err, "error") or "KLAP connection failed", Select(v1Err, "code"))
-      end)
-    end)
+    )
   end
 
   if mode == "KLAP" or (mode == "Auto" and hasCredentials) then
@@ -3073,20 +3363,22 @@ backendStart = function()
       UpdateProperty("Driver Status", "Set the TP-Link Username and Password properties (required for KLAP)")
       return
     end
+    directDetecting = true
     tryKlap()
   else
     -- Legacy mode, or Auto without credentials (KL-series bulbs on original
     -- firmware need none).
+    directDetecting = true
     tryLegacy(nil)
   end
 
   local pollSeconds = tointeger(Properties["Poll Rate (Seconds)"]) or 5
   SetTimer(DIRECT_POLL_TIMER, pollSeconds * 1000, function()
-    if directSchema == nil then
-      -- Detection failed or never ran; keep retrying until the device answers.
-      backendStart()
-    else
+    if directSchema ~= nil then
       directPoll()
+    elseif not directDetecting then
+      -- Detection found no light; keep retrying until the device answers.
+      backendStart(true)
     end
   end, true)
 end
@@ -3120,18 +3412,30 @@ function EC.Reconnect()
   backendStart()
 end
 
-function OPC.TP_Link_Username(propertyValue)
-  log:trace("OPC.TP_Link_Username('%s')", propertyValue)
-  if gInitialized then
-    backendStart()
+-- The handler library prints a property's value at Log Level "6 - Ultra".
+OPC.suppressDebug["TP-Link Username"] = true
+OPC.suppressDebug["TP-Link Password"] = true
+
+--- Restart the backend for a changed credential. It must not raise: the
+--- handler library prints the value of a property whose handler does.
+local function credentialChanged()
+  if not gInitialized then
+    return
   end
+  local ok, err = pcall(backendStart)
+  if not ok then
+    log:error("The backend did not start: %s", err)
+  end
+end
+
+function OPC.TP_Link_Username()
+  log:trace("OPC.TP_Link_Username(<redacted>)")
+  credentialChanged()
 end
 
 function OPC.TP_Link_Password()
   log:trace("OPC.TP_Link_Password(<redacted>)")
-  if gInitialized then
-    backendStart()
-  end
+  credentialChanged()
 end
 
 --- @param propertyValue string

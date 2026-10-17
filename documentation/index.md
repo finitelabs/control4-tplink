@@ -111,8 +111,8 @@ modes:
 - **Proxy mode**: binds to a TP-Link Outlet output so a lamp plugged into a
   smart outlet appears as a real on/off light, with state kept in sync from the
   outlet
-- Conservative capability baseline so on/off devices never advertise dimming or
-  color to capability consumers
+- An on/off device is shown without dimming or color once the driver has
+  connected to it
 - Advanced Lighting Scenes support
 
 # <span style="color:#4ACBD6">Installation</span>

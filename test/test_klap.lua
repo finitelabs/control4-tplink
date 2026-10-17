@@ -171,7 +171,9 @@ local function fakeDevice(opts)
       local plaintext = C4:Decrypt("AES-128-CBC", self.key, iv, ciphertext, AES)
       local request = JSON:decode(plaintext)
       self.requestCount = self.requestCount + 1
-      local response = JSON:encode(self.handler(request))
+      -- A handler's string goes out as it is: text that need not be JSON.
+      local reply = self.handler(request)
+      local response = type(reply) == "string" and reply or JSON:encode(reply)
       local responseCipher = C4:Encrypt("AES-128-CBC", self.key, iv, response, AES)
       local responseSignature = sha256(self.sig .. packInt32BE(self.seq) .. responseCipher)
       return 200, {}, responseSignature .. responseCipher
@@ -422,6 +424,139 @@ T.check("KL130 on+brightness over KLAP v1 accepted", outcome.resolved ~= nil, Se
 
 outcome = settle(iotBulb:poll())
 T.eq("KL130 brightness reflects 75", Select(outcome.resolved, "state", "brightness"), 0.75)
+
+T.section("A handshake in flight when the device or the account changes")
+
+-- Each response is held until the test lets it go, oldest first.
+local responses = {}
+local function release()
+  local response = table.remove(responses, 1)
+  if response then
+    response()
+  end
+end
+function urlDo(method, url, data, headers, callback, context, options)
+  table.insert(responses, function()
+    -- As the Tapo strip does, a step after the first is refused without the
+    -- cookie the first gave.
+    if not string.find(url, "/app/handshake1", 1, true) and Select(headers, "Cookie") == nil then
+      return callback("HTTP 400", 400, {}, "", nil, url)
+    end
+    local code, responseHeaders, responseBody = deviceV2:serve(url, data or "")
+    callback(nil, code, responseHeaders, responseBody, nil, url)
+  end)
+end
+
+local klapMoved = Klap:new()
+klapMoved:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+local first = klapMoved:connect()
+local firstOutcome = settle(first)
+klapMoved:configure({ ip = "127.0.0.2" })
+T.eq("its waiters are told at once", Select(firstOutcome.rejected, "error"), "Klap: connection reset")
+local second = klapMoved:connect()
+T.check("the next connect starts a handshake of its own", second ~= first)
+release()
+T.eq("the first handshake's answer is not followed up", #responses, 1)
+T.falsy("nor taken as a session", klapMoved:isConnected())
+release()
+release()
+T.check("the second handshake makes the session", settle(second).resolved ~= nil and klapMoved:isConnected())
+outcome = settle(klapMoved:request({ system = { get_sysinfo = {} } }))
+release()
+T.eq("which requests go out on", Select(outcome.resolved, "system", "get_sysinfo", "model"), "HS300(US)")
+
+for _, change in ipairs({ { username = "other@example.com" }, { password = "another" } }) do
+  local klapAccount = Klap:new()
+  klapAccount:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+  local dropped = settle(klapAccount:connect())
+  klapAccount:configure(change)
+  T.eq(
+    "a changed " .. next(change) .. " drops the handshake too",
+    Select(dropped.rejected, "error"),
+    "Klap: connection reset"
+  )
+  release()
+end
+
+local klapBetween = Klap:new()
+klapBetween:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+first = klapBetween:connect()
+firstOutcome = settle(first)
+release()
+T.eq("the first step is answered, and the second is in flight", #responses, 1)
+klapBetween:configure({ ip = "127.0.0.2" })
+T.eq(
+  "a handshake dropped between its two steps: its waiters are told",
+  Select(firstOutcome.rejected, "error"),
+  "Klap: connection reset"
+)
+second = klapBetween:connect()
+release()
+T.falsy("the answer to its second step makes no session", klapBetween:isConnected())
+release()
+release()
+T.check("which the next handshake makes", settle(second).resolved ~= nil and klapBetween:isConnected())
+
+local klapSame = Klap:new()
+klapSame:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+first = klapSame:connect()
+klapSame:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+T.check("configured again with nothing changed: the handshake is shared", klapSame:connect() == first)
+release()
+klapSame:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+T.check("and again between its two steps: the same", klapSame:connect() == first)
+release()
+T.check("and makes the session", settle(first).resolved ~= nil and klapSame:isConnected())
+outcome = settle(klapSame:request({ system = { get_sysinfo = {} } }))
+release()
+T.eq(
+  "whose requests go out with the cookie its first step was given",
+  Select(outcome.resolved, "system", "get_sysinfo", "model"),
+  "HS300(US)"
+)
+
+T.section("A request whose answer cannot be read")
+
+-- A session reset while a request is in flight, as a reconnect does. On a
+-- controller C4:Decrypt raises on the key a reset leaves, which is none.
+local klapReset = Klap:new()
+klapReset:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+klapReset:connect()
+release()
+release()
+outcome = settle(klapReset:request({ system = { get_sysinfo = {} } }))
+klapReset:reset()
+release()
+T.eq(
+  "a session reset before a request's answer: the answer is read all the same",
+  Select(outcome.resolved, "system", "get_sysinfo", "model"),
+  "HS300(US)"
+)
+
+fakeDevice({
+  version = 2,
+  handler = function()
+    return '{"system":{"get_sysinfo":{"err_code":0,"mod'
+  end,
+}):install()
+local klapCutShort = Klap:new()
+klapCutShort:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+outcome = settle(klapCutShort:request({ system = { get_sysinfo = {} } }))
+T.contains("an answer that is not JSON fails the request", Select(outcome.rejected, "error"), "not valid JSON")
+
+T.section("The account is not traced")
+
+local log = require("lib.logging")
+log:setLogLevel("6 - Ultra")
+log:setLogMode("Print")
+local _, _, traced = T.capture(function()
+  Klap:new():configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+end)
+log:setLogLevel("3 - Info")
+log:setLogMode("Off")
+T.contains("configure traces the device", traced, "127.0.0.1")
+T.excludes("without the username", traced, USERNAME)
+T.excludes("or the password", traced, PASSWORD)
 
 T.section("Optional: probe a real device on the network")
 

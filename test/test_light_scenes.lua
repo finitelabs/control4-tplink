@@ -142,6 +142,18 @@ local function commands()
   return count
 end
 
+--- The transition length of each command the device was sent since the mark.
+local function lengths()
+  local out = {}
+  for _, s in ipairs(sent) do
+    local cmd = s.binding == OUTLET and s.command == "ENTITY_COMMAND" and DeserializeSafe(s.params.body)
+    if cmd then
+      out[#out + 1] = cmd.transition_length
+    end
+  end
+  return out
+end
+
 --- A scene element setting a level over `rate` ms after `delay`, 0 if nil.
 local function levelStep(level, rate, delay)
   local step = "<element><delay>%d</delay><rate>%d</rate><brightnessEnabled>true</brightnessEnabled>"
@@ -308,7 +320,7 @@ end
 
 T.section("an on during a color ramp begun while the light was off: the light ends in the On color")
 do
-  -- The On color goes out after the ramp's, whose end would re-send its own.
+  -- The On color goes out after the ramp's, whose end sends nothing.
   local onColor = offInBlue()
   mark()
   colorTarget({ 0.3, 0.6 }, 3000)
@@ -436,7 +448,7 @@ end
 
 T.section("a color set during a rated on is the color the light ends in, with Dim-To-Warm too")
 do
-  -- The ramp's end re-sends the level alone, lest its mix replace the color.
+  -- The ramp's end sends nothing, so its mix cannot replace the color.
   for _, case in ipairs({ { 4000, 500 }, { 500, 500 }, { 0, 500 }, { 1000, 100 } }) do
     local rate, at = case[1], case[2]
     local name = ("over %d ms, %d ms into the on"):format(rate, at)
@@ -1326,7 +1338,7 @@ do
       run(20)
       target(lineX, lineY, 4000)
       run(20000)
-      T.eq(name .. ": the proxy's send of the color puts nothing more out", commands(), 3)
+      T.eq(name .. ": the proxy's send of the color puts nothing more out", commands(), 2)
       T.check(
         name .. ": the proxy is told the color once, as the light takes it",
         toldOnce(pointX, pointY, CCT),
@@ -1944,6 +1956,67 @@ do
     { 0 }
   )
   run(15000)
+end
+
+T.section("a color with no rate takes the default rate, the brightness one when none was ever set")
+do
+  local function colorNoRate(xy)
+    proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_X = xy[1], LIGHT_COLOR_TARGET_Y = xy[2] })
+  end
+  for _, key in ipairs({ "color_rate_default", "brightness_rate_default" }) do
+    persist:delete(key)
+  end
+  light({ ColorMode.COLOR_MODE_RGB })
+  setColor(ON)
+  mark()
+  colorNoRate(BLUE)
+  T.eq("with no default ever set: it goes out over 500 ms, as a level does", lengths(), { 500 })
+  T.eq("which the proxy is told", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_COLOR_RATE"), { 500 })
+  proxy("UPDATE_BRIGHTNESS_RATE_DEFAULT", { RATE = 750 })
+  mark()
+  colorNoRate(ON)
+  T.eq("with a default rate set: over that", lengths(), { 750 })
+  proxy("UPDATE_COLOR_RATE_DEFAULT", { RATE = 0 })
+  mark()
+  colorNoRate(BLUE)
+  T.eq("with a default of 0: at once", lengths(), { 0 })
+  for _, key in ipairs({ "color_rate_default", "brightness_rate_default" }) do
+    persist:delete(key)
+  end
+end
+
+T.section("a preset stored on a driver with none is stored under its own key alone")
+do
+  -- persist answers an unset key with nil, so a preset stored under one key reaches no other.
+  local keys = { "brightness_presets", "color_presets", "color_on_mode", "brightness_on_mode" }
+  for _, key in ipairs(keys) do
+    persist:delete(key)
+  end
+  light({ ColorMode.COLOR_MODE_RGB })
+  proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "ADDED", ID = 10, NAME = "Previous On", LEVEL = 20 })
+  proxy(
+    "UPDATE_COLOR_PRESET",
+    { COMMAND = "ADDED", ID = 1, NAME = "On Color", COLOR_X = ON[1], COLOR_Y = ON[2], COLOR_MODE = 0 }
+  )
+  --- The ids stored under `key`.
+  local function ids(key)
+    local out = {}
+    for id in pairs(persist:get(key, {})) do
+      out[#out + 1] = id
+    end
+    table.sort(out)
+    return out
+  end
+  T.eq("the brightness presets are the one sent", ids("brightness_presets"), { "10" })
+  T.eq("the color presets are the one sent", ids("color_presets"), { "1" })
+  T.eq("no Color On Mode is stored", PersistGetValue("color_on_mode"), nil)
+  T.eq("and a key with nothing stored still reads as nil", persist:get("brightness_on_mode"), nil)
+  proxy("ON")
+  proxy("OFF")
+  T.eq("an on and an off later, it still does", persist:get("brightness_on_mode"), nil)
+  for _, key in ipairs(keys) do
+    persist:delete(key)
+  end
 end
 
 T.finish()
