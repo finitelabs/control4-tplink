@@ -211,6 +211,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Dim-To-Warm color at once when a ramp began from a color set on it, while it
   was shown fading there, and changing color on its way to off. Its color now
   fades as it is shown to.
+- Fixed Max On Level and Min On Level, set on a TP-Link light in Composer,
+  having no effect: a light with a Max On Level of 80 still went to 100 %. The
+  light's levels 1 to 100 now run between the two, as on a Control4 dimmer, for
+  every level it is sent and shown. A change of either leaves the light where it
+  is, shown at its level on the new range, until its next level command moves it
+  onto the range.
 
 ### Changed
 

@@ -3600,6 +3600,471 @@ do
   end
 end
 
+--- Set a light's Min and Max On Level, as Composer does.
+local function onLevels(min, max)
+  proxy("SET_MIN_ON_LEVEL", { LEVEL = min })
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = max })
+end
+
+--- Forget the range: the store outlives a reload, and the next light has none.
+local function noRange()
+  persist:delete("min_on_level")
+  persist:delete("max_on_level")
+end
+
+T.section("Max and Min On Level: each level goes out between the two, and each report reads back through them")
+do
+  local BOTTOM, CLICK = 1, 2
+  forgetSetup()
+  noRange()
+  bulb()
+  onLevels(20, 80)
+  T.eq("a range set on a Kasa bulb at full sends it nothing", flying(), {})
+  T.eq("and tells nothing: full reads as level 100", levels(), {})
+  T.eq("the range is echoed", { told("MIN_ON"), told("MAX_ON") }, { { "20" }, { "80" } })
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq("level 100 goes out at the Max, from full, which reads as 100", answered(), {
+    on_off = 1,
+    brightness = 80,
+    ignore_default = 1,
+  })
+  proxy("SET_LEVEL", { LEVEL = 1 })
+  T.eq("level 1 at the Min", answered(), { on_off = 1, brightness = 20, ignore_default = 1 })
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  T.eq(
+    "level 50 at the whole percent nearest its place",
+    answered(),
+    { on_off = 1, brightness = 50, ignore_default = 1 }
+  )
+  T.eq("the proxy is told each level asked for", levels(), { 100, 1, 50 })
+
+  mark()
+  run(5000)
+  reply(sysinfo({ brightness = 50 }))
+  T.eq("a poll of the 50 % level 50 went out at tells nothing, though 50 % reads as 51", levels(), {})
+  run(5000)
+  reply(sysinfo({ brightness = 80 }))
+  T.eq("80 % set in the Kasa app reads as level 100", levels(), { 100 })
+  run(5000)
+  reply(sysinfo({ brightness = 10 }))
+  T.eq("and 10 %, under the Min, as level 1", levels(), { 100, 1 })
+  proxy("SET_LEVEL", { LEVEL = 1 })
+  T.eq("so level 1 goes out, and puts the bulb at the Min", answered(), {
+    on_off = 1,
+    brightness = 20,
+    ignore_default = 1,
+  })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  T.eq("a rated level goes out at its place too", answered(), {
+    on_off = 1,
+    brightness = 80,
+    ignore_default = 1,
+    transition_period = 2000,
+  })
+  run(2000)
+
+  -- From full under a new Max a light is outside the range: a level command, a scene step and a held button
+  -- ramp from there.
+  noRange()
+  bulb()
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  T.eq("level 100 over 2 s from full under a Max of 80 goes out over its rate", answered(), {
+    on_off = 1,
+    brightness = 80,
+    ignore_default = 1,
+    transition_period = 2000,
+  })
+  run(3000)
+  noRange()
+  bulb()
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(100, 2000) })
+  mark()
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq("a scene step to level 100 over 2 s from full under a Max of 80 goes out", answered(), {
+    on_off = 1,
+    brightness = 80,
+    ignore_default = 1,
+    transition_period = 2000,
+  })
+  T.eq("and is told as a ramp from 100 to 100", told("LIGHT_BRIGHTNESS_CHANGING"), {
+    { LIGHT_BRIGHTNESS_CURRENT = 100, LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 },
+  })
+  run(3000)
+  proxy("CLEAR_ALL_SCENES")
+  noRange()
+  bulb()
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+  proxy("SET_HOLD_RATE_DOWN", { RATE = 4000 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  reply()
+  run(1000)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE })
+  T.eq("Bottom held from full under the same Max, let go a quarter of the way: the bulb holds at 75 %", answered(), {
+    on_off = 1,
+    brightness = 75,
+    ignore_default = 1,
+  })
+  T.eq("which is level 94 on 1 to 80", levels(), { 94 })
+  bulb()
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  reply()
+  run(200)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE })
+  T.eq("let go 200 ms in, still above the Max: the bulb holds at 95 %, shown at 100", { answered(), levels() }, {
+    { on_off = 1, brightness = 95, ignore_default = 1 },
+    { 100 },
+  })
+  bulb()
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+  proxy("SET_CLICK_RATE_DOWN", { RATE = 2000 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  reply()
+  run(110)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = CLICK })
+  reply()
+  run(1000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a Bottom click from there fades from full, as its press found it: half way it is at 50 %", answered(), {
+    on_off = 1,
+    brightness = 50,
+    ignore_default = 1,
+  })
+
+  -- A Min On Level of 0 is level 1 at 1 %, the least a light that is on takes.
+  noRange()
+  bulb()
+  proxy("SET_MIN_ON_LEVEL", { LEVEL = 0 })
+  proxy("SET_LEVEL", { LEVEL = 1 })
+  T.eq("with a Min On Level of 0, level 1 is 1 %", answered(), { on_off = 1, brightness = 1, ignore_default = 1 })
+
+  -- A Min at the Max puts every on level at the one brightness, which reads back as any of them.
+  noRange()
+  bulb()
+  onLevels(50, 50)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq("with Min and Max On Level both 50, level 100 takes a bulb at full to 50 %", answered(), {
+    on_off = 1,
+    brightness = 50,
+    ignore_default = 1,
+  })
+  proxy("SET_LEVEL", { LEVEL = 30 })
+  T.eq("and level 30 is 50 % too, sent again", answered(), { on_off = 1, brightness = 50, ignore_default = 1 })
+  run(5000)
+  reply(sysinfo({ brightness = 50 }))
+  T.eq("a poll of 50 % then tells nothing more", levels(), { 100, 30 })
+
+  -- A strip, the driver's own walk and its own fades alike.
+  noRange()
+  walked({ brightness = 50 }, NO_POLLS)
+  onLevels(20, 80)
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq("a strip is sent level 100 at the Max", answered(), { device_on = true, brightness = 80 })
+  proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(1, 0) })
+  proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  T.eq("and a scene step's level 1 at the Min", answered(), { device_on = true, brightness = 20 })
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 3000 })
+  T.eq("with Fades on Light a rated level goes out once, at its place", flying(), {
+    { device_on = true, brightness = 50 },
+  })
+  serve(3000, 250)
+  noRange()
+end
+
+T.section("a new Max or Min On Level leaves the light where it is, and shows it at its level on the new range")
+do
+  forgetSetup()
+  noRange()
+  bulb({ brightness = 50 })
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+  T.eq("a Max of 80 set on a bulb at 50 % sends it nothing", flying(), {})
+  T.eq("and shows it at 62, its level on 1 to 80", levels(), { 62 })
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 62 })
+  T.eq("a Set Level to the level shown sends nothing", flying(), {})
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 100 })
+  T.eq("and with the Max back at 100 it is shown at 50 again", levels(), { 62, 50 })
+
+  -- A ramp in flight runs on between the brightnesses it was sent between.
+  noRange()
+  bulb({ brightness = 20 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  reply()
+  run(1000)
+  mark()
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+  T.eq("a Max of 80 set a quarter of the way up from 20 to 100 % sends nothing", { flying(), levels() }, { {}, {} })
+  run(1000)
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop half way holds the bulb where it is, at 60 %", answered(), {
+    on_off = 1,
+    brightness = 60,
+    ignore_default = 1,
+  })
+  T.eq("and tells its level on the new range", levels(), { 75 })
+  noRange()
+  bulb({ brightness = 20 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 4000 })
+  reply()
+  run(1000)
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+  mark()
+  run(3000)
+  T.eq("a ramp to 50 % with the same Max set on the way is told at its end at 62", levels(), { 62 })
+  for _, c in ipairs({
+    { "a ramp", "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 4000 } },
+    { "a scene step", "ACTIVATE_SCENE", { SCENE_ID = 7 } },
+  }) do
+    noRange()
+    bulb()
+    proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+    proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = levelStep(50, 4000) })
+    proxy(c[2], c[3])
+    reply()
+    run(1000)
+    proxy("SET_MAX_ON_LEVEL", { LEVEL = 100 })
+    run(1000)
+    mark()
+    proxy("SET_BRIGHTNESS_STOP")
+    T.eq(c[1] .. " from full under that Max to level 50, the Max put back on the way, stops where it is", {
+      answered(),
+      levels(),
+    }, { { on_off = 1, brightness = 70, ignore_default = 1 }, { 70 } })
+    proxy("CLEAR_ALL_SCENES")
+  end
+  noRange()
+  bulb({ brightness = 20 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  reply()
+  run(1000)
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+  mark()
+  run(3000)
+  T.eq("run to its end, it is told at full's level on the new range", levels(), { 100 })
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq("and level 100 then goes out, from full to the Max", answered(), {
+    on_off = 1,
+    brightness = 80,
+    ignore_default = 1,
+  })
+
+  -- A strip the driver walks: its walk runs on to full, and level 100 then goes out.
+  noRange()
+  walked({ brightness = 20 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  serve(1000, 250)
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+  mark()
+  local steps = each(serve(4000, 250), "brightness")
+  T.eq("a walk with a Max of 80 set a quarter of the way still ends at full", steps[#steps], 100)
+  T.eq("and is told at its end at 100", levels(), { 100 })
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq("then level 100 takes the strip to the Max", flying(), { { device_on = true, brightness = 80 } })
+  serve(1000, 250)
+  noRange()
+  walked({}, NO_POLLS)
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 80 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 1, RATE = 4000 })
+  serve(300, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  serve(1000, 250)
+  T.eq("a walk down from full stopped above the Max holds the strip at 98 %, shown at 100", strip.brightness, 98)
+  T.eq("which is level 100", levels(), { 100 })
+  proxy("SET_LEVEL", { LEVEL = 100 })
+  T.eq("and level 100 then takes it to the Max", flying(), { { device_on = true, brightness = 80 } })
+  serve(1000, 250)
+  noRange()
+end
+
+T.section("a stop in a fade to or from off under a Min or Max holds the light where it is")
+do
+  local TOGGLE, CLICK = 2, 2
+  forgetSetup()
+  local OFF = { on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } }
+
+  --- A Kasa bulb on 20 to 80, at the Max or off, faded to `to` over 4 s and `ms` in.
+  local function fading(lightState, to, ms)
+    noRange()
+    bulb(lightState)
+    onLevels(20, 80)
+    if lightState.on_off ~= 0 then
+      proxy("SET_LEVEL", { LEVEL = 100 })
+      reply()
+    end
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = to, RATE = 4000 })
+    reply()
+    run(ms)
+    mark()
+  end
+
+  --- What a stop `ms` into such a fade sends, and the level told.
+  local function stopped(lightState, to, ms)
+    fading(lightState, to, ms)
+    proxy("SET_BRIGHTNESS_STOP")
+    return answered(), levels()
+  end
+  T.eq("on 20 to 80, a fade to off from the Max stopped half way holds the bulb at 40 %, level 34", {
+    stopped({}, 0, 2000),
+  }, { { on_off = 1, brightness = 40, ignore_default = 1 }, { 34 } })
+  T.eq("stopped under the Min, past half way to it: the bulb goes to the Min, level 1", {
+    stopped({}, 0, 3200),
+  }, { { on_off = 1, brightness = 20, ignore_default = 1 }, { 1 } })
+  T.eq("short of half way to the Min: off", { stopped({}, 0, 3600) }, { { on_off = 0 }, { 0 } })
+  T.eq("a fade up from off stopped under the Min, past half way to it: the Min", {
+    stopped(OFF, 100, 800),
+  }, { { on_off = 1, brightness = 20, ignore_default = 1 }, { 1 } })
+  T.eq("and short of half way: off", { stopped(OFF, 100, 400) }, { { on_off = 0 }, { 0 } })
+
+  -- A toggle counts the light on until it is half a level from off.
+  fading({}, 0, 3600)
+  proxy("TOGGLE")
+  T.eq("a toggle where a stop turns the bulb off counts it on, and turns it off", answered(), { on_off = 0 })
+  fading({}, 0, 3600)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
+  local pressed = answered()
+  run(110)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = CLICK })
+  T.eq("and so do a press and click of the Toggle button", { pressed, flying(), levels() }, {
+    { on_off = 0 },
+    {},
+    { 0, 0 },
+  })
+  fading({}, 0, 3600)
+  RFP.DO_CLICK(301, "DO_CLICK", {})
+  T.eq("and a click of a Toggle Button Link", answered(), { on_off = 0 })
+
+  -- Under a Max of 50 from 70 %, where the bulb is outside the range.
+  noRange()
+  bulb({ brightness = 70 })
+  proxy("SET_MAX_ON_LEVEL", { LEVEL = 50 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  reply()
+  run(2000)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("from 70 % under a Max of 50, a fade to off stopped half way holds the bulb at 35 %", answered(), {
+    on_off = 1,
+    brightness = 35,
+    ignore_default = 1,
+  })
+  T.eq("which is level 70 on 1 to 50", levels(), { 70 })
+  noRange()
+end
+
+T.section(
+  "with a range a strip the driver walks passes under the Min to and from off, as a light fading by itself does"
+)
+do
+  --- A strip the driver walks, on 20 to 80.
+  local function ranged(fields)
+    noRange()
+    walked(fields, NO_POLLS)
+    onLevels(20, 80)
+  end
+  forgetSetup()
+  -- With no range the line is the levels themselves, half percents included.
+  noRange()
+  walked({ device_on = false }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 })
+  serve(3000, 250)
+  T.eq("with no range, 3 s into a walk from off to 60 % over 6 s the step in flight is 29 %, from 28.5", flying(), {
+    { device_on = true, brightness = 29 },
+  })
+  ranged({ device_on = false })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  local up = { 2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57, 62, 67, 72, 77, 80 }
+  T.eq(
+    "on 20 to 80, a walk up from off to level 100 runs from under the Min to the Max",
+    each(serve(5000, 250), "brightness"),
+    up
+  )
+  T.eq("and is told at its end at 100", levels(), { 100 })
+
+  --- A strip at the Max of 20 to 80 walked to off over 4 s and stopped `ms` in: the step in flight, what is sent
+  --- after it, the level told and where the strip ends.
+  local function stopped(ms)
+    ranged({ brightness = 80 })
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+    serve(ms, 250)
+    local step = flying()[1]
+    mark()
+    proxy("SET_BRIGHTNESS_STOP")
+    local commands, after = serve(4000, 250), {}
+    for i = 2, #commands do
+      after[#after + 1] = commands[i].sent
+    end
+    return step, after, levels(), { strip.device_on, strip.brightness }
+  end
+  T.eq("stopped half way: the step in flight, 43 %, holds, and is told as level 39", { stopped(2000) }, {
+    { device_on = true, brightness = 43 },
+    {},
+    { 39 },
+    { true, 43 },
+  })
+  T.eq("stopped at a step under the Min, past half way to it: the strip goes to the Min, level 1", { stopped(3200) }, {
+    { device_on = true, brightness = 18 },
+    { { device_on = true, brightness = 20 } },
+    { 1 },
+    { true, 20 },
+  })
+  T.eq("short of half way to the Min: off", { stopped(3900) }, {
+    { device_on = true, brightness = 3 },
+    { { device_on = false } },
+    { 0 },
+    { false, 3 },
+  })
+
+  -- A strip below the Min, set there elsewhere, stopped before its first step: it holds where it is.
+  ranged({ brightness = 5 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a strip at 5 %, under the Min, stopped before its first step to off: nothing sent, shown at 1", {
+    flying(),
+    levels(),
+  }, { {}, { 1 } })
+
+  -- A walk between two lit levels from under the Min holds a stop where it is.
+  ranged({ brightness = 5 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 4000 })
+  serve(400, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a strip at 5 % walked up to level 50 and stopped still under the Min holds there, shown at 1", {
+    each(serve(1000, 250), "brightness"),
+    levels(),
+  }, { { 9 }, { 1 } })
+
+  -- A command at a step under the Min starts from the strip's place: no dip toward off.
+  ranged({ brightness = 80 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  serve(3600, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
+  local steps = each(serve(3000, 250), "brightness")
+  T.eq(
+    "a level over 2 s at a step of 13 % is told as a ramp from 1",
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+    { 1 }
+  )
+  T.eq(
+    "and walks up from that step to level 50's 50 %, never under it",
+    steps,
+    { 13, 15, 19, 24, 29, 33, 38, 42, 47, 50 }
+  )
+  noRange()
+end
+
 T.section("dimming is declared in driver.xml, and turned off at run time for a light that only switches")
 do
   local DIMMING = { "dimmer", "set_level", "supports_target", "supports_brightness_stop", "ramp_level" }
