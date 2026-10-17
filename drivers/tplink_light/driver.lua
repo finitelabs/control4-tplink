@@ -976,6 +976,20 @@ local function endOnCycle()
   currentColorPresetId = nil
 end
 
+-- Tell the button LEDs whether the light is on, when that has changed.
+local function matchLedState(on)
+  if on == ledState then
+    return
+  end
+  ledState = on
+  -- MATCH_LED_STATE goes to each BUTTON_LINK binding (the keypad button
+  -- LEDs), not to the LIGHT_V2 proxy binding. STATE is a Lua boolean per
+  -- spec. Bottom is inverted: its LED lights when the light is OFF.
+  SendToProxy(ON_BINDING, "MATCH_LED_STATE", { STATE = on }, "NOTIFY", true)
+  SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = not on }, "NOTIFY", true)
+  SendToProxy(TOGGLE_BINDING, "MATCH_LED_STATE", { STATE = on }, "NOTIFY", true)
+end
+
 local function notifyBrightnessChanged(level)
   if level == 0 and currentBrightness > 0 then
     endOnCycle()
@@ -990,23 +1004,15 @@ local function notifyBrightnessChanged(level)
     LIGHT_BRIGHTNESS_CURRENT = level,
     LIGHT_BRIGHTNESS_CURRENT_PRESET_ID = currentBrightnessPresetId,
   }, "NOTIFY")
-  local newLedState = level > 0
-  if newLedState ~= ledState then
-    ledState = newLedState
-    -- MATCH_LED_STATE goes to each BUTTON_LINK binding (the keypad button
-    -- LEDs), not to the LIGHT_V2 proxy binding. STATE is a Lua boolean per
-    -- spec. Bottom is inverted: its LED lights when the light is OFF.
-    SendToProxy(ON_BINDING, "MATCH_LED_STATE", { STATE = newLedState }, "NOTIFY", true)
-    SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = not newLedState }, "NOTIFY", true)
-    SendToProxy(TOGGLE_BINDING, "MATCH_LED_STATE", { STATE = newLedState }, "NOTIFY", true)
-  end
+  matchLedState(level > 0)
 end
 
-local function notifyBrightnessChanging(target, rate)
+--- @param current number? Where the light has got to, if not where the ramp began.
+local function notifyBrightnessChanging(target, rate, current)
   log:debug("LIGHT_BRIGHTNESS_CHANGING: target=%s rate=%s", target, rate)
   -- The proxy takes the light's state from CURRENT: one on its way up from off
   -- is lit by the first request the fade sends.
-  local current = currentBrightness
+  current = current or currentBrightness
   if target > 0 then
     current = math.max(1, current)
   end
@@ -1016,6 +1022,11 @@ local function notifyBrightnessChanging(target, rate)
     RATE = rate,
     LIGHT_BRIGHTNESS_TARGET_PRESET_ID = currentBrightnessPresetId,
   }, "NOTIFY", true)
+  -- A light on its way up is on from the start of its ramp, as one fading to
+  -- off is on until its end.
+  if target > 0 then
+    matchLedState(true)
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -1855,6 +1866,13 @@ function RFP.GET_LIGHT_LEVEL(idBinding, strCommand, tParams, args)
   if idBinding ~= PROXY_BINDING then
     return
   end
+  if rampingBrightness then
+    -- A CHANGED level is one the light has stopped at: in a ramp, say where it
+    -- has got to and what is left.
+    local left = brightnessRamp.startTime + brightnessRamp.durationMs - C4:GetTime()
+    notifyBrightnessChanging(brightnessRamp.targetLevel, math.max(0, left), interpolatedBrightness())
+    return
+  end
   notifyBrightnessChanged(currentBrightness)
 end
 
@@ -2573,7 +2591,7 @@ function RFP.REQUEST_BUTTON_COLORS(idBinding, strCommand, tParams, args)
   end
   -- MATCH_LED_STATE per button binding, with bottom inverted (its LED lights
   -- when the light is off so the keypad shows the toggle state correctly).
-  local isOn = currentBrightness > 0
+  local isOn = ledState
   SendToProxy(ON_BINDING, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
   SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = not isOn }, "NOTIFY", true)
   SendToProxy(TOGGLE_BINDING, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
