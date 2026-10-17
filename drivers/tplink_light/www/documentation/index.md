@@ -29,12 +29,12 @@ ______________________________________________________________________
 The TP-Link Light driver presents a Control4 light (light_v2) backed by a
 TP-Link device. It operates in one of two modes:
 
-- **Direct mode**: the driver connects to a TP-Link light over the local network
-  — a Tapo L900/L920/L930 light strip or Tapo bulb speaking the SMART command
-  schema over KLAP, or a legacy Kasa KL/LB-series bulb or light strip speaking
-  the IOT schema over KLAP or the original port 9999 protocol. The transport and
-  schema are auto-detected. Brightness, color, and color temperature are
-  supported when the device reports them.
+- **Direct mode**: the driver connects to a TP-Link light over the local
+  network: a Tapo L900/L920/L930 light strip or Tapo bulb speaking the SMART
+  command schema over KLAP, or a legacy Kasa KL/LB-series bulb or light strip
+  speaking the IOT schema over KLAP or the original port 9999 protocol. The
+  transport and schema are auto-detected. Brightness, color, and color
+  temperature are supported when the device reports them.
 - **Proxy mode**: the driver's TP-Link Outlet connection is bound to an output
   of the TP-Link Outlet driver. The light is then an on/off switch light backed
   by that outlet, useful for lamps and fixtures plugged into a smart outlet.
@@ -98,9 +98,9 @@ command and fades by itself.
 | KP115  | Smart plug  | On/off via outlet binding     | Proxy  |
 
 Other Kasa KL/LB-series bulbs (e.g. KL110, KL120, KL125, KL135, LB-series) and
-Kasa light strips (KL400/KL420/KL430) speak the same IOT schema — strips take
+Kasa light strips (KL400/KL420/KL430) speak the same IOT schema (strips take
 commands through their own lighting module, which the driver selects
-automatically — and are expected to work in direct mode across firmware
+automatically) and are expected to work in direct mode across firmware
 generations. Starting any light command from Control4 takes over from a lighting
 effect running on a strip; effects themselves are not controllable from
 Control4.
@@ -157,9 +157,9 @@ outlet. Use a DHCP reservation so it does not change.
 ### Protocol \[ **_Auto_** | KLAP | Legacy \]
 
 Selects the local protocol for direct mode. `KLAP` is the encrypted protocol of
-TP-Link firmware since late 2024, used by Tapo lights and by Kasa bulbs updated
-to it. `Legacy` is the port 9999 protocol of Kasa KL-series bulbs on original
-firmware.
+Tapo lights, and of Kasa KL/LB-series bulbs and light strips on firmware updated
+since late 2024. `Legacy` is the port 9999 protocol of Kasa KL/LB-series bulbs
+and light strips on original firmware.
 
 `Auto` (default) tries KLAP first when credentials are set and falls back to the
 legacy protocol; without credentials it connects over the legacy protocol
@@ -253,8 +253,8 @@ collapses to 0/100.
 the driver has neither an outlet binding nor a direct-mode configuration.
 
 **Direct mode never connects**: verify the IP address, that TCP port 80 (KLAP)
-or UDP port 9999 (legacy) is reachable from the controller, and — for devices on
-KLAP firmware — that the credentials match the account the device is bound to in
+or UDP port 9999 (legacy) is reachable from the controller, and, for devices on
+KLAP firmware, that the credentials match the account the device is bound to in
 the Tapo/Kasa app (auth mismatches are reported in the lua output window with
 `Log Mode` set to `Print`).
 
