@@ -2935,6 +2935,205 @@ do
   T.eq("a rated level from 60 to 30 %: the LEDs are told nothing", leds(), {})
 end
 
+T.section("a ramp up from off ended at off leaves Previous On where it was, or at the level the light reached")
+do
+  -- The proxy writes Previous On at an off from the last level it was told: in a ramp from off, the CHANGING's 1.
+  --- What the proxy is told of the level since the mark: { "CHANGING", from, to } and { "CHANGED", level }.
+  local function changes()
+    local out = {}
+    for _, s in ipairs(sent) do
+      local p = s.params
+      if s.binding == PROXY and s.command == "LIGHT_BRIGHTNESS_CHANGING" then
+        out[#out + 1] = { "CHANGING", p.LIGHT_BRIGHTNESS_CURRENT, p.LIGHT_BRIGHTNESS_TARGET }
+      elseif s.binding == PROXY and s.command == "LIGHT_BRIGHTNESS_CHANGED" then
+        out[#out + 1] = { "CHANGED", p.LIGHT_BRIGHTNESS_CURRENT }
+      end
+    end
+    return out
+  end
+  --- Previous On, from `level`, after what the proxy was told since the mark, by its rule on OS 4.3.0: a level
+  --- of 1 or more, a CHANGED's or a CHANGING's current, is the light on, and the off after it writes the last.
+  local function previousOn(level)
+    local on, last = false, nil
+    for _, c in ipairs(changes()) do
+      if c[2] >= 1 then
+        on, last = true, c[2]
+      elseif on then
+        on, level = false, last
+      end
+    end
+    return level
+  end
+  local OFF = { on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } }
+  local ON = { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 6000 }
+  local TOGGLE_LINK = 301
+  -- The proxy's setup has Previous On at 20 %.
+  forgetSetup()
+  proxySetup = setupFile("setup-607.xml")
+
+  --- Each light, off: whether it takes a stop, and how it is started.
+  local backends = {
+    {
+      "a Kasa bulb",
+      true,
+      function()
+        bulb(OFF)
+      end,
+    },
+    {
+      "a light on an outlet",
+      true,
+      function()
+        C4:Bind(900, 1, C4:GetDeviceID(), 1, "TPLINK_LIGHT")
+        startDriver()
+        RFP.UPDATE_STATE(1, "UPDATE_STATE", {
+          entity = SerializeSafe({
+            supported_color_modes = { require("constants").LightColorMode.COLOR_MODE_BRIGHTNESS },
+          }),
+          state = SerializeSafe({ state = false }),
+        })
+        mark()
+      end,
+    },
+    {
+      "a strip the driver walks",
+      true,
+      function()
+        -- Reached directly, not through the outlet.
+        C4:Unbind(C4:GetDeviceID(), 1)
+        walked({ device_on = false }, NO_POLLS)
+      end,
+    },
+    {
+      "a strip with Fades on Light",
+      false,
+      function()
+        walked({ device_on = false }, NO_POLLS)
+        setProperty("Fades", "Light")
+        serve(1000, 250)
+        mark()
+      end,
+    },
+  }
+  local ends = {
+    { "a Set Brightness Stop", "SET_BRIGHTNESS_STOP" },
+    { "an off at once", "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 0 } },
+    { "a fade to off", "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 750 } },
+  }
+  -- 5 ms in, a line from off has not reached half a level, nor has a strip the driver walks been sent its first step.
+  for _, b in ipairs(backends) do
+    for _, e in ipairs(ends) do
+      if b[2] or e[2] ~= "SET_BRIGHTNESS_STOP" then
+        b[3]()
+        proxy("SET_BRIGHTNESS_TARGET", ON)
+        run(5)
+        proxy(e[2], e[3])
+        T.eq(b[1] .. ", " .. e[1] .. " 5 ms into an on from off: the level to keep is told before the off", changes(), {
+          { "CHANGING", 1, 60 },
+          { "CHANGING", 20, 0 },
+          { "CHANGED", 0 },
+        })
+        T.eq("so Previous On stays at 20", previousOn(20), 20)
+      end
+    end
+  end
+
+  -- A held button released, a scene ramp stopped, and a stop after Get Light Level, before the bulb is lit.
+  bulb(OFF)
+  proxy("SET_HOLD_RATE_UP", { RATE = 5000 })
+  mark()
+  RFP.DO_PUSH(TOGGLE_LINK, "DO_PUSH", {})
+  run(20)
+  RFP.DO_RELEASE(TOGGLE_LINK, "DO_RELEASE", {})
+  T.eq("a Toggle Button Link held from off and released 20 ms in", changes(), {
+    { "CHANGING", 1, 100 },
+    { "CHANGING", 20, 0 },
+    { "CHANGED", 0 },
+  })
+  bulb(OFF)
+  proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 5000 })
+  run(20)
+  proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
+  T.eq("Ramp Scene Up stopped 20 ms in", previousOn(20), 20)
+  bulb(OFF)
+  proxy("SET_BRIGHTNESS_TARGET", ON)
+  run(10)
+  proxy("GET_LIGHT_LEVEL")
+  run(10)
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("a stop after Get Light Level, both before the bulb is lit", changes(), {
+    { "CHANGING", 1, 60 },
+    { "CHANGING", 1, 60 },
+    { "CHANGING", 20, 0 },
+    { "CHANGED", 0 },
+  })
+
+  -- An off at once after the light is lit keeps the level it reached.
+  bulb(OFF)
+  proxy("SET_BRIGHTNESS_TARGET", ON)
+  run(3000)
+  proxy("OFF")
+  T.eq("a Kasa bulb turned off 3 s into the on: from 30, where its line is", changes(), {
+    { "CHANGING", 1, 60 },
+    { "CHANGING", 30, 0 },
+    { "CHANGED", 0 },
+  })
+  T.eq("so Previous On is 30", previousOn(20), 30)
+  walked({ device_on = false }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", ON)
+  serve(3000, 250)
+  T.eq("a strip the driver walks, 3 s in: its step in flight", flying(), { { device_on = true, brightness = 29 } })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 0 })
+  T.eq("turned off then, Previous On is that step", previousOn(20), 29)
+  walked({ device_on = false }, NO_POLLS)
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", ON)
+  serve(500, 250)
+  proxy("OFF")
+  serve(2000, 250)
+  T.eq("a strip with Fades on Light, half way through its own fade on: a fade to off from 30, as before", changes(), {
+    { "CHANGING", 1, 60 },
+    { "CHANGING", 30, 0 },
+    { "CHANGED", 0 },
+  })
+
+  -- Previous On as the proxy sends it, and none known.
+  forgetSetup()
+  proxySetup = ""
+  bulb(OFF)
+  proxy("UPDATE_BRIGHTNESS_PRESET", { COMMAND = "MODIFIED", ID = 10, NAME = "Previous On", LEVEL = 35 })
+  proxy("SET_BRIGHTNESS_TARGET", ON)
+  run(5)
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("Previous On at 35 as the proxy sent it: 35 is kept", previousOn(35), 35)
+  forgetSetup()
+  bulb(OFF)
+  proxy("SET_BRIGHTNESS_TARGET", ON)
+  run(5)
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq("with no Previous On known, the off alone, as before", changes(), { { "CHANGING", 1, 60 }, { "CHANGED", 0 } })
+
+  -- An on that ends, and then an off or a fade to off, are told as before.
+  for _, off in ipairs({ { "an off at once", 0 }, { "a fade to off", 2000 } }) do
+    bulb(OFF)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 1000 })
+    reply()
+    run(1500)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = off[2] })
+    reply()
+    run(3000)
+    local want = { { "CHANGING", 1, 60 }, { "CHANGED", 60 } }
+    if off[2] > 0 then
+      want[#want + 1] = { "CHANGING", 60, 0 }
+    end
+    want[#want + 1] = { "CHANGED", 0 }
+    T.eq("a rated on to 60 that ended, then " .. off[1], changes(), want)
+    T.eq("so Previous On is 60", previousOn(20), 60)
+  end
+end
+
 T.section("what a Kasa bulb and a light on an outlet are sent, and the proxy told, is as it was")
 do
   local GREEN = xy(120, 50)

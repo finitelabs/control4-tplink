@@ -204,6 +204,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed the LEDs of keypad buttons bound to a TP-Link light showing the light
   off while it was turned on over a ramp time, until the ramp ended. They now
   show it on from the start of the ramp.
+- Fixed a TP-Link light turned on over a ramp time, and stopped or turned off
+  part way, having its Previous On level set to 1 %. Previous On now keeps its
+  level, or takes the one the light had reached.
 
 ### Changed
 
