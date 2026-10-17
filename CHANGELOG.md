@@ -18,6 +18,42 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed an Advanced Lighting scene set to flash, with no delay or ramp time on
+  any step, hanging the TP-Link Light driver. It now runs its steps once and
+  stops.
+- Fixed a color sent to a TP-Link light right after it was ramped on, as
+  programming that turns a light on and sets its color does, being dropped. The
+  light now takes it and keeps it when the ramp ends.
+- Fixed a ramp that also changes a TP-Link light's color, on to the color it
+  turns on in or with Dim-To-Warm, reporting the new color as the one the fade
+  starts from.
+- Fixed a TP-Link light being shown in a scene's color, or going back to a color
+  set while it was off, after a level change or a turn-on had given it its
+  Dim-To-Warm color or the color it turns on in.
+- Fixed an Advanced Lighting scene carrying on with a TP-Link light after the
+  light was turned on or off, set to a level or ramped: a later step of the
+  scene took the light back, and a scene that flashes the light kept flashing
+  it. The command now takes the light out of the scene.
+- Fixed a ramp or color fade started while a scene was still fading a TP-Link
+  light showing as finished when the scene's fade ended, while the light was
+  still moving. It now shows as finished when the light gets there.
+- Fixed a color set on a TP-Link light during a ramp being replaced by its
+  Dim-To-Warm color when the ramp ended.
+- Fixed Color On Mode set to a color preset not being applied to a TP-Link
+  light: the light turned on in the color it last went off in, as if the mode
+  were Previous, and with no color of its own before it had been off once. It
+  now turns on in the preset's color and follows an edit of that preset.
+- Fixed a TP-Link light with Color On Mode set to Previous that was faded off,
+  not switched off at once, turning back on in the color it had before the fade,
+  not the one it faded off in.
+- Fixed a TP-Link light that was told to stop ramping during an Advanced
+  Lighting scene being moved again by the scene's next step. The stop now takes
+  the light out of the scene.
+
 ## v20261002 - 2026-10-02
 
 ### Changed
