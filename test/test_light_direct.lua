@@ -31,6 +31,9 @@ local PROXY = 5001
 local now = 1000000
 local queue, order = {}, 0
 
+--- Each timer's entry in the queue, by the handle it was given.
+local entries = setmetatable({}, { __mode = "k" })
+
 function C4:GetTime()
   return now
 end
@@ -39,6 +42,7 @@ function C4:SetTimer(delayMs, callback, repeating)
   order = order + 1
   local t = { at = now + delayMs, order = order }
   local handle = newproxy(true)
+  entries[handle] = t
   getmetatable(handle).__index = {
     Cancel = function()
       t.cancelled = true
@@ -78,6 +82,22 @@ local function run(ms)
     best.fn()
   end
   now = stop
+end
+
+--- The names of the driver's timers still to fall due, sorted.
+local function liveTimers()
+  local queued = {}
+  for _, t in ipairs(queue) do
+    queued[t] = not t.cancelled
+  end
+  local out = {}
+  for name, handle in pairs(Timer) do
+    if type(name) == "string" and queued[entries[handle]] then
+      out[#out + 1] = name
+    end
+  end
+  table.sort(out)
+  return out
 end
 
 -- An error in a timer or in a reply's handler is caught where it is raised.
@@ -1553,6 +1573,35 @@ do
   T.eq("and nothing follows that step", each(serve(4000, 250), "brightness"), { 63 })
 end
 
+T.section("a fade to off ends with the off alone, and the next on from Control4 names its own level")
+do
+  -- The strip takes no level with an off, and one sent ahead of it would show.
+  local BOTTOM, CLICK = 1, 2
+  walked({ brightness = 51 }, NO_POLLS)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(110)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = CLICK })
+  local steps = serve(3000, 250)
+  T.eq("Bottom pressed and clicked from 51 %: the press's step, the click's, and the off alone", {
+    each(steps, "brightness"),
+    Select(steps, #steps, "sent"),
+  }, { { 49, 27, 1 }, { device_on = false } })
+  T.eq("nothing follows the off", #serve(10000, 250), 0)
+  T.eq("so the strip is off at the last step's level", { strip.device_on, strip.brightness }, { false, 1 })
+  proxy("ON")
+  T.eq("the next On is the On level itself", flying(), { { device_on = true, brightness = 100 } })
+  serve(1000, 250)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(110)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = CLICK })
+  serve(3000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 2000 })
+  T.eq("and a ramped on names a level from its first step", Select(serve(3000, 250), 1, "sent"), {
+    device_on = true,
+    brightness = 3,
+  })
+end
+
 T.section("a color with a rate is walked there too")
 do
   -- Red to blue is hue 0 to 240 here, a straight line in x.
@@ -1788,6 +1837,15 @@ do
   T.eq("the proxy is told the color at the ramp's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
   proxy("OFF")
   serve(1000, 250)
+  colorTarget(BLUE, 0)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 10, RATE = 30000 })
+  run(100)
+  T.eq("off in blue, a slow on's first step, at 1 %, carries it too", flying(), {
+    { device_on = true, brightness = 1, hue = 60, saturation = 20, color_temp = 0 },
+  })
+  serve(31000, 250)
+  proxy("OFF")
+  serve(1000, 250)
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   run(90)
@@ -1860,7 +1918,8 @@ do
   serve(1000, 250)
   T.eq("which is the color the strip holds", { strip.hue, strip.saturation }, { 44, 52 })
 
-  walked({ brightness = 100 }, NO_POLLS)
+  -- At full in the On color, the Dim-To-Warm color for 100 %.
+  walked({ brightness = 100, hue = 60, saturation = 20 }, NO_POLLS)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 10, RATE = 4000 })
   T.eq("a dim with Dim-To-Warm sends no color ahead of its steps", flying(), {})
   steps = serve(1000, 250)
@@ -1916,6 +1975,139 @@ do
     100,
     60,
   })
+  walked({ device_on = false }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  steps = serve(3000, 20)
+  T.eq(
+    "from off, a step names the color only once it has moved on from the last sent, and the last is the target's",
+    { #steps, each(steps, "hue") },
+    { 20, { 32, 35, 38, 41, 44, 47, 50, 53, 56, 59, 60 } }
+  )
+  forgetSetup()
+end
+
+T.section("with Dim-To-Warm a strip that is on walks to the color the proxy is told of, and a fade to off walks none")
+do
+  -- The strip's own proxy: Dim-To-Warm between two presets of one color.
+  local ON = { 0.423358, 0.398951 }
+  forgetSetup()
+  proxySetup = setupFile("setup-727.xml")
+  walked({ brightness = 40 }, NO_POLLS)
+  colorTarget(BLUE, 0)
+  serve(1000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })
+  local fade = told("LIGHT_COLOR_CHANGING")[1] or {}
+  T.eq(
+    "40 to 80 % over 8 s in blue: the proxy is told a fade from blue to the On color over 8 s",
+    { fade.LIGHT_COLOR_CURRENT_X, fade.LIGHT_COLOR_TARGET_X, fade.LIGHT_COLOR_TARGET_COLOR_RATE },
+    { BLUE[1], ON[1], 8000 }
+  )
+  local steps = serve(9000, 250)
+  T.eq("the first step is near blue, not the On color whole", Select(steps, 1, "sent"), {
+    device_on = true,
+    brightness = 41,
+    hue = 239,
+    saturation = 99,
+    color_temp = 0,
+  })
+  --- Whether each step that names a color names where that fade is as it is sent.
+  local function onTheFade(commands)
+    for _, step in ipairs(commands) do
+      local p = math.min(step.at, 8000) / 8000
+      local hue, saturation = step.sent.hue, step.sent.saturation
+      if
+        hue
+        and (
+          math.abs(hue - (240 + (ON[1] * 360 - 240) * p)) > 1
+          or math.abs(saturation - (100 + (ON[2] * 100 - 100) * p)) > 1
+        )
+      then
+        return false
+      end
+    end
+    return true
+  end
+  T.check("each step's color is where the fade is as it is sent", onTheFade(steps), T.show(each(steps, "hue")))
+  T.check("the color moves on with the level", #each(steps, "hue") > 20, #each(steps, "hue"))
+  T.eq("the strip ends at 80 % in the On color", { strip.brightness, strip.hue, strip.saturation }, { 80, 152, 40 })
+  T.eq("where the proxy is told it", told("LIGHT_COLOR_CHANGED", "at"), { 8000 })
+
+  walked({ brightness = 40 }, NO_POLLS)
+  colorTarget(BLUE, 0)
+  serve(1000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 41, RATE = 4000 })
+  steps = serve(5000, 250)
+  T.check("one level over 4 s from blue: the color is walked all the same", #steps > 10, #steps)
+  T.eq("to the On color", { strip.brightness, strip.hue, strip.saturation }, { 41, 152, 40 })
+  walked({ brightness = 40 }, NO_POLLS)
+  colorTarget(BLUE, 0)
+  serve(1000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 60000 })
+  steps = serve(10000, 250)
+  T.eq(
+    "over 60 s: a step names the color only once it has moved on from the last sent",
+    { #steps, #each(steps, "hue") },
+    { 23, 18 }
+  )
+
+  walked({ brightness = 40 }, NO_POLLS)
+  colorTarget(BLUE, 0)
+  serve(1000, 250)
+  local asked = now
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })
+  serve(4000, 250)
+  local step = held[1]
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  T.eq(
+    "a stop half way tells the color of the step in flight",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { BLUE[1] + (ON[1] - BLUE[1]) * ((step.at - asked) / 8000) }
+  )
+  serve(1000, 250)
+  T.eq("which the strip holds", { strip.hue, strip.saturation }, { asks(step).hue, asks(step).saturation })
+
+  -- Dim-To-Warm between two color temperatures: from blue the strip is sent
+  -- color temperatures, and reports each as its point.
+  forgetSetup()
+  proxySetup = setupFile("setup-607.xml")
+  walked({ brightness = 40 })
+  colorTarget(BLUE, 0)
+  serve(1000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })
+  serve(4000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_STOP")
+  serve(12000, 250)
+  T.eq(
+    "a stop there tells the point of the step's color temperature, which the polls after it read",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_Y"),
+    { 0.4 }
+  )
+
+  -- Two colors apart, and at 80 % in the Dim-To-Warm color for it.
+  forgetSetup()
+  proxySetup = ""
+  walked({ brightness = 80, hue = 54, saturation = 32 }, NO_POLLS)
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 1,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_PRESET_COLOR_X = 60 / 360,
+    COLOR_PRESET_COLOR_Y = 0.2,
+    COLOR_PRESET_COLOR_MODE = 0,
+    COLOR_FADE_PRESET_ID = 2,
+    COLOR_FADE_PRESET_ORIGIN = 1,
+    COLOR_FADE_PRESET_COLOR_X = 30 / 360,
+    COLOR_FADE_PRESET_COLOR_Y = 0.8,
+    COLOR_FADE_PRESET_COLOR_MODE = 0,
+  })
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 2000 })
+  steps = serve(3000, 250)
+  T.eq("a fade to off with Dim-To-Warm names no color on its way down", each(steps, "hue"), {})
+  T.eq("so the strip is off in the color it had", { strip.device_on, strip.hue, strip.saturation }, { false, 54, 32 })
+  T.eq("as the proxy is told: no color", told("LIGHT_COLOR_CHANGED"), {})
   forgetSetup()
 end
 
@@ -2186,6 +2378,107 @@ do
     each(steps, "brightness"),
     levels(),
   }, { { 23 }, { 23 } })
+end
+
+T.section("once a fade has ended, by any way, no timer is left but the poll's and the update check's")
+do
+  local fadeUp = { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 }
+  for _, c in ipairs({
+    {
+      "a level fade run to its end",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+      end,
+    },
+    {
+      "a level fade stopped half way",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+        serve(2000, 250)
+        proxy("SET_BRIGHTNESS_STOP")
+      end,
+    },
+    {
+      "a color fade run to its end",
+      function()
+        colorTarget(BLUE, 4000)
+      end,
+    },
+    {
+      "a color fade stopped half way",
+      function()
+        colorTarget(BLUE, 4000)
+        serve(2000, 250)
+        proxy("SET_COLOR_STOP")
+      end,
+    },
+    {
+      "a fade to off",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+      end,
+    },
+    {
+      "a scene's fades",
+      function()
+        proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(80, BLUE, 2000) .. levelStep(10, 2000) })
+        proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+      end,
+    },
+    {
+      "a fade a level command replaces",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+        serve(2000, 250)
+        proxy("SET_LEVEL", { LEVEL = 40 })
+      end,
+    },
+    {
+      "a fade another hand ends",
+      function()
+        -- Slow enough that the next poll comes before the next step.
+        proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 300000 })
+        serve(9000, 250)
+        strip.brightness = 70
+      end,
+      {},
+    },
+    {
+      "a fade whose step the strip never answers",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+        serve(2000, 250)
+        fail("Klap: request timed out")
+      end,
+    },
+    {
+      "a fade a Reconnect ends",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+        serve(2000, 250)
+        EC.Reconnect()
+        shakeHands()
+      end,
+    },
+    {
+      "a fade that Fades set to Light ends",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", fadeUp)
+        serve(2000, 250)
+        setProperty("Fades", "Light")
+      end,
+    },
+  }) do
+    walked({ brightness = 5 }, c[3] or NO_POLLS)
+    c[2]()
+    -- Past the 15 s a request in flight at a restart is waited for.
+    serve(20000, 250)
+    while held[1] do
+      reply(info(strip))
+    end
+    T.eq(c[1] .. ": the poll's timer and the update check's alone", liveTimers(), { "DirectPoll", "UpdateCheck" })
+    proxy("CLEAR_ALL_SCENES")
+  end
 end
 
 ---------------------------------------------------------------------------

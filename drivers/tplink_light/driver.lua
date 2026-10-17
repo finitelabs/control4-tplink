@@ -1331,15 +1331,23 @@ end
 
 local stopSceneSteps -- defined with the scene support below
 
+--- Where the color a brightness ramp carries has got to on its way from the
+--- color the light was in: the fade the proxy is told of.
+--- @return number x, number y, integer mode, boolean done
+local function carriedColor(ramp)
+  local merged = ramp.mergedColor
+  local progress = math.min(1, (C4:GetTime() - ramp.startTime) / ramp.durationMs)
+  local x = currentColorX + (merged.x - currentColorX) * progress
+  local y = currentColorY + (merged.y - currentColorY) * progress
+  return x, y, merged.mode, progress >= 1
+end
+
 -- Leave the color a brightness ramp carries where the ramp has got to: what
 -- replaces it starts there.
 local function leaveMergedColor()
   local merged = brightnessRamp and brightnessRamp.mergedColor
   if merged then
-    local progress = math.min(1, (C4:GetTime() - brightnessRamp.startTime) / brightnessRamp.durationMs)
-    local x = currentColorX + (merged.x - currentColorX) * progress
-    local y = currentColorY + (merged.y - currentColorY) * progress
-    local mode = merged.mode
+    local x, y, mode = carriedColor(brightnessRamp)
     if fades == "Driver" then
       -- The light is in the color its last step carried, or still in its own.
       local sent = brightnessRamp.sentColor or { x = currentColorX, y = currentColorY, mode = currentColorMode }
@@ -1594,20 +1602,31 @@ local function rampStep()
     ramp.sent = level
     cmd.has_state, cmd.state = true, level > 0
     cmd.has_brightness, cmd.brightness = true, level / 100
-    -- The color the ramp carries goes with its level: the Dim-To-Warm color
-    -- for it, or the color the light turns on in.
-    local color = nil
-    if level > 0 and not rampingColor and not ramp.colorSet then
+  end
+  -- The color the ramp carries. A light that is on is walked to it from the
+  -- color it has, as the proxy is told. One coming on from off has none to
+  -- walk from: the color goes with its levels, with Dim-To-Warm each one's own.
+  local color, last = nil, false
+  if ramp and not rampingColor and not ramp.colorSet then
+    if ramp.startLevel == 0 and level > 0 then
       color = getColorOnModeKind() == COLOR_ON_MODE_FADE and computeFadeColor(level) or ramp.mergedColor
+      last = level == ramp.targetLevel
+    elseif ramp.startLevel > 0 and ramp.mergedColor then
+      local x, y, mode
+      x, y, mode, last = carriedColor(ramp)
+      x, y, mode = takenColor(x, y, mode)
+      color = { x = x, y = y, mode = mode }
     end
-    local sent = ramp.sentColor or { x = currentColorX, y = currentColorY }
-    local fields = color and buildColorCmdFields(color.x, color.y, color.mode)
-    if fields and colorDue(color.x, color.y, color.mode, sent.x, sent.y, level == ramp.targetLevel) then
-      ramp.sentColor = color
-      for k, v in pairs(fields) do
-        cmd[k] = v
-      end
+  end
+  local sent = ramp and ramp.sentColor or { x = currentColorX, y = currentColorY }
+  local fields = color and buildColorCmdFields(color.x, color.y, color.mode)
+  if fields and colorDue(color.x, color.y, color.mode, sent.x, sent.y, last) then
+    ramp.sentColor = color
+    for k, v in pairs(fields) do
+      cmd[k] = v
     end
+    -- With an on: a color alone is kept for the light's next on.
+    cmd.has_state, cmd.state = true, true
   end
   ramp = rampingColor and colorRamp
   -- An off goes alone: a color beside it is kept for the next on, and the off

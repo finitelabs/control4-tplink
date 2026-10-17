@@ -327,6 +327,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a TP-Link light turned on over a ramp time, and stopped or turned off
   part way, having its Previous On level set to 1 %. Previous On now keeps its
   level, or takes the one the light had reached.
+- Fixed a Tapo light with Dim-To-Warm and `Fades` on `Driver` taking its
+  Dim-To-Warm color at once when a ramp began from a color set on it, while it
+  was shown fading there, and changing color on its way to off. Its color now
+  fades as it is shown to.
 
 ### Changed
 
