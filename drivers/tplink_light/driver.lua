@@ -3194,6 +3194,34 @@ local function applyUpdate(entity, state, news)
     updateDynamicCapabilities(entity)
   end
 
+  -- A first report is held against the proxy's Brightness Percent and Current Color Chromaticity ("x,y,mode"), unless
+  -- a ramp left it another target: it fires Brightness or Color Changed for any other value it is told.
+  local levelShown, colorShown = not isFirstUpdate, not isFirstUpdate
+  if isFirstUpdate then
+    local ok, level, levelTarget, color, colorTarget = pcall(function()
+      local proxy = C4:GetProxyDevices()
+      return C4:GetDeviceVariable(proxy, 1001),
+        C4:GetDeviceVariable(proxy, 1110),
+        C4:GetDeviceVariable(proxy, 1200),
+        C4:GetDeviceVariable(proxy, 1210)
+    end)
+    level = ok and tointeger(level)
+    if level and level >= 0 and level <= 100 and tointeger(levelTarget) == level then
+      currentBrightness, levelShown = level, true
+    end
+    local x, y, mode = string.match(ok and tostring(color or "") or "", "^([^,]+),([^,]+),([^,]+)$")
+    x, y, mode = tonumber(x), tonumber(y), tointeger(mode)
+    if
+      x
+      and y
+      and x + y > 0
+      and (mode == LIGHT_COLOR_MODE_FULL or mode == LIGHT_COLOR_MODE_CCT)
+      and colorTarget == color
+    then
+      currentColorX, currentColorY, currentColorMode, colorShown = x, y, mode, true
+    end
+  end
+
   -- Map ESPHome brightness (0.0-1.0) to C4 (0-100) through the on-level range
   local newBrightness
   local brightness = 0
@@ -3218,11 +3246,10 @@ local function applyUpdate(entity, state, news)
   -- matches currentBrightness).
   if rampingBrightness then
     log:trace("UPDATE_STATE brightness=%s ignored (ramping)", newBrightness)
-  elseif isFirstUpdate or levelNews or not range.sameLevel(newBrightness, currentBrightness) then
-    -- Spec note: LIGHT_BRIGHTNESS_CHANGED should always be sent when the
-    -- driver starts and/or when the hardware comes online so the proxy is
-    -- seeded with the actual brightness, even if it matches our default.
+  elseif not levelShown or levelNews or not range.sameLevel(newBrightness, currentBrightness) then
     notifyBrightnessChanged(newBrightness)
+  elseif isFirstUpdate then
+    matchLedState(currentBrightness > 0)
   end
 
   -- A light keeps its color while off, so read it whether or not it is lit.
@@ -3258,7 +3285,7 @@ local function applyUpdate(entity, state, news)
       and newY
       and newColorMode
       and (
-        isFirstUpdate
+        not colorShown
         or colorNews
         or math.abs(newX - currentColorX) > COLOR_ECHO_TOLERANCE
         or math.abs(newY - currentColorY) > COLOR_ECHO_TOLERANCE

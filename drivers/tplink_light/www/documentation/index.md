@@ -245,7 +245,8 @@ Discard any established sessions, re-run protocol detection, and reconnect.
 The driver exposes the standard Control4 light programming surface: light level
 events and commands, advanced scene support, brightness and color presets, and
 click/hold rates. In proxy mode the light is on/off only and brightness
-collapses to 0/100.
+collapses to 0/100. A level or color the light still has when the driver starts,
+is updated or reconnects runs no programming.
 
 # <span style="color:#4ACBD6">Troubleshooting</span>
 

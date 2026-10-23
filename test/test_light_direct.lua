@@ -279,6 +279,30 @@ local proxySetup = ""
 function C4:GetProxyDevices()
   return 727
 end
+-- What the proxy shows, or nil for one never told it: its Brightness Percent (1001) and Current Color Chromaticity
+-- (1200, to six figures as a dev proxy shows it), each the current a CHANGED or CHANGING told it, and their targets
+-- (1110, 1210), a CHANGING's target or a CHANGED's value.
+local shows = {}
+function C4:GetDeviceVariable(id, variable)
+  if id == 727 then
+    return shows[variable]
+  end
+end
+--- Keep what a notify tells the proxy in `shows`.
+local function heard(command, p)
+  local function xy(x, y, mode)
+    return ("%g,%g,%d"):format(x, y, mode)
+  end
+  if command == "LIGHT_BRIGHTNESS_CHANGED" or command == "LIGHT_BRIGHTNESS_CHANGING" then
+    shows[1001] = tostring(p.LIGHT_BRIGHTNESS_CURRENT)
+    shows[1110] = tostring(p.LIGHT_BRIGHTNESS_TARGET or p.LIGHT_BRIGHTNESS_CURRENT)
+  elseif command == "LIGHT_COLOR_CHANGED" or command == "LIGHT_COLOR_CHANGING" then
+    shows[1200] = xy(p.LIGHT_COLOR_CURRENT_X, p.LIGHT_COLOR_CURRENT_Y, p.LIGHT_COLOR_CURRENT_COLOR_MODE)
+    shows[1210] = p.LIGHT_COLOR_TARGET_X
+        and xy(p.LIGHT_COLOR_TARGET_X, p.LIGHT_COLOR_TARGET_Y, p.LIGHT_COLOR_TARGET_COLOR_MODE)
+      or shows[1200]
+  end
+end
 local uiRequest = C4.SendUIRequest
 function C4:SendUIRequest(id, request, params)
   if request == "GET_SETUP" then
@@ -317,9 +341,10 @@ local function setProperty(name, value)
   OnPropertyChanged(name)
 end
 
---- Load the driver afresh and start it with these properties over the usual.
+--- Load the driver afresh and start it with these properties over the usual,
+--- on a proxy that shows nothing.
 local function startDriver(properties)
-  queue, held = {}, {}
+  queue, held, shows = {}, {}, {}
   Properties = {
     ["Driver Status"] = "",
     ["IP Address"] = "192.0.2.24",
@@ -333,6 +358,9 @@ local function startDriver(properties)
   end
   dofile(DRIVER)
   function SendToProxy(idBinding, strCommand, tParams)
+    if idBinding == PROXY then
+      heard(strCommand, tParams or {})
+    end
     sent[#sent + 1] = { at = now - start, binding = idBinding, command = strCommand, params = tParams or {} }
   end
   -- As OnDriverInit leaves it: no property's handler starts the backend.
@@ -4411,6 +4439,78 @@ do
   DEBUGPRINT = false
   log:setLogLevel("3 - Info")
   log:setLogMode("Off")
+end
+
+T.section("a light in the color or at the level the proxy shows tells it neither when the driver starts or reconnects")
+do
+  -- A Zigbee light's color, read back a hair off the one told, was told again at a start and ran Color Changed (dev,
+  -- 2026-10-23). A TP-Link light takes whole hue, saturation and percents, so its color reads back off the one told,
+  -- and under a Min and Max On Level its level one off.
+  local SUNSET = { 0.608506, 0.357644 }
+  for _, how in ipairs({ "a start", "a Reconnect" }) do
+    for _, what in ipairs({ "a color", "a level under a range" }) do
+      local name = ("%s in %s"):format(how, what)
+      forgetSetup()
+      noRange()
+      light()
+      local fields
+      if what == "a color" then
+        colorTarget(SUNSET, 0)
+        local command = answered()
+        fields = { hue = command.hue, saturation = command.saturation }
+      else
+        onLevels(20, 80)
+        proxy("SET_LEVEL", { LEVEL = 50 })
+        fields = { brightness = answered().brightness }
+      end
+      run(5000)
+      reply(info(fields))
+      local before = { shows[1001], shows[1200] }
+      if how == "a start" then
+        local kept = shows
+        startDriver()
+        shows = kept
+      else
+        mark()
+        EC.Reconnect()
+      end
+      shakeHands()
+      reply(info(fields))
+      T.eq(name .. ": the light's first report tells the proxy no level", levels(), {})
+      T.eq(name .. ": and no color", colorsTold(), {})
+      T.eq(name .. ": so it shows what it did", { shows[1001], shows[1200] }, before)
+      mark()
+      run(5000)
+      reply(info({ brightness = 30, hue = 120, saturation = 50 }))
+      T.check(
+        name .. ": a level and a color set in the app after it are told",
+        #levels() == 1 and #colorsTold() == 1 and math.abs(colorsTold()[1] - 1 / 3) < 5e-3,
+        T.show({ levels(), colorsTold() })
+      )
+      noRange()
+    end
+  end
+  -- A proxy left in a ramp, or showing nothing, is told the light as it is.
+  for _, c in ipairs({
+    { "a proxy in a ramp to another level", { [1110] = "20" }, { 100 }, 0 },
+    { "one in a ramp to another color", { [1210] = "0.3,0.6,0" }, {}, 1 },
+    { "one that shows nothing", { [1001] = false, [1110] = false, [1200] = false, [1210] = false }, { 100 }, 1 },
+  }) do
+    forgetSetup()
+    light()
+    local kept = shows
+    for id, value in pairs(c[2]) do
+      kept[id] = value or nil
+    end
+    startDriver()
+    shows = kept
+    shakeHands()
+    reply(info())
+    T.eq(c[1] .. ": a start tells it the light's level and color where it is not settled on them", {
+      levels(),
+      #colorsTold(),
+    }, { c[3], c[4] })
+  end
 end
 
 T.eq("no timer or reply handler raised", errors, {})
