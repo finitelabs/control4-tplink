@@ -288,6 +288,60 @@ function C4:GetDeviceVariable(id, variable)
     return shows[variable]
   end
 end
+-- Its Navigator Dynamic Capabilities (6661) as dev's proxies list them: driver.xml's and what it was told since, or
+-- driver.xml's alone after a controller start. It lists supports_color_stop False for a light without CCT.
+local CAPABILITY_KEYS = {
+  "dimmer",
+  "supports_target",
+  "supports_brightness_stop",
+  "supports_color",
+  "supports_color_correlated_temperature",
+  "supports_color_stop",
+  "brightness_rate_min",
+  "brightness_rate_max",
+  "color_correlated_temperature_min",
+  "color_correlated_temperature_max",
+  "color_rate_behavior",
+  "color_rate_min",
+  "color_rate_max",
+  "has_extras",
+  "click_rate_min",
+  "click_rate_max",
+  "hold_rate_min",
+  "hold_rate_max",
+  "cold_start",
+  "supports_color_cycling",
+  "advanced_scene_support",
+  "hide_proxy_properties",
+  "hide_proxy_commands",
+  "hide_proxy_events",
+  "hide_proxy_conditionals_loops",
+}
+--- Put the modelled proxy on driver.xml's capabilities, then those it is `told`.
+local function showCapabilities(told)
+  local caps = {}
+  local f = assert(io.open(HERE .. "/../drivers/tplink_light/driver.xml", "rb"))
+  local static = f:read("*a"):match("<capabilities>(.-)</capabilities>")
+  f:close()
+  for _, key in ipairs(CAPABILITY_KEYS) do
+    caps[key] = (shows[6661] or ""):match("<" .. key .. ">([^<]*)</" .. key .. ">")
+      or static:match("<" .. key .. ">([^<]*)</" .. key .. ">")
+      or "False"
+  end
+  for key, value in pairs(told or {}) do
+    if caps[key] ~= nil then
+      caps[key] = type(value) == "boolean" and (value and "True" or "False") or tostring(value)
+    end
+  end
+  if caps.supports_color_correlated_temperature ~= "True" then
+    caps.supports_color_stop = "False"
+  end
+  local xml = {}
+  for _, key in ipairs(CAPABILITY_KEYS) do
+    xml[#xml + 1] = ("<%s>%s</%s>"):format(key, caps[key], key)
+  end
+  shows[6661] = "<DynamicCapabilities>" .. table.concat(xml) .. "</DynamicCapabilities>"
+end
 --- Keep what a notify tells the proxy in `shows`.
 local function heard(command, p)
   local function xy(x, y, mode)
@@ -301,6 +355,8 @@ local function heard(command, p)
     shows[1210] = p.LIGHT_COLOR_TARGET_X
         and xy(p.LIGHT_COLOR_TARGET_X, p.LIGHT_COLOR_TARGET_Y, p.LIGHT_COLOR_TARGET_COLOR_MODE)
       or shows[1200]
+  elseif command == "DYNAMIC_CAPABILITIES_CHANGED" then
+    showCapabilities(p)
   end
 end
 local uiRequest = C4.SendUIRequest
@@ -4534,6 +4590,81 @@ do
     "and with Color On Mode set to Previous it comes on in the color the proxy showed",
     answered(),
     { device_on = true, brightness = 100, hue = 120, saturation = 50, color_temp = 0 }
+  )
+  forgetSetup()
+end
+
+T.section("a light tells the proxy its capabilities at a start only where the proxy lists others")
+do
+  -- A controller start puts the proxy back on driver.xml's capabilities, and those it is told then fire its color
+  -- variables' events (1200 to 1214, 1300, 1301; dev, 2026-10-23): a light with driver.xml's is told none.
+  for _, kind in ipairs({
+    { "a color strip", info(), true },
+    { "a color strip with no CCT", info({ color_temp_range = { 0, 0 } }), true },
+    {
+      "a CCT light",
+      { device_on = true, brightness = 100, color_temp = 4000, color_temp_range = { 2500, 6500 } },
+      true,
+    },
+    { "a dimmer", { device_on = true, brightness = 100 }, false },
+    { "an on/off light", { device_on = true }, true },
+  }) do
+    for _, how in ipairs({ "an update", "a controller start", "a Reconnect" }) do
+      local name = ("%s at %s"):format(kind[1], how)
+      forgetSetup()
+      startDriver()
+      shakeHands()
+      reply(kind[2])
+      run(5000)
+      local kept = shows
+      local shown = kept[6661]
+      if how == "a Reconnect" then
+        mark()
+        EC.Reconnect()
+      else
+        startDriver()
+        shows = kept
+        if how == "a controller start" then
+          shows[6661] = nil
+          showCapabilities()
+        end
+      end
+      shakeHands()
+      reply(kind[2])
+      local want = how == "a controller start" and kind[3] and 1 or 0
+      T.eq(
+        name .. ": the proxy is told its capabilities " .. want .. " times",
+        #told("DYNAMIC_CAPABILITIES_CHANGED"),
+        want
+      )
+      T.eq(name .. ": and lists the ones it did", shows[6661], shown)
+    end
+  end
+  forgetSetup()
+  light()
+  local kept = shows
+  local shown = kept[6661]
+  kept[6661] = shown:gsub("<color_correlated_temperature_max>%d+<", "<color_correlated_temperature_max>6000<")
+  startDriver()
+  shows = kept
+  shakeHands()
+  reply(info())
+  T.eq("a proxy that lists other capabilities is told the light's once", #told("DYNAMIC_CAPABILITIES_CHANGED"), 1)
+  T.eq("and lists them", shows[6661], shown)
+  -- A light changed while the controller was down is told as it is.
+  forgetSetup()
+  light()
+  kept = shows
+  startDriver()
+  shows = kept
+  shows[6661] = nil
+  showCapabilities()
+  shakeHands()
+  reply(info({ brightness = 30, hue = 120, saturation = 50 }))
+  T.check(
+    "a light changed while the controller was down: its level and color are told",
+    T.deepEqual(levels(), { 30 }) and #colorsTold() == 1 and math.abs(colorsTold()[1] - 1 / 3) < 5e-3,
+    T.show({ levels(), colorsTold() })
   )
   forgetSetup()
 end

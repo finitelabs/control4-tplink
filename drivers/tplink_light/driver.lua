@@ -620,7 +620,26 @@ local function updateDynamicCapabilities(entity)
   for capability, value in pairs(rateCapabilities()) do
     caps[capability] = value
   end
-  SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
+  -- Told only where the proxy's Navigator Dynamic Capabilities (6661) list another: after a controller start it fires
+  -- its color variables' events for any it is told. It lists supports_color_stop False without CCT, whatever it is told.
+  local ok, xml = pcall(function()
+    return C4:GetDeviceVariable(C4:GetProxyDevices(), 6661)
+  end)
+  local shown, same = {}, nil
+  for key, value in string.gmatch(ok and tostring(xml or "") or "", "<([%w_]+)>([^<]*)</%1>") do
+    shown[key] = value
+  end
+  for key, value in pairs(caps) do
+    if shown[key] ~= nil and key ~= "supports_color_stop" then
+      local want = type(value) == "boolean" and (value and "True" or "False") or value
+      same = same ~= false and (shown[key] == want or tonumber(shown[key]) == want)
+    end
+  end
+  if same then
+    log:debug("The proxy shows the light's capabilities")
+  else
+    SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
+  end
 
   -- Tell the proxy we have three virtual buttons (top/bottom/toggle). Sent as
   -- a string per the LIGHT_V2 NUMBER_BUTTONS notify format. Then emit a
