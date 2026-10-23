@@ -620,7 +620,26 @@ local function updateDynamicCapabilities(entity)
   for capability, value in pairs(rateCapabilities()) do
     caps[capability] = value
   end
-  SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
+  -- Told only where the proxy's Navigator Dynamic Capabilities (6661) list another: after a controller start it fires
+  -- its color variables' events for any it is told. It lists supports_color_stop False without CCT, whatever it is told.
+  local ok, xml = pcall(function()
+    return C4:GetDeviceVariable(C4:GetProxyDevices(), 6661)
+  end)
+  local shown, same = {}, nil
+  for key, value in string.gmatch(ok and tostring(xml or "") or "", "<([%w_]+)>([^<]*)</%1>") do
+    shown[key] = value
+  end
+  for key, value in pairs(caps) do
+    if shown[key] ~= nil and key ~= "supports_color_stop" then
+      local want = type(value) == "boolean" and (value and "True" or "False") or value
+      same = same ~= false and (shown[key] == want or tonumber(shown[key]) == want)
+    end
+  end
+  if same then
+    log:debug("The proxy shows the light's capabilities")
+  else
+    SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
+  end
 
   -- Tell the proxy we have three virtual buttons (top/bottom/toggle). Sent as
   -- a string per the LIGHT_V2 NUMBER_BUTTONS notify format. Then emit a
@@ -3194,6 +3213,28 @@ local function applyUpdate(entity, state, news)
     updateDynamicCapabilities(entity)
   end
 
+  -- A first report is held against the proxy's Brightness Percent and Current Color Chromaticity ("x,y,mode"), unless
+  -- a ramp left it another target: it fires Brightness or Color Changed for any other value it is told.
+  local levelShown, colorShown = not isFirstUpdate, not isFirstUpdate
+  if isFirstUpdate then
+    local ok, level, levelTarget, color, colorTarget = pcall(function()
+      local proxy = C4:GetProxyDevices()
+      return C4:GetDeviceVariable(proxy, 1001),
+        C4:GetDeviceVariable(proxy, 1110),
+        C4:GetDeviceVariable(proxy, 1200),
+        C4:GetDeviceVariable(proxy, 1210)
+    end)
+    level = ok and tointeger(level)
+    if level and level >= 0 and level <= 100 then
+      currentBrightness, levelShown = level, tointeger(levelTarget) == level
+    end
+    local x, y, mode = string.match(ok and tostring(color or "") or "", "^([^,]+),([^,]+),([^,]+)$")
+    x, y, mode = tonumber(x), tonumber(y), tointeger(mode)
+    if x and y and x + y > 0 and (mode == LIGHT_COLOR_MODE_FULL or mode == LIGHT_COLOR_MODE_CCT) then
+      currentColorX, currentColorY, currentColorMode, colorShown = x, y, mode, colorTarget == color
+    end
+  end
+
   -- Map ESPHome brightness (0.0-1.0) to C4 (0-100) through the on-level range
   local newBrightness
   local brightness = 0
@@ -3218,11 +3259,10 @@ local function applyUpdate(entity, state, news)
   -- matches currentBrightness).
   if rampingBrightness then
     log:trace("UPDATE_STATE brightness=%s ignored (ramping)", newBrightness)
-  elseif isFirstUpdate or levelNews or not range.sameLevel(newBrightness, currentBrightness) then
-    -- Spec note: LIGHT_BRIGHTNESS_CHANGED should always be sent when the
-    -- driver starts and/or when the hardware comes online so the proxy is
-    -- seeded with the actual brightness, even if it matches our default.
+  elseif not levelShown or levelNews or not range.sameLevel(newBrightness, currentBrightness) then
     notifyBrightnessChanged(newBrightness)
+  elseif isFirstUpdate then
+    matchLedState(currentBrightness > 0)
   end
 
   -- A light keeps its color while off, so read it whether or not it is lit.
@@ -3258,7 +3298,7 @@ local function applyUpdate(entity, state, news)
       and newY
       and newColorMode
       and (
-        isFirstUpdate
+        not colorShown
         or colorNews
         or math.abs(newX - currentColorX) > COLOR_ECHO_TOLERANCE
         or math.abs(newY - currentColorY) > COLOR_ECHO_TOLERANCE

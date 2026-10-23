@@ -217,6 +217,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   every level it is sent and shown. A change of either leaves the light where it
   is, shown at its level on the new range, until its next level command moves it
   onto the range.
+- Fixed a TP-Link light running its Brightness Changed or Color Changed
+  Programming after a controller restart, and one in a color, or at a level
+  under a Max and Min On Level, running it when the driver was updated or
+  reconnected, as Control4 was told the light's level and color again. It is now
+  told only a level, color or capability that differs from the one it shows.
+  After a controller restart Control4 still reports the color variables of a
+  light with color or color temperature as changed, as it learns the light's
+  capabilities again.
 - Fixed a Tapo light with `Fades` on `Driver` that was fading to a color, with
   Dim-To-Warm or in a ramped On's On color, stopping short of it when an Off or
   a level change took over, and Control4 not being told the color it was left
