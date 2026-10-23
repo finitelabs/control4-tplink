@@ -3206,19 +3206,13 @@ local function applyUpdate(entity, state, news)
         C4:GetDeviceVariable(proxy, 1210)
     end)
     level = ok and tointeger(level)
-    if level and level >= 0 and level <= 100 and tointeger(levelTarget) == level then
-      currentBrightness, levelShown = level, true
+    if level and level >= 0 and level <= 100 then
+      currentBrightness, levelShown = level, tointeger(levelTarget) == level
     end
     local x, y, mode = string.match(ok and tostring(color or "") or "", "^([^,]+),([^,]+),([^,]+)$")
     x, y, mode = tonumber(x), tonumber(y), tointeger(mode)
-    if
-      x
-      and y
-      and x + y > 0
-      and (mode == LIGHT_COLOR_MODE_FULL or mode == LIGHT_COLOR_MODE_CCT)
-      and colorTarget == color
-    then
-      currentColorX, currentColorY, currentColorMode, colorShown = x, y, mode, true
+    if x and y and x + y > 0 and (mode == LIGHT_COLOR_MODE_FULL or mode == LIGHT_COLOR_MODE_CCT) then
+      currentColorX, currentColorY, currentColorMode, colorShown = x, y, mode, colorTarget == color
     end
   end
 

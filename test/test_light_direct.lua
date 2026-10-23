@@ -4511,6 +4511,31 @@ do
       #colorsTold(),
     }, { c[3], c[4] })
   end
+  -- Found off, it keeps for Previous the color the proxy shows, not the default a load starts in.
+  forgetSetup()
+  light()
+  proxy("UPDATE_COLOR_ON_MODE", {
+    COLOR_PRESET_ID = 10,
+    COLOR_PRESET_ORIGIN = 1,
+    COLOR_FADE_PRESET_ID = 0,
+    COLOR_FADE_PRESET_ORIGIN = 0,
+  })
+  colorTarget(xy(120, 50), 0)
+  reply()
+  local kept = shows
+  kept[1210] = "0.3,0.6,0"
+  startDriver()
+  shows = kept
+  shakeHands()
+  reply(info({ device_on = false, hue = 120, saturation = 50 }))
+  T.eq("found off at a start, its proxy in a color ramp: it is told off", levels(), { 0 })
+  proxy("ON")
+  T.eq(
+    "and with Color On Mode set to Previous it comes on in the color the proxy showed",
+    answered(),
+    { device_on = true, brightness = 100, hue = 120, saturation = 50, color_temp = 0 }
+  )
+  forgetSetup()
 end
 
 T.eq("no timer or reply handler raised", errors, {})
