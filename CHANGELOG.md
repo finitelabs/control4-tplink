@@ -225,6 +225,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   After a controller restart Control4 still reports the color variables of a
   light with color or color temperature as changed, as it learns the light's
   capabilities again.
+- Fixed a TP-Link light that only switches, a light bound to a TP-Link Outlet
+  output, running its Level Change Programming after a controller restart, and
+  its Light Off and Light On Programming when the driver was updated with the
+  light on. Control4 asks such a light for its level as it connects, before the
+  light has answered, and was told it was off. The light's level is now told
+  once the light answers, and only if it differs from the one shown.
 - Fixed a Tapo light with `Fades` on `Driver` that was fading to a color, with
   Dim-To-Warm or in a ramped On's On color, stopping short of it when an Off or
   a level change took over, and Control4 not being told the color it was left

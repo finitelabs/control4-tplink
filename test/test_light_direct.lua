@@ -289,7 +289,8 @@ function C4:GetDeviceVariable(id, variable)
   end
 end
 -- Its Navigator Dynamic Capabilities (6661) as dev's proxies list them: driver.xml's and what it was told since, or
--- driver.xml's alone after a controller start. It lists supports_color_stop False for a light without CCT.
+-- driver.xml's alone after a controller start. It lists supports_color_stop False for a light without CCT. Without
+-- dimming it keeps its brightness stop, lists its rate ranges 0 and has no 1110 (ESPHome on/off light 638, 2026-10-24).
 local CAPABILITY_KEYS = {
   "dimmer",
   "supports_target",
@@ -328,6 +329,7 @@ local function showCapabilities(told)
       or static:match("<" .. key .. ">([^<]*)</" .. key .. ">")
       or "False"
   end
+  local stop = caps.supports_brightness_stop
   for key, value in pairs(told or {}) do
     if caps[key] ~= nil then
       caps[key] = type(value) == "boolean" and (value and "True" or "False") or tostring(value)
@@ -336,20 +338,31 @@ local function showCapabilities(told)
   if caps.supports_color_correlated_temperature ~= "True" then
     caps.supports_color_stop = "False"
   end
+  if caps.dimmer ~= "True" then
+    caps.supports_brightness_stop = stop
+    for _, rate in ipairs({ "brightness", "click", "hold" }) do
+      caps[rate .. "_rate_min"], caps[rate .. "_rate_max"] = "0", "0"
+    end
+    shows[1110] = nil
+  end
   local xml = {}
   for _, key in ipairs(CAPABILITY_KEYS) do
     xml[#xml + 1] = ("<%s>%s</%s>"):format(key, caps[key], key)
   end
   shows[6661] = "<DynamicCapabilities>" .. table.concat(xml) .. "</DynamicCapabilities>"
 end
---- Keep what a notify tells the proxy in `shows`.
+--- Keep what a notify tells the proxy in `shows`. One without dimming asks for the level at ONLINE_CHANGED true, before
+--- the notify returns (637 and 638 on dev, 2026-10-24).
 local function heard(command, p)
   local function xy(x, y, mode)
     return ("%g,%g,%d"):format(x, y, mode)
   end
+  local dims = not (shows[6661] or ""):find("<dimmer>False</dimmer>", 1, true)
   if command == "LIGHT_BRIGHTNESS_CHANGED" or command == "LIGHT_BRIGHTNESS_CHANGING" then
     shows[1001] = tostring(p.LIGHT_BRIGHTNESS_CURRENT)
-    shows[1110] = tostring(p.LIGHT_BRIGHTNESS_TARGET or p.LIGHT_BRIGHTNESS_CURRENT)
+    shows[1110] = dims and tostring(p.LIGHT_BRIGHTNESS_TARGET or p.LIGHT_BRIGHTNESS_CURRENT) or nil
+  elseif command == "ONLINE_CHANGED" and p.STATE and not dims then
+    RFP.GET_LIGHT_LEVEL(PROXY, "GET_LIGHT_LEVEL", {})
   elseif command == "LIGHT_COLOR_CHANGED" or command == "LIGHT_COLOR_CHANGING" then
     shows[1200] = xy(p.LIGHT_COLOR_CURRENT_X, p.LIGHT_COLOR_CURRENT_Y, p.LIGHT_COLOR_CURRENT_COLOR_MODE)
     shows[1210] = p.LIGHT_COLOR_TARGET_X
@@ -414,10 +427,10 @@ local function startDriver(properties)
   end
   dofile(DRIVER)
   function SendToProxy(idBinding, strCommand, tParams)
+    sent[#sent + 1] = { at = now - start, binding = idBinding, command = strCommand, params = tParams or {} }
     if idBinding == PROXY then
       heard(strCommand, tParams or {})
     end
-    sent[#sent + 1] = { at = now - start, binding = idBinding, command = strCommand, params = tParams or {} }
   end
   -- As OnDriverInit leaves it: no property's handler starts the backend.
   gInitialized = false
@@ -4597,7 +4610,8 @@ end
 T.section("a light tells the proxy its capabilities at a start only where the proxy lists others")
 do
   -- A controller start puts the proxy back on driver.xml's capabilities, and those it is told then fire its color
-  -- variables' events (1200 to 1214, 1300, 1301; dev, 2026-10-23): a light with driver.xml's is told none.
+  -- variables' events (1200 to 1214, 1300, 1301; dev, 2026-10-23): a light with driver.xml's is told none. An ESPHome
+  -- on/off light was told its capabilities and level 0 at each start, and its proxy fired Level Change (2026-10-24).
   for _, kind in ipairs({
     { "a color strip", info(), true },
     { "a color strip with no CCT", info({ color_temp_range = { 0, 0 } }), true },
@@ -4608,6 +4622,7 @@ do
     },
     { "a dimmer", { device_on = true, brightness = 100 }, false },
     { "an on/off light", { device_on = true }, true },
+    { "an on/off light that is off", { device_on = false }, true },
   }) do
     for _, how in ipairs({ "an update", "a controller start", "a Reconnect" }) do
       local name = ("%s at %s"):format(kind[1], how)
@@ -4616,6 +4631,7 @@ do
       shakeHands()
       reply(kind[2])
       run(5000)
+      reply(kind[2])
       local kept = shows
       local shown = kept[6661]
       if how == "a Reconnect" then
@@ -4631,6 +4647,8 @@ do
       end
       shakeHands()
       reply(kind[2])
+      local online = told("ONLINE_CHANGED", "STATE")
+      T.eq(name .. ": the light's report is its first since the start", online[#online], true)
       local want = how == "a controller start" and kind[3] and 1 or 0
       T.eq(
         name .. ": the proxy is told its capabilities " .. want .. " times",
@@ -4638,6 +4656,7 @@ do
         want
       )
       T.eq(name .. ": and lists the ones it did", shows[6661], shown)
+      T.eq(name .. ": and is told no level or color", { levels(), colorsTold() }, { {}, {} })
     end
   end
   forgetSetup()
@@ -4666,6 +4685,19 @@ do
     T.deepEqual(levels(), { 30 }) and #colorsTold() == 1 and math.abs(colorsTold()[1] - 1 / 3) < 5e-3,
     T.show({ levels(), colorsTold() })
   )
+  forgetSetup()
+  startDriver()
+  shakeHands()
+  reply({ device_on = false })
+  kept = shows
+  startDriver()
+  shows = kept
+  shakeHands()
+  reply({ device_on = true })
+  T.eq("an on/off light switched on while the driver was updated is told on", levels(), { 100 })
+  mark()
+  proxy("GET_LIGHT_LEVEL")
+  T.eq("and asked its level after its report, tells it", levels(), { 100 })
   forgetSetup()
 end
 

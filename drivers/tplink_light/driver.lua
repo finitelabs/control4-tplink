@@ -621,7 +621,8 @@ local function updateDynamicCapabilities(entity)
     caps[capability] = value
   end
   -- Told only where the proxy's Navigator Dynamic Capabilities (6661) list another: after a controller start it fires
-  -- its color variables' events for any it is told. It lists supports_color_stop False without CCT, whatever it is told.
+  -- its color variables' events for any it is told. Whatever it is told, it lists supports_color_stop False without
+  -- CCT, and without dimming supports_brightness_stop True and a brightness rate range of 0.
   local ok, xml = pcall(function()
     return C4:GetDeviceVariable(C4:GetProxyDevices(), 6661)
   end)
@@ -629,8 +630,12 @@ local function updateDynamicCapabilities(entity)
   for key, value in string.gmatch(ok and tostring(xml or "") or "", "<([%w_]+)>([^<]*)</%1>") do
     shown[key] = value
   end
+  local derived = { supports_color_stop = true }
+  if not supportsDimming then
+    derived.supports_brightness_stop, derived.brightness_rate_min, derived.brightness_rate_max = true, true, true
+  end
   for key, value in pairs(caps) do
-    if shown[key] ~= nil and key ~= "supports_color_stop" then
+    if shown[key] ~= nil and not derived[key] then
       local want = type(value) == "boolean" and (value and "True" or "False") or value
       same = same ~= false and (shown[key] == want or tonumber(shown[key]) == want)
     end
@@ -2232,6 +2237,11 @@ function RFP.GET_LIGHT_LEVEL(idBinding, strCommand, tParams, args)
     notifyBrightnessChanging(brightnessRamp.targetLevel, math.max(0, left), (interpolatedBrightness()))
     return
   end
+  -- The proxy of a light without dimming asks at ONLINE_CHANGED, before the light's first report since it connected
+  -- has been read: that report tells it a level it does not show.
+  if not dynamicCapsSent then
+    return
+  end
   notifyBrightnessChanged(currentBrightness)
 end
 
@@ -3214,7 +3224,8 @@ local function applyUpdate(entity, state, news)
   end
 
   -- A first report is held against the proxy's Brightness Percent and Current Color Chromaticity ("x,y,mode"), unless
-  -- a ramp left it another target: it fires Brightness or Color Changed for any other value it is told.
+  -- a ramp left it another target: it fires Brightness or Color Changed for any other value it is told. The proxy of a
+  -- light without dimming has no level target (1110).
   local levelShown, colorShown = not isFirstUpdate, not isFirstUpdate
   if isFirstUpdate then
     local ok, level, levelTarget, color, colorTarget = pcall(function()
@@ -3226,7 +3237,7 @@ local function applyUpdate(entity, state, news)
     end)
     level = ok and tointeger(level)
     if level and level >= 0 and level <= 100 then
-      currentBrightness, levelShown = level, tointeger(levelTarget) == level
+      currentBrightness, levelShown = level, levelTarget == nil or tointeger(levelTarget) == level
     end
     local x, y, mode = string.match(ok and tostring(color or "") or "", "^([^,]+),([^,]+),([^,]+)$")
     x, y, mode = tonumber(x), tonumber(y), tointeger(mode)
