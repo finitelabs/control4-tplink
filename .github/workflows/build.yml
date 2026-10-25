@@ -55,11 +55,12 @@ jobs:
           node-version-file: .node-version
 
       - name: Setup stylua
-        uses: JohnnyMorganz/stylua-action@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          version: latest
-          args: --version
+        run: |
+          curl -fsSL --retry 3 --retry-all-errors -o "$RUNNER_TEMP/stylua.zip" \
+            "https://github.com/JohnnyMorganz/StyLua/releases/latest/download/stylua-linux-$(uname -m).zip"
+          unzip -q "$RUNNER_TEMP/stylua.zip" -d "$RUNNER_TEMP/stylua"
+          echo "$RUNNER_TEMP/stylua" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/stylua/stylua" --version
 
       - name: Install system dependencies
         run: |
@@ -87,8 +88,15 @@ jobs:
       - name: Test
         run: make test
 
+      - name: Write .env from the secrets .env.default names
+        run: python3 tools/preprocess.py --write-dotenv
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+
       - name: Build
         run: make build
+        env:
+          REQUIRE_SECRETS: ${{ github.ref_type == 'tag' && '1' || '' }}
 
       - name: Verify PDFs were generated
         run: |
