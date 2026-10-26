@@ -2309,8 +2309,8 @@ end
 -- and bails out if it has changed.
 local sceneGeneration = 0
 
--- A level command takes the light out of a scene, as on Control4's own
--- lights: no later step runs. The step in flight still ends its own ramps.
+-- A level command takes the light out of a scene: no later step runs. The step
+-- in flight still ends its own ramps.
 function stopSceneSteps()
   sceneGeneration = sceneGeneration + 1
 end
