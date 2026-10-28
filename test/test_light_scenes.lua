@@ -2009,6 +2009,7 @@ do
   end
   T.eq("the brightness presets are the one sent", ids("brightness_presets"), { "10" })
   T.eq("the color presets are the one sent", ids("color_presets"), { "1" })
+  ShimPersistLand()
   T.eq("no Color On Mode is stored", PersistGetValue("color_on_mode"), nil)
   T.eq("and a key with nothing stored still reads as nil", persist:get("brightness_on_mode"), nil)
   proxy("ON")
