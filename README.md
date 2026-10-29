@@ -359,6 +359,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a Tapo light with `Fades` on `Driver` turned off while its color was
   still fading coming back on, with Color On Mode set to Previous, in the color
   the fade began in.
+- Fixed a TP-Link light's color in Navigator and in its variables staying on the
+  old color after a color preset was picked, one of the Color Agent's (such as
+  Relax) or one of the light's own, or after the Control4 app turned the light
+  on in its Color On Mode color. The light itself changed color.
 
 ### Changed
 

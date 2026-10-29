@@ -96,7 +96,7 @@ end
 --- @param modes table The entity's supported_color_modes.
 local function light(modes, on)
   queue = {}
-  for _, key in ipairs({ "color_on_mode", "color_presets", "previous_color" }) do
+  for _, key in ipairs({ "color_on_mode", "previous_color" }) do
     persist:delete(key)
   end
   dofile(DRIVER)
@@ -511,6 +511,33 @@ do
   proxy("ON")
   T.eq("it is sent the edited color", colors(), { edited })
   T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
+end
+
+T.section("an edit of the preset the light is in leaves the light's color")
+do
+  -- The proxy sends the edit alone and goes on showing the light's color (dev, 2026-10-29).
+  light({ ColorMode.COLOR_MODE_RGB })
+  onMode(ON)
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_X = ON[1],
+    LIGHT_COLOR_TARGET_Y = ON[2],
+    LIGHT_COLOR_TARGET_MODE = 0,
+    LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+    LIGHT_COLOR_TARGET_PRESET_ID = 1,
+    LIGHT_COLOR_TARGET_PRESET_ORIGIN = 1,
+  })
+  run(15000)
+  mark()
+  proxy(
+    "UPDATE_COLOR_PRESET",
+    { COMMAND = "MODIFIED", ID = 1, NAME = "On Color", COLOR_X = 0.2, COLOR_Y = 0.5, COLOR_MODE = 0 }
+  )
+  run(15000)
+  T.eq(
+    "the light is sent nothing, and the proxy is told no color",
+    { commands(), told("LIGHT_COLOR_CHANGED", "at") },
+    { 0, {} }
+  )
 end
 
 T.section("a ramped off ends the on cycle, as an instant one does")
@@ -1323,18 +1350,20 @@ do
 
   -- Each way Control4 sets a color is a pick.
   lit()
-  proxy(
-    "UPDATE_COLOR_PRESET",
-    { COMMAND = "ADDED", ID = 5, NAME = "green", COLOR_X = green[1], COLOR_Y = green[2], COLOR_MODE = 0 }
-  )
   mark()
-  proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_PRESET_ID = 5, LIGHT_COLOR_TARGET_COLOR_RATE = 0 })
+  proxy("SET_COLOR_TARGET", {
+    LIGHT_COLOR_TARGET_X = green[1],
+    LIGHT_COLOR_TARGET_Y = green[2],
+    LIGHT_COLOR_TARGET_MODE = 0,
+    LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+    LIGHT_COLOR_TARGET_PRESET_ID = 5,
+    LIGHT_COLOR_TARGET_PRESET_ORIGIN = 2,
+  })
   run(15000)
-  T.eq(
-    "a color preset: the proxy is told it by its id",
+  T.eq("a color preset: the proxy is told it by id and origin", {
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID"),
-    { 5 }
-  )
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ORIGIN"),
+  }, { { 5 }, { 2 } })
   mark()
   proxy("SET_LEVEL", { LEVEL = 50 })
   run(15000)
@@ -1705,15 +1734,18 @@ do
       toldOnce(setX, setY, CCT),
       T.show(sent)
     )
-    proxy(
-      "UPDATE_COLOR_PRESET",
-      { COMMAND = "ADDED", ID = 5, NAME = "mix", COLOR_X = lineX, COLOR_Y = lineY, COLOR_MODE = CCT }
-    )
     mark()
-    proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_PRESET_ID = 5, LIGHT_COLOR_TARGET_COLOR_RATE = 0 })
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = lineX,
+      LIGHT_COLOR_TARGET_Y = lineY,
+      LIGHT_COLOR_TARGET_MODE = CCT,
+      LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+      LIGHT_COLOR_TARGET_PRESET_ID = 5,
+      LIGHT_COLOR_TARGET_PRESET_ORIGIN = 1,
+    })
     echo(kind)
     T.check(
-      case[1] .. ", a preset off the curve by its id: the proxy is told its point once",
+      case[1] .. ", a preset off the curve: the proxy is told its point once",
       toldOnce(pointX, pointY, CCT),
       T.show(sent)
     )
@@ -2332,7 +2364,7 @@ end
 T.section("a preset stored on a driver with none is stored under its own key alone")
 do
   -- persist answers an unset key with nil, so a preset stored under one key reaches no other.
-  local keys = { "brightness_presets", "color_presets", "color_on_mode", "brightness_on_mode" }
+  local keys = { "brightness_presets", "color_on_mode", "brightness_on_mode" }
   for _, key in ipairs(keys) do
     persist:delete(key)
   end
@@ -2352,7 +2384,6 @@ do
     return out
   end
   T.eq("the brightness presets are the one sent", ids("brightness_presets"), { "10" })
-  T.eq("the color presets are the one sent", ids("color_presets"), { "1" })
   ShimPersistLand()
   T.eq("no Color On Mode is stored", PersistGetValue("color_on_mode"), nil)
   T.eq("and a key with nothing stored still reads as nil", persist:get("brightness_on_mode"), nil)
