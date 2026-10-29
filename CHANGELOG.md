@@ -74,7 +74,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   the ramp began.
 - Fixed a scene step that sets only a level leaving a TP-Link light in its old
   color with Dim-To-Warm. The step now takes the Dim-To-Warm color for its
-  level.
+  level, as other level changes do.
 - Fixed Stop Scene Ramp not stopping a TP-Link light: the light carried on to
   the end of its ramp and was shown as still ramping. It now holds the light
   where the ramp has got to.
@@ -242,12 +242,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Changed
 
-- With Dim-To-Warm, a color set on a TP-Link light now lasts until its
-  brightness next changes, when the light takes its Dim-To-Warm color again. It
-  used to last until the light was turned off.
+- With Dim-To-Warm, a color an Advanced Lighting scene sets on a TP-Link light
+  that is on now stays when the light is dimmed or brightened, until it turns
+  off, as a color set from a Navigator or programming does.
 - With Dim-To-Warm, a brightness command for the level a TP-Link light is
-  already at now returns a color set on it to its Dim-To-Warm color. It used to
-  do nothing.
+  already at now returns a color set on it from the Tapo app to its Dim-To-Warm
+  color. It used to do nothing.
 - The TP-Link Light driver now declares a light as a dimmer and turns dimming
   off once it has connected to one that only switches, a light bound to a
   TP-Link Outlet output. It used to declare none and turn dimming on at connect.
