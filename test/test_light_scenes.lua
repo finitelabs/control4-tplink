@@ -1434,6 +1434,38 @@ do
   })
   run(15000)
   mixed("a driver reload")
+  -- So does a rebind of the light's connection: the light then reports it is in the color.
+  lit()
+  rgb = setColor(green)
+  OBC[OUTLET](OUTLET, "TPLINK_OUTLET", false)
+  OBC[OUTLET](OUTLET, "TPLINK_OUTLET", true)
+  RFP.UPDATE_STATE(OUTLET, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { ColorMode.COLOR_MODE_RGB } }),
+    state = SerializeSafe({
+      state = true,
+      brightness = 1.0,
+      color_mode = ColorMode.COLOR_MODE_RGB,
+      red = rgb[1],
+      green = rgb[2],
+      blue = rgb[3],
+    }),
+  })
+  run(15000)
+  mixed("a rebind")
+  -- A fade to off sent on again as it reaches off has ended its on cycle: the on is in the On color.
+  lit()
+  setColor(green)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 1000 })
+  run(999)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  run(15000)
+  T.eq(
+    "a fade to off sent on again as it reaches off: the proxy is told the On color",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
+  mixed("a fade to off sent on again as it reaches off")
 
   -- None of these is a pick that holds: a color set while the light is off, or fading to off, is the one it next comes
   -- on in, which the Color On Mode replaces; one set from the app is no Control4 command.
