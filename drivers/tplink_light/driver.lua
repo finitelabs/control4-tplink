@@ -128,7 +128,6 @@ local P_SCENES = "scenes"
 local P_MAX_ON_LEVEL = "max_on_level"
 local P_MIN_ON_LEVEL = "min_on_level"
 local P_BRIGHTNESS_PRESETS = "brightness_presets"
-local P_COLOR_PRESETS = "color_presets"
 local P_COLOR_ON_MODE = "color_on_mode"
 local P_PREVIOUS_COLOR = "previous_color"
 local P_BRIGHTNESS_ON_MODE_PRESET = "brightness_on_mode_preset"
@@ -223,8 +222,9 @@ local prePressBrightness = nil
 -- aren't preset-driven.
 local currentBrightnessPresetId = nil
 
--- LIGHT_COLOR_TARGET_PRESET_ID counterpart (spec _3.1).
-local currentColorPresetId = nil
+-- The color preset { id, origin } the light is in, told with its color. Ids repeat across the device's presets and the
+-- Color Agent's, and the proxy drops a color report that names an id without its origin.
+local currentColorPreset = nil
 
 -- A color Control4 set while the light was on: level commands keep it, with no on mode's color, until the light goes
 -- off. Not persisted, so a reload or a restart ends it.
@@ -1149,7 +1149,8 @@ local function notifyColorChanged(x, y, mode)
     LIGHT_COLOR_CURRENT_X = x,
     LIGHT_COLOR_CURRENT_Y = y,
     LIGHT_COLOR_CURRENT_COLOR_MODE = mode,
-    LIGHT_COLOR_CURRENT_PRESET_ID = currentColorPresetId,
+    LIGHT_COLOR_CURRENT_PRESET_ID = currentColorPreset and currentColorPreset.id,
+    LIGHT_COLOR_CURRENT_PRESET_ORIGIN = currentColorPreset and currentColorPreset.origin,
   }, "NOTIFY")
 end
 
@@ -1166,7 +1167,8 @@ local function notifyColorChanging(targetX, targetY, mode, rate)
     -- and helper code use LIGHT_COLOR_TARGET_RATE so we send both for safety.
     LIGHT_COLOR_TARGET_COLOR_RATE = rate,
     LIGHT_COLOR_TARGET_RATE = rate,
-    LIGHT_COLOR_TARGET_PRESET_ID = currentColorPresetId,
+    LIGHT_COLOR_TARGET_PRESET_ID = currentColorPreset and currentColorPreset.id,
+    LIGHT_COLOR_TARGET_PRESET_ORIGIN = currentColorPreset and currentColorPreset.origin,
   }, "NOTIFY", true)
 end
 
@@ -1192,7 +1194,7 @@ local function endOnCycle()
   })
   -- Drop any color preset id: whatever drove this on-cycle's color does not
   -- apply once the light is off.
-  currentColorPresetId = nil
+  currentColorPreset = nil
   colorPicked = false
 end
 
@@ -1368,7 +1370,7 @@ local function setESPHomeBrightness(level, rateMs, keepColor, at)
       -- proxy follows up with a SET_COLOR_TARGET inside mergedColorSent's window,
       -- that handler will set the correct id before brightnessRampFinished
       -- emits the terminal LIGHT_COLOR_CHANGED.
-      currentColorPresetId = nil
+      currentColorPreset = nil
       -- Stash on the ramp metadata so brightnessRampFinished can emit the
       -- terminal LIGHT_COLOR_CHANGED when the bulb's combined transition
       -- completes. The proxy needs CHANGING (now) + CHANGED (at finish) to
@@ -2093,23 +2095,10 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
       or Select(tParams, "RATE")
   ) or getDefaultColorRate()
 
-  -- spec _3.1: if the proxy named a color preset and didn't pass explicit
-  -- coordinates, look the preset up locally so the bulb still receives
-  -- concrete values. Track the preset id either way so subsequent
-  -- LIGHT_COLOR_CHANGED notifies report it as the current preset.
+  -- The proxy sends a preset's x and y with its id and origin, and sends no preset it is asked for without an origin.
   local presetId = tointeger(Select(tParams, "LIGHT_COLOR_TARGET_PRESET_ID"))
-  if presetId ~= nil and not (x and y) and not (kelvin and kelvin > 0) then
-    local preset = persist:get(P_COLOR_PRESETS, {})[tostring(presetId)]
-    if preset then
-      x = preset.x
-      y = preset.y
-      incomingMode = preset.mode
-    else
-      log:warn("SET_COLOR_TARGET: unknown LIGHT_COLOR_TARGET_PRESET_ID=%s", presetId)
-      return
-    end
-  end
-  currentColorPresetId = presetId
+  local presetOrigin = tointeger(Select(tParams, "LIGHT_COLOR_TARGET_PRESET_ORIGIN"))
+  currentColorPreset = presetId and presetOrigin and { id = presetId, origin = presetOrigin } or nil
 
   local targetX, targetY, targetMode
 
@@ -2448,7 +2437,7 @@ local function applySceneStep(step)
     end
     cmd.has_state = true
     cmd.state = true
-    currentColorPresetId = nil
+    currentColorPreset = nil
     local colorChanged = math.abs(color.x - currentColorX) > 1e-4
       or math.abs(color.y - currentColorY) > 1e-4
       or mode ~= currentColorMode
@@ -2844,42 +2833,26 @@ function RFP.UPDATE_COLOR_RATE_DEFAULT(idBinding, strCommand, tParams, args)
   persist:set(P_RATE_DEFAULT, rate)
 end
 
--- Persist color presets keyed by ID so we can apply them when the proxy is
--- not the initiator (button link, scene, programming, dim-to-warm fade).
+-- The proxy tells the light of its own presets (origin 1) only. The on and dim colors follow an edit of the one the
+-- on mode names; the light's color does not.
 function RFP.UPDATE_COLOR_PRESET(idBinding, strCommand, tParams, args)
   log:trace("RFP.UPDATE_COLOR_PRESET(%s, %s, %s)", idBinding, strCommand, tParams)
   if idBinding ~= PROXY_BINDING then
     return
   end
-  local command = Select(tParams, "COMMAND")
   local presetId = tointeger(Select(tParams, "ID"))
-  if presetId == nil then
+  local onMode = persist:get(P_COLOR_ON_MODE, {})
+  if presetId == nil or Select(tParams, "COMMAND") == "REMOVED" or not onMode.onPreset then
     return
   end
-  local presets = persist:get(P_COLOR_PRESETS, {})
-  local key = tostring(presetId)
-  if command == "REMOVED" then
-    presets[key] = nil
-  else
-    presets[key] = {
-      id = presetId,
-      name = Select(tParams, "NAME"),
-      x = tonumber(Select(tParams, "COLOR_X")),
-      y = tonumber(Select(tParams, "COLOR_Y")),
-      mode = tointeger(Select(tParams, "COLOR_MODE")),
-    }
-  end
-  persist:set(P_COLOR_PRESETS, presets)
-  -- The on and dim colors follow an edit of the preset the on mode names.
-  local onMode = persist:get(P_COLOR_ON_MODE, {})
-  if onMode.onPreset and presets[key] then
-    for _, p in ipairs({ onMode.onPreset, onMode.fadePreset }) do
-      if p.id == presetId and p.origin == PRESET_ORIGIN_DEVICE then
-        p.x, p.y, p.mode = presets[key].x, presets[key].y, presets[key].mode
-      end
+  for _, p in ipairs({ onMode.onPreset, onMode.fadePreset }) do
+    if p.id == presetId and p.origin == PRESET_ORIGIN_DEVICE then
+      p.x = tonumber(Select(tParams, "COLOR_X"))
+      p.y = tonumber(Select(tParams, "COLOR_Y"))
+      p.mode = tointeger(Select(tParams, "COLOR_MODE"))
     end
-    persist:set(P_COLOR_ON_MODE, onMode)
   end
+  persist:set(P_COLOR_ON_MODE, onMode)
 end
 
 -- Per spec _20.4: UPDATE_COLOR_ON_MODE carries the active On preset (and a
@@ -3189,7 +3162,7 @@ local function handleDisconnect()
   prePressBrightness = nil
   mergedColorSent = nil
   currentBrightnessPresetId = nil
-  currentColorPresetId = nil
+  currentColorPreset = nil
   lightBrightness = nil
   UpdateProperty("Driver Status", "Disconnected")
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
@@ -3332,7 +3305,7 @@ local function applyUpdate(entity, state, news)
     then
       -- Hardware-driven color change (out-of-band update): no preset is
       -- driving this, so don't echo a stale preset id.
-      currentColorPresetId = nil
+      currentColorPreset = nil
       notifyColorChanged(newX, newY, newColorMode)
     end
   end
@@ -3374,7 +3347,7 @@ OBC[OUTLET_BINDING] = function()
   prePressBrightness = nil
   mergedColorSent = nil
   currentBrightnessPresetId = nil
-  currentColorPresetId = nil
+  currentColorPreset = nil
   colorPicked = false
   lightBrightness = nil
   currentColorX = DEFAULT_COLOR_X

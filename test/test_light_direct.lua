@@ -363,6 +363,12 @@ local function heard(command, p)
     shows[1110] = dims and tostring(p.LIGHT_BRIGHTNESS_TARGET or p.LIGHT_BRIGHTNESS_CURRENT) or nil
   elseif command == "ONLINE_CHANGED" and p.STATE and not dims then
     RFP.GET_LIGHT_LEVEL(PROXY, "GET_LIGHT_LEVEL", {})
+  elseif
+    command == "LIGHT_COLOR_CHANGED"
+    and p.LIGHT_COLOR_CURRENT_PRESET_ID
+    and not p.LIGHT_COLOR_CURRENT_PRESET_ORIGIN
+  then
+    return -- the proxy drops one that names a preset id without its origin (dev, 2026-10-29)
   elseif command == "LIGHT_COLOR_CHANGED" or command == "LIGHT_COLOR_CHANGING" then
     shows[1200] = xy(p.LIGHT_COLOR_CURRENT_X, p.LIGHT_COLOR_CURRENT_Y, p.LIGHT_COLOR_CURRENT_COLOR_MODE)
     shows[1210] = p.LIGHT_COLOR_TARGET_X
@@ -1128,6 +1134,52 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a preset picked from Control4 is told by id and origin, which the proxy needs to show its color")
+do
+  -- The proxy sends a preset's xy with its id and origin, and drops a report of an id without one (dev, 2026-10-29).
+  for _, case in ipairs({
+    { "a Color Agent preset", { id = 5, origin = 2 }, { 0.5, 0.41 } },
+    { "a device preset", { id = 1, origin = 1 }, { 0.42, 0.4 } },
+  }) do
+    local name, preset, color = case[1], case[2], case[3]
+    light()
+    mark()
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = color[1],
+      LIGHT_COLOR_TARGET_Y = color[2],
+      LIGHT_COLOR_TARGET_MODE = 0,
+      LIGHT_COLOR_TARGET_COLOR_RATE = 0,
+      LIGHT_COLOR_TARGET_PRESET_ID = preset.id,
+      LIGHT_COLOR_TARGET_PRESET_ORIGIN = preset.origin,
+    })
+    reply()
+    run(5000)
+    T.eq(name .. ": told in it, by id and origin", {
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID"),
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ORIGIN"),
+    }, { { preset.id }, { preset.origin } })
+    T.eq(name .. ": so the proxy shows it", shows[1200], ("%g,%g,%d"):format(color[1], color[2], 0))
+    mark()
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = 0.2,
+      LIGHT_COLOR_TARGET_Y = 0.5,
+      LIGHT_COLOR_TARGET_MODE = 0,
+      LIGHT_COLOR_TARGET_COLOR_RATE = 2000,
+      LIGHT_COLOR_TARGET_PRESET_ID = 8,
+      LIGHT_COLOR_TARGET_PRESET_ORIGIN = 2,
+    })
+    reply()
+    run(5000)
+    T.eq(name .. ", then another over a rate: its ramp names it by id and origin, start and end", {
+      told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_PRESET_ID"),
+      told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_PRESET_ORIGIN"),
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID"),
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ORIGIN"),
+    }, { { 8 }, { 2 }, { 8 }, { 2 } })
+    T.eq(name .. ", then another over a rate: the proxy shows it", shows[1200], ("%g,%g,%d"):format(0.2, 0.5, 0))
+  end
+end
+
 ---------------------------------------------------------------------------
 -- The proxy's setup
 ---------------------------------------------------------------------------
@@ -1160,7 +1212,7 @@ local SETUP_KEYS = {
 
 --- Forget what the driver stores of the proxy's on modes, presets and rates.
 local function forgetSetup()
-  for _, key in ipairs({ "color_presets", "brightness_presets", "previous_color" }) do
+  for _, key in ipairs({ "brightness_presets", "previous_color" }) do
     persist:delete(key)
   end
   for _, key in ipairs(SETUP_KEYS) do
