@@ -363,6 +363,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   old color after a color preset was picked, one of the Color Agent's (such as
   Relax) or one of the light's own, or after the Control4 app turned the light
   on in its Color On Mode color. The light itself changed color.
+- Fixed changing `Automatic Updates` or `Update Channel` on a TP-Link Outlet or
+  TP-Link Light driver briefly holding up every other one, longer in a project
+  with many, while the change was copied to them.
 
 ### Changed
 

@@ -233,16 +233,19 @@ Displays the DriverCentral cloud license status.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-Turns on/off the DriverCentral cloud automatic updates.
+Turns on/off the DriverCentral cloud automatic updates. Changing it on any
+TP-Link Outlet or TP-Link Light driver changes it on all of them.
 
 <!-- #else -->
 
-Turns on/off the GitHub cloud automatic updates.
+Turns on/off the GitHub cloud automatic updates. Changing it on any TP-Link
+Outlet or TP-Link Light driver changes it on all of them.
 
 ##### Update Channel
 
 Sets the update channel for which releases are considered during an automatic
-update from the GitHub repo releases.
+update from the GitHub repo releases. Changing it on any TP-Link Outlet or
+TP-Link Light driver changes it on all of them.
 
 <!-- #endif -->
 
