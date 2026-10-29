@@ -2090,8 +2090,8 @@ do
   local ON = { 0.423358, 0.398951 }
   forgetSetup()
   proxySetup = setupFile("setup-727.xml")
-  walked({ brightness = 40 }, NO_POLLS)
-  colorTarget(BLUE, 0)
+  -- In blue from the Tapo app: a blue picked in Control4 would stay through the fade.
+  walked({ brightness = 40, hue = 240, saturation = 100 }, NO_POLLS)
   serve(1000, 250)
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })
@@ -2131,15 +2131,13 @@ do
   T.eq("the strip ends at 80 % in the On color", { strip.brightness, strip.hue, strip.saturation }, { 80, 152, 40 })
   T.eq("where the proxy is told it", told("LIGHT_COLOR_CHANGED", "at"), { 8000 })
 
-  walked({ brightness = 40 }, NO_POLLS)
-  colorTarget(BLUE, 0)
+  walked({ brightness = 40, hue = 240, saturation = 100 }, NO_POLLS)
   serve(1000, 250)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 41, RATE = 4000 })
   steps = serve(5000, 250)
   T.check("one level over 4 s from blue: the color is walked all the same", #steps > 10, #steps)
   T.eq("to the On color", { strip.brightness, strip.hue, strip.saturation }, { 41, 152, 40 })
-  walked({ brightness = 40 }, NO_POLLS)
-  colorTarget(BLUE, 0)
+  walked({ brightness = 40, hue = 240, saturation = 100 }, NO_POLLS)
   serve(1000, 250)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 60000 })
   steps = serve(10000, 250)
@@ -2149,8 +2147,7 @@ do
     { 23, 18 }
   )
 
-  walked({ brightness = 40 }, NO_POLLS)
-  colorTarget(BLUE, 0)
+  walked({ brightness = 40, hue = 240, saturation = 100 }, NO_POLLS)
   serve(1000, 250)
   local asked = now
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })
@@ -2170,8 +2167,7 @@ do
   -- color temperatures, and reports each as its point.
   forgetSetup()
   proxySetup = setupFile("setup-607.xml")
-  walked({ brightness = 40 })
-  colorTarget(BLUE, 0)
+  walked({ brightness = 40, hue = 240, saturation = 100 })
   serve(1000, 250)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })
   serve(4000, 250)
@@ -2206,6 +2202,29 @@ do
   T.eq("a fade to off with Dim-To-Warm names no color on its way down", each(steps, "hue"), {})
   T.eq("so the strip is off in the color it had", { strip.device_on, strip.hue, strip.saturation }, { false, 54, 32 })
   T.eq("as the proxy is told: no color", told("LIGHT_COLOR_CHANGED"), {})
+  -- A color picked in Control4 while the strip is on stays through a fade the driver walks: it names no color.
+  walked({ brightness = 80, hue = 54, saturation = 32 }, NO_POLLS)
+  colorTarget(xy(120, 100), 0)
+  serve(1000, 250)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 40, RATE = 2000 })
+  steps = serve(3000, 250)
+  T.eq("after a color picked in Control4, a fade names no color on its way", each(steps, "hue"), {})
+  T.eq("so the strip ends at 40 % in it", { strip.brightness, strip.hue, strip.saturation }, { 40, 120, 100 })
+  T.eq("as the proxy is told: no color", told("LIGHT_COLOR_CHANGED"), {})
+  -- One picked as a rated on begins stays for a level that replaces the on before the strip is lit.
+  walked({ device_on = false }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
+  colorTarget(xy(120, 100), 0)
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 2000 })
+  steps = serve(3000, 250)
+  T.eq("a level replacing that on before it is lit: its steps name only the color picked", each(steps, "hue"), { 120 })
+  T.eq(
+    "so the strip ends at 60 % in the color picked",
+    { strip.brightness, strip.hue, strip.saturation },
+    { 60, 120, 100 }
+  )
   forgetSetup()
 end
 
@@ -2264,13 +2283,12 @@ do
       COLOR_FADE_PRESET_COLOR_MODE = 0,
     })
   end
-  --- In blue at 40 %, with Dim-To-Warm: a ramp to 80 % over 8 s, 4 s in.
+  --- In blue from the app at 40 %, with Dim-To-Warm: a ramp to 80 % over 8 s, 4 s in.
   --- Returns the x of the color the strip was last sent.
   local function halfWay()
     forgetSetup()
-    walked({ brightness = 40 }, NO_POLLS)
+    walked({ brightness = 40, hue = 240, saturation = 100 }, NO_POLLS)
     onMode(true)
-    colorTarget(BLUE, 0)
     serve(1000, 250)
     local asked = now
     proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 80, RATE = 8000 })

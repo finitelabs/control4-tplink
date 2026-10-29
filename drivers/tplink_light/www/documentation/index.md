@@ -251,6 +251,12 @@ Light Off or Level Change programming. After a controller restart Control4 still
 reports the color variables of a light with color or color temperature as
 changed, as it learns the light's capabilities again.
 
+With **Color On Mode** set to Dim-To-Warm, a color set while the light is on,
+from a Navigator, programming, a color preset or an Advanced Lighting Scene,
+stays when the light is dimmed or brightened. The light follows Dim-To-Warm
+again the next time it turns on, and from its first level change after a
+controller restart or a driver update.
+
 # <span style="color:#4ACBD6">Troubleshooting</span>
 
 **`Driver Status` shows `Bind to an outlet or set the IP Address property`**:
