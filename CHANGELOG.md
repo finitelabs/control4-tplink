@@ -33,6 +33,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   by itself over the fades set in the Tapo app, which the driver switches on,
   and Control4 shows those: ramp rates and stops then do nothing. The property
   is shown only while such a light is connected.
+  <!-- #ifdef DRIVERCENTRAL -->
+- Added a `Support Code` property to the TP-Link Outlet and TP-Link Light
+  drivers. A code from Finite Labs support opens the driver's Lua tab in
+  Composer for an hour; leave it blank otherwise.
+  <!-- #endif -->
 
 ### Fixed
 

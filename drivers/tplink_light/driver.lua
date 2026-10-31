@@ -18,6 +18,9 @@ local githubUpdater = require("lib.github-updater")
 local driverFilenames = require("lib.driver-filenames")
 --#endif
 local updateSettings = require("lib.update-settings")
+--#ifdef DRIVERCENTRAL
+local supportCode = require("lib.support-code")
+--#endif
 local persist = require("lib.persist")
 local constants = require("constants")
 local Klap = require("lib.klap")
@@ -293,6 +296,13 @@ function EC.SET_UPDATE_SETTING(params)
   log:trace("EC.SET_UPDATE_SETTING(%s)", params)
   updateSettings:take(params)
 end
+
+--#ifdef DRIVERCENTRAL
+--- Not logged: the value is the code.
+function OPC.Support_Code(propertyValue)
+  supportCode:enter(propertyValue)
+end
+--#endif
 
 --- The attributes of the element in `list` with this id, and this origin
 --- where one is given.
