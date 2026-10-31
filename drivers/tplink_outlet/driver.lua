@@ -17,6 +17,9 @@ local githubUpdater = require("lib.github-updater")
 local driverFilenames = require("lib.driver-filenames")
 --#endif
 local updateSettings = require("lib.update-settings")
+--#ifdef DRIVERCENTRAL
+local supportCode = require("lib.support-code")
+--#endif
 local constants = require("constants")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
@@ -661,6 +664,13 @@ function EC.SET_UPDATE_SETTING(params)
   log:trace("EC.SET_UPDATE_SETTING(%s)", params)
   updateSettings:take(params)
 end
+
+--#ifdef DRIVERCENTRAL
+--- Not logged: the value is the code.
+function OPC.Support_Code(propertyValue)
+  supportCode:enter(propertyValue)
+end
+--#endif
 
 --- @param propertyValue string
 function OPC.Log_Level(propertyValue)

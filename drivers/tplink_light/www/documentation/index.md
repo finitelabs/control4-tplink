@@ -149,6 +149,15 @@ Displays the current status of the driver.
 
 Standard logging controls. Log mode expires after 3 hours.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+### Support Code
+
+Leave it blank unless Finite Labs support gives you a code: it opens Composer's
+Lua tab to this driver for an hour.
+
+<!-- #endif -->
+
 ### IP Address
 
 IP address of the light device for direct mode. Leave blank when bound to an
