@@ -136,6 +136,17 @@ end
 --- Forward declared; defined in the Control section.
 local setOutput, toggleOutput
 
+--- Tell a relay binding an output's known state without firing the bound
+--- driver's programming. Sends nothing while the state is unknown.
+--- @param idBinding integer
+--- @param n number Output number (1-based).
+local function reportRelayState(idBinding, n)
+  local state = Select(outputs, n, "state")
+  if state ~= nil then
+    SendToProxy(idBinding, state and "STATE_CLOSED" or "STATE_OPENED", {}, "NOTIFY")
+  end
+end
+
 --- Get or create the dynamic relay binding for an output and wire its handlers.
 --- @param n number Output number (1-based).
 --- @return integer|nil bindingId
@@ -146,7 +157,7 @@ local function ensureRelayBinding(n)
     return nil
   end
 
-  RFP[binding.bindingId] = function(_, strCommand, tParams)
+  RFP[binding.bindingId] = function(idBinding, strCommand, tParams)
     log:trace("RFP relay output=%s strCommand=%s", n, strCommand)
     if strCommand == "ON" or strCommand == "CLOSE" then
       setOutput(n, true)
@@ -162,12 +173,14 @@ local function ensureRelayBinding(n)
           setOutput(n, false)
         end)
       end
+    elseif strCommand == "GET_STATE" then
+      reportRelayState(idBinding, n)
     end
   end
 
   OBC[binding.bindingId] = function(idBinding, _, bIsBound)
-    if bIsBound and outputs[n] and outputs[n].state ~= nil then
-      SendToProxy(idBinding, outputs[n].state and "CLOSED" or "OPENED", {}, "NOTIFY")
+    if bIsBound then
+      reportRelayState(idBinding, n)
     end
   end
 

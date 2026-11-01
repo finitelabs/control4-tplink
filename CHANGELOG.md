@@ -248,6 +248,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   old color after a color preset was picked, one of the Color Agent's (such as
   Relax) or one of the light's own, or after the Control4 app turned the light
   on in its Color On Mode color. The light itself changed color.
+- Fixed a relay driver connected to a TP-Link Outlet output running its
+  programming for the relay closing or opening when it was connected, though the
+  output had not changed. A relay driver that asks for the output's state is now
+  told it.
   <!-- #ifndef DRIVERCENTRAL -->
 - Fixed changing `Automatic Updates` or `Update Channel` on a TP-Link Outlet or
   TP-Link Light driver briefly holding up every other one, longer in a project
