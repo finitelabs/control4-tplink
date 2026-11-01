@@ -915,6 +915,10 @@ function OnDriverLateInit()
   restartPollTimers()
 end
 
+--#ifdef DRIVERCENTRAL
+OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
+--#endif
+
 function OnDriverDestroyed()
   log:info("TP-Link Outlet driver shutting down")
   CancelTimer("SysinfoPoll")
