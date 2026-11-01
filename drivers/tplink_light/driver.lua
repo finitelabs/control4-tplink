@@ -20,7 +20,7 @@ local driverFilenames = require("lib.driver-filenames")
 local updateSettings = require("lib.update-settings")
 --#ifdef DRIVERCENTRAL
 local supportCode = require("lib.support-code")
--- No local: this chunk is at Lua's 200-local limit.
+-- No local: the tests load this file unpreprocessed, where one more passes Lua's 200-local limit.
 require("lib.diagnostics")
 --#endif
 local persist = require("lib.persist")
