@@ -20,6 +20,8 @@ local driverFilenames = require("lib.driver-filenames")
 local updateSettings = require("lib.update-settings")
 --#ifdef DRIVERCENTRAL
 local supportCode = require("lib.support-code")
+-- No local: the tests load this file unpreprocessed, where one more passes Lua's 200-local limit.
+require("lib.diagnostics")
 --#endif
 local persist = require("lib.persist")
 local constants = require("constants")
@@ -301,6 +303,17 @@ end
 --- Not logged: the value is the code.
 function OPC.Support_Code(propertyValue)
   supportCode:enter(propertyValue)
+end
+
+--- Turns Cloud Monitoring on or off.
+--- @param propertyValue string
+function OPC.Cloud_Monitoring(propertyValue)
+  require("lib.diagnostics"):setEnabled(propertyValue == "Enabled")
+end
+
+--- Prints a diagnostics report, and sends it while Cloud Monitoring is on.
+function EC.DiagnosticsSnapshot()
+  require("lib.diagnostics"):dumpSnapshot()
 end
 --#endif
 
