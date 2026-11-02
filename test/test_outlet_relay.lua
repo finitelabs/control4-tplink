@@ -144,7 +144,7 @@ do
 end
 
 plug.reachable = true
-OnDriverLateInit()
+ShimLateInit()
 drain()
 
 T.section("a bind and GET_STATE tell the known state without firing programming")

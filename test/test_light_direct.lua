@@ -440,7 +440,7 @@ local function startDriver(properties)
   end
   -- As OnDriverInit leaves it: no property's handler starts the backend.
   gInitialized = false
-  OnDriverLateInit()
+  ShimLateInit()
   mark()
 end
 
