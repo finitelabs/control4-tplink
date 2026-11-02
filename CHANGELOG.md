@@ -47,6 +47,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
   <!-- #endif -->
 
+- Added On, Off and Toggle keypad button links to each TP-Link Outlet output. A
+  keypad button bound to one switches the output, and its LED follows it.
+
+- Added `Output N In Use` and `Output N Idle` events and an `Output N In Use`
+  variable to the TP-Link Outlet driver, set from each output's power and two
+  levels, `In Use Above (W)` and `Idle Below (W)`.
+
 - The TP-Link Outlet and TP-Link Light drivers follow their device to a new
   address. When DHCP gives the device another address on the controller's
   network, the driver finds it by its MAC address and updates `IP Address` (OS

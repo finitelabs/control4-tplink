@@ -90,6 +90,66 @@
       <description>When NAME output 6 turns off</description>
     </event>
     <event>
+      <id>21</id>
+      <name>Output 1 In Use</name>
+      <description>When NAME output 1's power rises above its In Use level</description>
+    </event>
+    <event>
+      <id>22</id>
+      <name>Output 2 In Use</name>
+      <description>When NAME output 2's power rises above its In Use level</description>
+    </event>
+    <event>
+      <id>23</id>
+      <name>Output 3 In Use</name>
+      <description>When NAME output 3's power rises above its In Use level</description>
+    </event>
+    <event>
+      <id>24</id>
+      <name>Output 4 In Use</name>
+      <description>When NAME output 4's power rises above its In Use level</description>
+    </event>
+    <event>
+      <id>25</id>
+      <name>Output 5 In Use</name>
+      <description>When NAME output 5's power rises above its In Use level</description>
+    </event>
+    <event>
+      <id>26</id>
+      <name>Output 6 In Use</name>
+      <description>When NAME output 6's power rises above its In Use level</description>
+    </event>
+    <event>
+      <id>31</id>
+      <name>Output 1 Idle</name>
+      <description>When NAME output 1's power falls below its Idle level</description>
+    </event>
+    <event>
+      <id>32</id>
+      <name>Output 2 Idle</name>
+      <description>When NAME output 2's power falls below its Idle level</description>
+    </event>
+    <event>
+      <id>33</id>
+      <name>Output 3 Idle</name>
+      <description>When NAME output 3's power falls below its Idle level</description>
+    </event>
+    <event>
+      <id>34</id>
+      <name>Output 4 Idle</name>
+      <description>When NAME output 4's power falls below its Idle level</description>
+    </event>
+    <event>
+      <id>35</id>
+      <name>Output 5 Idle</name>
+      <description>When NAME output 5's power falls below its Idle level</description>
+    </event>
+    <event>
+      <id>36</id>
+      <name>Output 6 Idle</name>
+      <description>When NAME output 6's power falls below its Idle level</description>
+    </event>
+    <event>
       <id>100</id>
       <name>Connected</name>
       <description>When NAME connects to the device</description>
@@ -314,6 +374,22 @@
         <readonly>true</readonly>
       </property>
       <property>
+        <name>Output 1 In Use Above (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts above which the output is in use; 0 uses the Idle level.</description>
+      </property>
+      <property>
+        <name>Output 1 Idle Below (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts below which the output is idle; 0 uses the In Use level.</description>
+      </property>
+      <property>
         <name>Output 2 Name</name>
         <type>STRING</type>
         <default/>
@@ -330,6 +406,22 @@
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 2 In Use Above (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts above which the output is in use; 0 uses the Idle level.</description>
+      </property>
+      <property>
+        <name>Output 2 Idle Below (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts below which the output is idle; 0 uses the In Use level.</description>
       </property>
       <property>
         <name>Output 3 Name</name>
@@ -350,6 +442,22 @@
         <readonly>true</readonly>
       </property>
       <property>
+        <name>Output 3 In Use Above (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts above which the output is in use; 0 uses the Idle level.</description>
+      </property>
+      <property>
+        <name>Output 3 Idle Below (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts below which the output is idle; 0 uses the In Use level.</description>
+      </property>
+      <property>
         <name>Output 4 Name</name>
         <type>STRING</type>
         <default/>
@@ -366,6 +474,22 @@
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 4 In Use Above (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts above which the output is in use; 0 uses the Idle level.</description>
+      </property>
+      <property>
+        <name>Output 4 Idle Below (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts below which the output is idle; 0 uses the In Use level.</description>
       </property>
       <property>
         <name>Output 5 Name</name>
@@ -386,6 +510,22 @@
         <readonly>true</readonly>
       </property>
       <property>
+        <name>Output 5 In Use Above (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts above which the output is in use; 0 uses the Idle level.</description>
+      </property>
+      <property>
+        <name>Output 5 Idle Below (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts below which the output is idle; 0 uses the In Use level.</description>
+      </property>
+      <property>
         <name>Output 6 Name</name>
         <type>STRING</type>
         <default/>
@@ -402,6 +542,22 @@
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Output 6 In Use Above (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts above which the output is in use; 0 uses the Idle level.</description>
+      </property>
+      <property>
+        <name>Output 6 Idle Below (W)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>4000</maximum>
+        <default>0</default>
+        <description>Watts below which the output is idle; 0 uses the In Use level.</description>
       </property>
     </properties>
     <actions>

@@ -132,6 +132,10 @@ Single-outlet devices appear as output 1.
   and `Voltage`) for use in programming
 - **Real-time energy monitoring** per outlet with configurable poll rate
 - **Programming commands**: Turn Output On / Turn Output Off / Toggle Output
+- **Keypad buttons**: On, Off and Toggle button links for each output, with LEDs
+  that follow it
+- **In Use / Idle events** for each output, from its power and two levels you
+  set, on devices with energy monitoring
 - Automatic session recovery (re-handshake) when the device restarts or drops
   the session
 - **Follows the device**: when it stops answering, the driver detects its
@@ -375,6 +379,18 @@ Displays each output's name (as set in the Kasa or Tapo app), current state, and
 last power reading. These properties are hidden until the device connects; only
 the outputs the device actually reports are shown.
 
+##### Output N In Use Above (W) / Output N Idle Below (W) [ 0 - 4000 ]
+
+The power levels for the output's `In Use` and `Idle` events. The output is in
+use once its power rises above `In Use Above`, and idle once it falls below
+`Idle Below`. Between the two it stays as it was, so a reading that wobbles
+around one level doesn't fire over and over. With one level at 0 the other is
+used both ways; with both at 0 (the default) the events are off. Shown once the
+output has reported its power.
+
+For example, a TV that draws 1 W on standby and 90 W when on: set `In Use Above`
+to 30 and `Idle Below` to 5.
+
 ## Driver Actions
 
 ##### Refresh Now
@@ -421,12 +437,21 @@ Light driver, connect its **TP-Link Outlet** binding to the output's Light
 binding here, and leave the light driver's IP Address blank. See the TP-Link
 Light documentation for the full walkthrough.
 
+Each output also has keypad **button links** (`Output 1 On Button Link`,
+`Output 1 Off Button Link`, `Output 1 Toggle Button Link`, ...). Bind a keypad
+button to one to switch the output from that button. The button's LED follows
+the output: On and Toggle are lit while it is on, Off while it is off.
+
 ## Programming
 
 **Events:**
 
 - **Output N Turned On / Turned Off**: Fires when an output changes state,
   whether from Control4, the Kasa or Tapo app, or the physical button
+- **Output N In Use / Idle**: Fires when an output's power rises above its
+  `In Use Above` level, or falls below its `Idle Below` level. A reading the
+  output already has when the driver starts or reconnects, or when a level
+  changes, fires neither
 - **Connected / Disconnected**: Fires when the driver's connection to the device
   is established or lost
 
@@ -441,12 +466,13 @@ Light documentation for the full walkthrough.
 
 **Variables (per output N):**
 
-| Variable         | Type   | Description                                 |
-| ---------------- | ------ | ------------------------------------------- |
-| `Output N Name`  | STRING | Output name as set in the Kasa or Tapo app  |
-| `Output N State` | BOOL   | Current relay state                         |
-| `Output N Power` | NUMBER | Current power draw in watts (energy models) |
-| `Voltage`        | NUMBER | Line voltage (energy models)                |
+| Variable          | Type   | Description                                            |
+| ----------------- | ------ | ------------------------------------------------------ |
+| `Output N Name`   | STRING | Output name as set in the Kasa or Tapo app             |
+| `Output N State`  | BOOL   | Current relay state                                    |
+| `Output N Power`  | NUMBER | Current power draw in watts (energy models)            |
+| `Output N In Use` | BOOL   | Whether the output is in use, while its levels are set |
+| `Voltage`         | NUMBER | Line voltage (energy models)                           |
 
 Variables are created when the device connects, so only the outputs the device
 reports get variables.
