@@ -27,6 +27,7 @@ local values = require("lib.values")
 local Klap = require("lib.klap")
 local Legacy = require("lib.legacy")
 local Smart = require("lib.smart")
+local Discovery = require("lib.discovery")
 
 ---------------------------------------------------------------------------
 -- State
@@ -115,6 +116,9 @@ local function updateDriverStatus(status)
   UpdateProperty("Driver Status", status)
 end
 
+--- Follows the device to a new address; defined with the transport detection.
+local follower
+
 --- Mark the device online/offline, firing Connected/Disconnected events on change.
 --- @param online boolean
 --- @param reason string? Status detail shown when offline.
@@ -125,6 +129,7 @@ local function setDeviceOnline(online, reason)
     log:info("Device is %s", online and "online" or "offline")
   end
   if online then
+    follower:found()
     updateDriverStatus(transportName and ("Connected (" .. transportName .. ")") or "Connected")
   else
     updateDriverStatus(not IsEmpty(reason) and ("Disconnected: " .. reason) or "Disconnected")
@@ -346,6 +351,12 @@ end
 -- Polling
 ---------------------------------------------------------------------------
 
+--- Forward declarations; defined below with the transport detection logic.
+local missedPoll, anotherDevice
+
+--- Polls in a row the device has not answered.
+local missedPolls = 0
+
 --- Poll output states and device info via get_sysinfo.
 local function pollSysinfo()
   if transport == nil then
@@ -361,15 +372,20 @@ local function pollSysinfo()
     local sysinfo = Select(response, "system", "get_sysinfo")
     if type(sysinfo) ~= "table" or tointeger(sysinfo.err_code) ~= 0 then
       log:warn("get_sysinfo failed: %s", response)
-      setDeviceOnline(false, "device rejected get_sysinfo")
+      missedPoll("device rejected get_sysinfo")
       return
     end
+    if not follower:accepts(sysinfo.mac) then
+      anotherDevice()
+      return
+    end
+    missedPolls = 0
     applySysinfo(sysinfo)
     setDeviceOnline(true)
   end, function(err)
     sysinfoInFlight = false
     log:warn("sysinfo poll failed: %s", Select(err, "error") or err)
-    setDeviceOnline(false, Select(err, "error"))
+    missedPoll(Select(err, "error"))
   end)
 end
 
@@ -459,6 +475,11 @@ end
 --- @param name string
 --- @param sysinfo table The probe's get_sysinfo result.
 local function adoptTransport(t, name, sysinfo)
+  if not follower:accepts(sysinfo.mac) then
+    anotherDevice()
+    return
+  end
+  missedPolls = 0
   transport = t
   transportName = name
   log:info("Using %s transport", name)
@@ -540,6 +561,47 @@ local function tryKlap(onFail)
   end)
 end
 
+--- A poll the device did not answer. From the third in a row the next poll
+--- detects its protocol again, as a firmware update, a rollback or a reset
+--- can change it; one lost answer keeps the session.
+--- @param reason string?
+function missedPoll(reason)
+  missedPolls = missedPolls + 1
+  if missedPolls >= 3 then
+    transport = nil
+    transportName = nil
+  end
+  setDeviceOnline(false, reason)
+end
+
+--- Another device answers at the device's address: control nothing there, and
+--- look for the device on the network.
+function anotherDevice()
+  local ip = Properties["IP Address"] or ""
+  log:warn("A device other than this one answers at %s", ip)
+  missedPolls = 0
+  transport = nil
+  transportName = nil
+  setDeviceOnline(false, "a different device is at " .. ip .. "; looking for this one")
+  follower:lost()
+end
+
+--- No protocol reached the device at its address: it may have moved.
+--- @param reason string
+local function detectionFailed(reason)
+  setDeviceOnline(false, reason)
+  follower:lost()
+end
+
+follower = Discovery.follower(function(address)
+  if address == Properties["IP Address"] then
+    return
+  end
+  log:info("The device moved to %s", address)
+  UpdateProperty("IP Address", address)
+  reconnect()
+end)
+
 --- Reconfigure the transports from properties, detect the right one, and poll.
 function reconnect()
   transport = nil
@@ -572,7 +634,7 @@ function reconnect()
     updateDriverStatus("Connecting (KLAP)...")
     tryKlap(function(klapReason, klapCode)
       if mode == "KLAP" then
-        setDeviceOnline(false, klapReason)
+        detectionFailed(klapReason)
         return
       end
       -- Always fall back to legacy, even on an auth mismatch: transitional
@@ -584,10 +646,10 @@ function reconnect()
       tryLegacy(function(legacyReason)
         if klapCode == 403 then
           log:info("Legacy probe failed: %s", legacyReason)
-          setDeviceOnline(false, klapReason)
+          detectionFailed(klapReason)
           return
         end
-        setDeviceOnline(false, "KLAP: " .. klapReason .. " / Legacy: " .. legacyReason)
+        detectionFailed("KLAP: " .. klapReason .. " / Legacy: " .. legacyReason)
       end)
     end)
   else
@@ -597,7 +659,7 @@ function reconnect()
       if mode == "Auto" then
         legacyReason = legacyReason .. " (set TP-Link credentials if this device is on KLAP firmware)"
       end
-      setDeviceOnline(false, legacyReason)
+      detectionFailed(legacyReason)
     end)
   end
 end
@@ -712,6 +774,11 @@ end
 --- @param propertyValue string
 function OPC.IP_Address(propertyValue)
   log:trace("OPC.IP_Address('%s')", propertyValue)
+  -- An address set by hand may be another device's, as a replacement's is.
+  -- Late init replays every property, and that is no edit.
+  if gInitialized and not follower:wrote(propertyValue) then
+    follower:forget()
+  end
   if gInitialized then
     reconnect()
   end
@@ -923,4 +990,5 @@ function OnDriverDestroyed()
   log:info("TP-Link Outlet driver shutting down")
   CancelTimer("SysinfoPoll")
   CancelTimer("EnergyPoll")
+  Discovery.stop()
 end

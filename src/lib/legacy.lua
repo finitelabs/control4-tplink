@@ -5,8 +5,7 @@
 --- same legacy IOT JSON that KLAP devices use; only the transport differs,
 --- so the two transports are interchangeable behind `request(payload)`.
 ---
---- The "encryption" is a rolling XOR autokey cipher (initial key 171):
---- each ciphertext byte becomes the key for the next byte.
+--- The "encryption" is a rolling XOR autokey cipher (lib.kasa-cipher).
 ---
 --- Requests are serialized FIFO with a per-request timeout, since the
 --- protocol has no request/response correlation ids.
@@ -14,6 +13,7 @@
 local deferred = require("deferred")
 
 local log = require("lib.logging")
+local cipher = require("lib.kasa-cipher")
 
 require("drivers-common-public.global.timer")
 require("lib.utils")
@@ -41,36 +41,6 @@ local REQUEST_TIMEOUT_MS = 5000
 --- Timer id for the in-flight request timeout.
 --- @type string
 local TIMEOUT_TIMER = "LegacyRequestTimeout"
-
---- LuaJIT bit library (available in the DriverWorks runtime).
-local bit = require("bit")
-
---- Scrambles plaintext with the Kasa rolling XOR cipher.
---- @param plaintext string
---- @return string
-local function scramble(plaintext)
-  local key = 171
-  local out = {}
-  for i = 1, #plaintext do
-    key = bit.bxor(key, plaintext:byte(i))
-    out[i] = string.char(key)
-  end
-  return table.concat(out)
-end
-
---- Unscrambles a Kasa rolling-XOR ciphertext.
---- @param data string
---- @return string
-local function unscramble(data)
-  local key = 171
-  local out = {}
-  for i = 1, #data do
-    local byte = data:byte(i)
-    out[i] = string.char(bit.bxor(key, byte))
-    key = byte
-  end
-  return table.concat(out)
-end
 
 --- Creates a new Legacy transport.
 --- @return Legacy
@@ -157,7 +127,7 @@ function Legacy:_onDataIn(strData)
   self._inFlight = nil
 
   -- JSON:decode raises on text that is not JSON, as a datagram cut short is.
-  local ok, decoded = pcall(JSON.decode, JSON, unscramble(strData))
+  local ok, decoded = pcall(JSON.decode, JSON, cipher.unscramble(strData))
   self:_sendNext()
   if not ok or decoded == nil then
     inFlight.d:reject({ error = "Legacy: response is not valid JSON" })
@@ -181,7 +151,7 @@ function Legacy:_sendNext()
   end
 
   self._inFlight = table.remove(self._queue, 1)
-  C4:SendToNetwork(NETWORK_BINDING, PORT, scramble(JSON:encode(self._inFlight.payload)))
+  C4:SendToNetwork(NETWORK_BINDING, PORT, cipher.scramble(JSON:encode(self._inFlight.payload)))
 
   SetTimer(TIMEOUT_TIMER, REQUEST_TIMEOUT_MS, function()
     local timedOut = self._inFlight

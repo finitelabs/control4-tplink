@@ -42,6 +42,12 @@ TP-Link device. It operates in one of two modes:
 A bound outlet takes priority: while the connection is bound, the network
 properties are hidden and ignored.
 
+In direct mode the driver follows the light. When it stops answering, the driver
+detects its protocol again, so it keeps working when a firmware update, a
+rollback or a reset changes how the light connects. When it gets a new address
+on the controller's network, the driver finds it by its MAC address and updates
+`IP Address` (OS 4.0 and later).
+
 All standard light features are available and gate on what the device supports:
 on/off, brightness with target ramps and stop, color and color temperature with
 ramps, click/hold button rates, advanced lighting scenes, brightness and color
@@ -174,7 +180,14 @@ address is removed.
 ### IP Address
 
 IP address of the light device for direct mode. Leave blank when bound to an
-outlet. Use a DHCP reservation so it does not change.
+outlet. Use a DHCP reservation so it does not change. If the light does get a
+new address on the controller's network, the driver finds it by its MAC address
+and updates this property (OS 4.0 and later). Entering an address by hand points
+the driver at whichever light answers there, such as a replacement.
+
+### MAC Address (read-only)
+
+The MAC address of the light, learned when the driver first connects to it.
 
 ### Protocol \[ **_Auto_** | KLAP | Legacy \]
 
@@ -314,6 +327,12 @@ is not accepting third-party connections. Work through these in order:
    poll, so the status clears on its own once the device accepts the handshake.
 1. If it still fails, power cycle the device to clear a handshake lockout, then
    run [`Reconnect`](#reconnect) again.
+
+**`Disconnected: a different device is at ...; looking for this one`**: another
+TP-Link device now answers at the light's address, usually after DHCP gave the
+address to it. The driver controls nothing there and looks for its own light on
+the network. If you replaced the light, enter its address in
+[`IP Address`](#ip-address) to use the new one.
 
 **A Kasa light strip shows the wrong brightness while an app effect runs**: the
 strip reports the effect's brightness while a lighting effect is active; any

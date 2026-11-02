@@ -70,6 +70,8 @@ events, variables, and real-time power readings.
 - Real-time energy monitoring per outlet with a configurable poll rate, on
   devices that support it
 - Turn Output On / Turn Output Off / Toggle Output programming commands
+- Follows the device to a new protocol after a firmware update, a rollback or a
+  reset, and to a new address on the controller's network (OS 4.0 and later)
 - Output Light bindings pair with the TP-Link Light driver to present an output
   as a light
 
@@ -94,6 +96,8 @@ modes:
   fade time from a command: the driver makes the fade in steps, or leaves it to
   the light's own fades
 - Advanced Lighting Scenes support
+- Follows the light to a new protocol after a firmware update, a rollback or a
+  reset, and to a new address on the controller's network (OS 4.0 and later)
 
 # <span style="color:#4ACBD6">Installation</span>
 
@@ -154,8 +158,18 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   and Control4 shows those: ramp rates and stops then do nothing. The property
   is shown only while such a light is connected.
 
+- The TP-Link Outlet and TP-Link Light drivers follow their device to a new
+  address. When DHCP gives the device another address on the controller's
+  network, the driver finds it by its MAC address and updates `IP Address` (OS
+  4.0 and later). A different device that answers at the address is not
+  controlled. The TP-Link Light driver shows the light's `MAC Address`.
+
 ### Fixed
 
+- Fixed a TP-Link device that changed protocol, as a firmware update, a rollback
+  or a reset can make it do, staying disconnected until the driver was
+  reconnected or the controller restarted. The driver now detects the device's
+  protocol again once it has missed three polls in a row.
 - Fixed an Advanced Lighting scene set to flash, with no delay or ramp time on
   any step, hanging the TP-Link Light driver. It now runs its steps once and
   stops.

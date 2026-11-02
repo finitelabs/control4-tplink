@@ -93,6 +93,8 @@ events, variables, and real-time power readings.
 - Real-time energy monitoring per outlet with a configurable poll rate, on
   devices that support it
 - Turn Output On / Turn Output Off / Toggle Output programming commands
+- Follows the device to a new protocol after a firmware update, a rollback or a
+  reset, and to a new address on the controller's network (OS 4.0 and later)
 - Output Light bindings pair with the TP-Link Light driver to present an output
   as a light
 
@@ -117,6 +119,8 @@ modes:
   fade time from a command: the driver makes the fade in steps, or leaves it to
   the light's own fades
 - Advanced Lighting Scenes support
+- Follows the light to a new protocol after a firmware update, a rollback or a
+  reset, and to a new address on the controller's network (OS 4.0 and later)
 
 # <span style="color:#4ACBD6">Installation</span>
 

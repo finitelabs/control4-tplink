@@ -4771,6 +4771,58 @@ do
   forgetSetup()
 end
 
+T.section(
+  "a light that stops answering is detected again from its third missed poll, and another device is not controlled"
+)
+do
+  local listeners = 0
+  function C4:CreateServer()
+    listeners = listeners + 1
+    return true
+  end
+  function C4:DestroyServer() end
+  function C4:SendBroadcast() end
+  light({ mac = "02-00-00-00-00-0C" }, { ["MAC Address"] = "" })
+  T.eq("the light's MAC is shown", Properties["MAC Address"], "02:00:00:00:00:0C")
+  T.falsy("in direct mode", hidden["MAC Address"])
+  local handshakes = #klap.handshakes
+  run(5000)
+  fail("no answer")
+  run(5000)
+  fail("no answer")
+  run(5000)
+  T.eq("after two missed polls the next goes on the same session", flying(), { "poll" })
+  T.eq("with no new handshake", #klap.handshakes, handshakes)
+  fail("no answer")
+  run(5000)
+  T.eq("from the third the light's protocol is detected again", #klap.handshakes, handshakes + 1)
+  shakeHands()
+  reply(info({ mac = "02-00-00-00-00-0C" }))
+  T.eq("and it connects", status(), "Connected (SMART)")
+  T.eq("with no search for its address", listeners, 0)
+
+  mark()
+  run(5000)
+  reply(info({ mac = "02-00-00-00-00-0D" }))
+  T.eq("another device at the address starts a search", listeners, 1)
+  T.eq("and the light is told as not answering", told("ONLINE_CHANGED", "STATE"), { false })
+  mark()
+  proxy("ON")
+  T.eq("a command is sent to nothing", flying(), {})
+
+  startDriver({ ["MAC Address"] = "" })
+  shakeHands()
+  reply(info({ mac = "02-00-00-00-00-0D" }))
+  T.eq(
+    "after a restart the light's MAC is kept: the other device is still not taken",
+    status(),
+    "Looking for the device on the network..."
+  )
+  T.eq("and shows no MAC of its own", Properties["MAC Address"], "")
+  require("lib.discovery").stop()
+  require("lib.persist"):delete("discovery_mac")
+end
+
 T.eq("no timer or reply handler raised", errors, {})
 
 T.finish()
