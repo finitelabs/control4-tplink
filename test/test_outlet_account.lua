@@ -71,7 +71,7 @@ Properties = {
   ["Poll Rate (Seconds)"] = "5",
 }
 dofile(HERE .. "/../drivers/tplink_outlet/driver.lua")
-OnDriverLateInit()
+ShimLateInit()
 
 --- Set a property as Composer does: the value, then the driver's handler.
 local function setProperty(name, value)
