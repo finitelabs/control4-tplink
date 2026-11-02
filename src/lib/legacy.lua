@@ -134,8 +134,8 @@ function Legacy:_ensureConnection()
     KEEP_ALIVE = true,
     DELIMITER = "",
     -- Use an ephemeral source port: binding the local port to 9999 collides
-    -- with anything else listening there (e.g. the Chowmain TP-Link agent's
-    -- discovery server), which then swallows the device's replies.
+    -- with another driver listening on that port, which then swallows the
+    -- device's replies.
     MIRROR_UDP_PORT = false,
     SUPPRESS_CONNECTION_EVENTS = true,
   })
