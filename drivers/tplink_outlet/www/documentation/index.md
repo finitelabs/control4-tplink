@@ -167,8 +167,6 @@ for setting it up.
 1. Use the "Search" tab to find the "TP-Link Outlet" driver and add it to your
    project (one instance per physical device).
 
-   ![Search Drivers](images/search-drivers.png)
-
 1. Select the newly added driver in the "System Design" tab. You will notice
    that the `Cloud Status` reflects the license state. If you have purchased a
    license it will show `License Activated`, otherwise `Trial Running` and
@@ -198,8 +196,6 @@ for setting it up.
 
 1. Use the "Search" tab to find the "TP-Link Outlet" driver and add it to your
    project (one instance per physical device).
-
-   ![Search Drivers](images/search-drivers.png)
 
 1. Configure the [Kasa Settings](#kasa-settings) with the device IP address and
    TP-Link account credentials.
