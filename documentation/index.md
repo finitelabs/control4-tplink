@@ -74,9 +74,9 @@ migrates a device.
 
 ## TP-Link Outlet
 
-Control Kasa smart power strips (HS300/KP303/KP400) and smart plugs. Every
-output is exposed as a standard Control4 relay binding with per-output events,
-variables, and real-time power readings.
+Control Kasa and Tapo smart plugs and power strips (e.g. HS300, KP303, EP25).
+Every output is exposed as a standard Control4 relay binding with per-output
+events, variables, and real-time power readings.
 
 **Key features:**
 

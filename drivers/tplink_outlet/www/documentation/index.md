@@ -13,7 +13,7 @@
 }
 </style>
 
-<img alt="Kasa" src="./images/header.png" width="500"/>
+<img alt="TP-Link" src="./images/header.png" width="500"/>
 
 ______________________________________________________________________
 
@@ -26,9 +26,9 @@ ______________________________________________________________________
 
 <!-- #endif -->
 
-The TP-Link Outlet driver provides local, cloud-free control of Kasa smart power
-strips (HS300/KP303/KP400) and smart plugs directly from Control4, across the
-generations of TP-Link's local protocols.
+The TP-Link Outlet driver provides local, cloud-free control of TP-Link Kasa and
+Tapo smart plugs and power strips directly from Control4, across the generations
+of TP-Link's local protocols.
 
 Older Kasa drivers rely on TP-Link's plaintext protocol on port 9999. TP-Link
 firmware updates rolled out since late 2024 disable that protocol and replace it
@@ -62,7 +62,7 @@ programming.
     - [Driver Properties](#driver-properties)
       - [Cloud Settings](#cloud-settings)
       - [Driver Settings](#driver-settings)
-      - [Kasa Settings](#kasa-settings)
+      - [TP-Link Settings](#tp-link-settings)
       - [Device Information](#device-information)
       - [Outputs](#outputs)
   - [Driver Actions](#driver-actions)
@@ -80,8 +80,8 @@ programming.
 # <span style="color:#4ACBD6">System Requirements</span>
 
 - Control4 OS 3.3+
-- A TP-Link Kasa power strip or smart plug on KLAP firmware, on the same network
-  as the controller (or routable from it)
+- A TP-Link Kasa or Tapo smart plug or power strip on KLAP firmware, on the same
+  network as the controller (or routable from it)
 - The TP-Link (Kasa/Tapo) account credentials the device is bound to
 - Devices on newer firmware must have **Third-Party Compatibility** enabled
   (Tapo app: `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
@@ -176,8 +176,8 @@ for setting it up.
    in the "System Design" tab and perform the "Check Drivers" action.
    <br><img alt="Check Drivers" src="./images/check-drivers.png" width="300"/>
 
-1. Configure the [Kasa Settings](#kasa-settings) with the device IP address and
-   TP-Link account credentials.
+1. Configure the [TP-Link Settings](#tp-link-settings) with the device IP
+   address and TP-Link account credentials.
 
 1. After a few moments the [`Driver Status`](#driver-status-read-only) will
    display `Connected`. If the driver fails to connect, set the
@@ -197,8 +197,8 @@ for setting it up.
 1. Use the "Search" tab to find the "TP-Link Outlet" driver and add it to your
    project (one instance per physical device).
 
-1. Configure the [Kasa Settings](#kasa-settings) with the device IP address and
-   TP-Link account credentials.
+1. Configure the [TP-Link Settings](#tp-link-settings) with the device IP
+   address and TP-Link account credentials.
 
 1. After a few moments the [`Driver Status`](#driver-status-read-only) will
    display `Connected`. If the driver fails to connect, set the
@@ -287,11 +287,11 @@ address is removed.
 
 <!-- #endif -->
 
-#### Kasa Settings
+#### TP-Link Settings
 
 ##### IP Address
 
-Sets the IP address of the Kasa device (e.g. `192.168.1.50`).
+Sets the IP address of the plug or power strip (e.g. `192.168.1.50`).
 
 > ⚠️ You should ensure the address will not change by assigning a static IP or
 > creating a DHCP reservation for the device.
@@ -359,7 +359,7 @@ Line voltage reported by the energy meter, when supported.
 
 ##### Output N Name / State / Power (read-only)
 
-Displays each output's name (as configured in the Kasa app), current state, and
+Displays each output's name (as set in the Kasa or Tapo app), current state, and
 last power reading. These properties are hidden until the device connects; only
 the outputs the device actually reports are shown.
 
@@ -377,8 +377,8 @@ Discard the current KLAP session and perform a fresh handshake.
 
 ##### Update Drivers
 
-Trigger all Kasa drivers to update from the latest release on GitHub, regardless
-of the current version.
+Trigger all TP-Link drivers to update from the latest release on GitHub,
+regardless of the current version.
 
 <!-- #endif -->
 
@@ -414,7 +414,7 @@ Light documentation for the full walkthrough.
 **Events:**
 
 - **Output N Turned On / Turned Off**: Fires when an output changes state,
-  whether from Control4, the Kasa app, or the physical button
+  whether from Control4, the Kasa or Tapo app, or the physical button
 - **Connected / Disconnected**: Fires when the driver's connection to the device
   is established or lost
 
@@ -431,7 +431,7 @@ Light documentation for the full walkthrough.
 
 | Variable         | Type   | Description                                 |
 | ---------------- | ------ | ------------------------------------------- |
-| `Output N Name`  | STRING | Output alias as configured in the Kasa app  |
+| `Output N Name`  | STRING | Output name as set in the Kasa or Tapo app  |
 | `Output N State` | BOOL   | Current relay state                         |
 | `Output N Power` | NUMBER | Current power draw in watts (energy models) |
 | `Voltage`        | NUMBER | Line voltage (energy models)                |
@@ -482,8 +482,8 @@ always require them.
 the KLAP handshake but rejected both the SMART and legacy IOT command schemas.
 File a support request with the device model and firmware version.
 
-**Output states lag behind the Kasa app**: State changes made outside Control4
-are picked up on the next poll; lower
+**Output states lag behind the Kasa or Tapo app**: State changes made outside
+Control4 are picked up on the next poll; lower
 [`Poll Rate (Seconds)`](#poll-rate-seconds--2---300-) if you need faster
 convergence.
 
@@ -512,7 +512,7 @@ from Finite Labs LLC.
 <!-- #ifdef DRIVERCENTRAL -->
 
 If you have any questions or issues integrating this driver with Control4 or
-your Kasa device, you can contact us at
+your TP-Link device, you can contact us at
 [driver-support@finitelabs.com](mailto:driver-support@finitelabs.com) or
 call/text us at [+1 (949) 371-5805](tel:+19493715805).
 
