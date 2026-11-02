@@ -148,7 +148,7 @@ documentation for setting it up.
 <!-- #ifdef DRIVERCENTRAL -->
 
 1. Download the latest `control4-tplink.zip` from
-   [DriverCentral](https://drivercentral.io/platforms/control4-drivers/).
+   [DriverCentral](https://drivercentral.io/platforms/control4-drivers/lighting/tp-link-kasa-and-tapo).
 1. Extract and install the desired `.c4z` driver files.
 1. Use the "Search" tab in Composer Pro to find the driver by name and add it to
    your project.
@@ -183,7 +183,8 @@ herein are proprietary to Finite Labs LLC and its suppliers and may be covered
 by U.S. and Foreign Patents, patents in process, and are protected by trade
 secret or copyright law. Dissemination of this information or reproduction of
 this material is strictly forbidden unless prior written permission is obtained
-from Finite Labs LLC.
+from Finite Labs LLC. For the latest information, please visit
+https://drivercentral.io/platforms/control4-drivers/lighting/tp-link-kasa-and-tapo
 
 <!-- #endif -->
 

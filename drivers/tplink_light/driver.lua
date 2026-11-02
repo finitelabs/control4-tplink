@@ -1,5 +1,5 @@
 --#ifdef DRIVERCENTRAL
-DC_PID = 0 -- TODO: Assign DriverCentral product ID
+DC_PID = 976
 DC_X = nil
 DC_FILENAME = "tplink_light.c4z"
 --#else
