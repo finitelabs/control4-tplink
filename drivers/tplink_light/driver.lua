@@ -452,6 +452,10 @@ function OnDriverLateInit()
   readProxySetup()
 end
 
+--#ifdef DRIVERCENTRAL
+OnDriverLateInit = require("lib.diagnostics"):wrapLateInit(OnDriverLateInit)
+--#endif
+
 ---------------------------------------------------------------------------
 -- Property handlers
 ---------------------------------------------------------------------------
