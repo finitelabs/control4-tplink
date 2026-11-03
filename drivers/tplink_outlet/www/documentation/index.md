@@ -101,8 +101,8 @@ programming.
 - **Programming commands**: Turn Output On / Turn Output Off / Toggle Output
 - **Keypad buttons**: On, Off and Toggle button links for each output, with LEDs
   that follow it
-- **In Use / Idle events** for each output, from its power and two levels you
-  set, on devices with energy monitoring
+- **In Use / Idle events** for each output, from its power, two levels and a
+  hold time you set, on devices with energy monitoring
 - Reconnects automatically when the device restarts or drops the connection
 - **Follows the device**: when it stops answering, the driver detects its
   protocol again, so it keeps working when a firmware update, a rollback or a
@@ -393,6 +393,18 @@ output has reported its power.
 For example, a TV that draws 1 W on standby and 90 W when on: set `In Use Above`
 to 30 and `Idle Below` to 5.
 
+##### Output N Hold (s) \[ 0 - 3600, default: **_0_** \]
+
+Sets how long, in seconds, the output's power must stay past a level before
+`In Use` or `Idle` fires. A reading back between the levels starts the wait
+again. The power is read at the `Energy Poll Rate`, so the event comes with the
+first reading after the hold has passed. At 0 (the default) the first reading
+past a level fires it.
+
+For example, a washer that pauses for a few minutes during a cycle: set
+`Idle Below` to 5 and the hold to 300, so `Idle` fires only once the washer has
+stayed under 5 W for five minutes.
+
 ### Driver Actions
 
 <!-- #ifndef DRIVERCENTRAL -->
@@ -459,8 +471,8 @@ the output: On and Toggle are lit while it is on, Off while it is off.
 | ------------------- | --------------------------------------------------------------------------------------------------- |
 | Output N Turned On  | Fires when an output turns on, whether from Control4, the Kasa or Tapo app, or the physical button  |
 | Output N Turned Off | Fires when an output turns off, whether from Control4, the Kasa or Tapo app, or the physical button |
-| Output N In Use     | Fires when an output's power rises above its `In Use Above` level                                   |
-| Output N Idle       | Fires when an output's power falls below its `Idle Below` level                                     |
+| Output N In Use     | Fires when an output's power rises above its `In Use Above` level and stays there for its `Hold`    |
+| Output N Idle       | Fires when an output's power falls below its `Idle Below` level and stays there for its `Hold`      |
 | Connected           | Fires when the driver connects to the device                                                        |
 | Disconnected        | Fires when the driver loses its connection to the device                                            |
 
