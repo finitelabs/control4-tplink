@@ -101,6 +101,7 @@ Properties = {
   ["MAC Address"] = "",
   ["Firmware"] = "",
   ["WiFi RSSI"] = "",
+  ["Output 1 State"] = "",
   ["Output 1 In Use Above (W)"] = "0",
   ["Output 1 Idle Below (W)"] = "0",
   ["Output 1 Hold (s)"] = "0",
@@ -184,6 +185,8 @@ do
   plug.relay = 1
   EC.RefreshNow()
   T.eq("switched on at the plug", (drain()), { on = { true }, off = { false }, toggle = { true } })
+  T.eq("its State property reads On", Properties["Output 1 State"], "On")
+  T.eq("while programming reads 1", Variables["Output 1 State"], "1")
   EC.RefreshNow()
   T.eq("a poll with no change tells nothing", (drain()), {})
 end
@@ -286,6 +289,27 @@ do
   T.eq("still idle", Variables["Output 1 In Use"], "0")
   setProperty("Output 1 Hold (s)", "0")
   C4.GetTime = getTime
+end
+
+T.section("an update from a build that kept State without labels fires no On or Off")
+do
+  local persist = require("lib.persist")
+  local stored = persist:get("Values")
+  stored["Output 1 State"].labels = nil
+  persist:set("Values", stored)
+  ShimUpdateDriver()
+  dofile(HERE .. "/../drivers/tplink_outlet/driver.lua")
+  fired = {}
+  ShimLateInit()
+  EC.RefreshNow()
+  local switched = {}
+  for _, id in ipairs(fired) do
+    if id <= 6 or (id > 50 and id <= 56) then
+      switched[#switched + 1] = id
+    end
+  end
+  T.eq("no On or Off event", switched, {})
+  T.eq("the State property has its label again", Properties["Output 1 State"], plug.relay == 1 and "On" or "Off")
 end
 
 T.finish()

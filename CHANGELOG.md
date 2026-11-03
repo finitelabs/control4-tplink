@@ -310,6 +310,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Changing `Automatic Updates` on any TP-Link Outlet or TP-Link Light driver now
   changes it on all of them, so the drivers update together.
   <!-- #endif -->
+- A TP-Link Outlet's `Output N State` properties now read `On` or `Off`. The
+  `Output N State` variables still read 1 or 0 for programming.
 
 ## v20261002 - 2026-10-02
 
