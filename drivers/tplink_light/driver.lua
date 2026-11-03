@@ -12,6 +12,8 @@ require("drivers-common-public.global.timer")
 
 JSON = require("JSON")
 
+gInitialized = false
+
 local log = require("lib.logging")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
@@ -25,9 +27,9 @@ require("lib.diagnostics")
 --#endif
 local persist = require("lib.persist")
 local constants = require("constants")
-local Klap = require("lib.klap")
-local Legacy = require("lib.legacy")
-local IotBulb = require("lib.iotbulb")
+local Klap = require("tplink.klap")
+local Legacy = require("tplink.legacy")
+local IotBulb = require("tplink.iotbulb")
 
 --- Color mode identifiers shared with tplink_outlet over the TPLINK_LIGHT
 --- binding protocol. The internal proxy logic keys off these the same way
@@ -46,6 +48,13 @@ local PROXY_BINDING = 5001
 --- bound, the outlet drives state and executes commands; otherwise the
 --- driver connects directly to a light device using its properties.
 local OUTLET_BINDING = 1
+
+--- Whether the outlet binding is currently connected.
+--- @return boolean
+local function isOutletBound()
+  local provider = C4:GetBoundProviderDevice(C4:GetDeviceID(), OUTLET_BINDING)
+  return provider ~= nil and provider ~= 0
+end
 
 --- KLAP transport for direct mode (v2 hashing: SMART-firmware devices and
 --- KL-series bulbs on newer KLAP firmware).
@@ -78,14 +87,25 @@ local backendStart, backendSendCommand, backendFade
 -- chunk is near Lua's 200 locals.
 local follow = {}
 
---- Follows the light to a new address by its MAC.
-follow.device = require("lib.discovery").follower(function(address)
-  if address == Properties["IP Address"] then
+--- Driver Status while the light is searched for on the network.
+follow.LOOKING = "Looking for the device on the network..."
+
+--- Follows the light to a new address by its MAC. A light bound to an outlet
+--- has no address of its own.
+follow.device = require("tplink.discovery").Follower:new(function(address)
+  if address == Properties["IP Address"] or isOutletBound() then
     return
   end
   log:info("The light moved to %s", address)
   UpdateProperty("IP Address", address)
   backendStart()
+end, function(looking)
+  if looking then
+    follow.statusBefore = Properties["Driver Status"]
+    UpdateProperty("Driver Status", follow.LOOKING)
+  elseif Properties["Driver Status"] == follow.LOOKING then
+    UpdateProperty("Driver Status", follow.statusBefore or "")
+  end
 end)
 
 --- Human-readable name of the active transport ("Outlet", "SMART", "KLAP", or
@@ -449,7 +469,7 @@ function OnDriverLateInit()
 
   --#ifndef DRIVERCENTRAL
   -- Periodic update check (every 30 minutes, suite leader instance only)
-  SetTimer("UpdateCheck", 30 * 60 * 1000, function()
+  SetTimer("UpdateCheck", 30 * ONE_MINUTE, function()
     -- Recompute leader each cycle in case the previous leader was removed
     local isLeaderInstance = Select(getDriverIds(), 1) == C4:GetDeviceID()
     if isLeaderInstance and toboolean(Properties["Automatic Updates"]) then
@@ -468,6 +488,12 @@ end
 --#ifdef DRIVERCENTRAL
 OnDriverLateInit = require("lib.diagnostics"):wrapLateInit(OnDriverLateInit)
 --#endif
+
+function OnDriverDestroyed()
+  log:trace("OnDriverDestroyed()")
+  -- A search for the light holds a listener open.
+  follow.device:stop()
+end
 
 ---------------------------------------------------------------------------
 -- Property handlers
@@ -2018,9 +2044,12 @@ end
 -- RFP: LIGHT_V2 proxy commands
 ---------------------------------------------------------------------------
 
+-- With no state from the light (offline, unbound or not yet heard) a command
+-- that would move it is dropped: the proxy keeps what it shows.
+
 function RFP.SET_BRIGHTNESS_TARGET(idBinding, strCommand, tParams, args)
   log:trace("RFP.SET_BRIGHTNESS_TARGET(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   local level = tonumber(Select(tParams, "LIGHT_BRIGHTNESS_TARGET")) or 0
@@ -2035,7 +2064,7 @@ end
 
 function RFP.ON(idBinding, strCommand, tParams, args)
   log:trace("RFP.ON(%s, %s)", idBinding, strCommand)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   lightOn()
@@ -2043,7 +2072,7 @@ end
 
 function RFP.OFF(idBinding, strCommand, tParams, args)
   log:trace("RFP.OFF(%s, %s)", idBinding, strCommand)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   lightOff()
@@ -2051,7 +2080,7 @@ end
 
 function RFP.TOGGLE(idBinding, strCommand, tParams, args)
   log:trace("RFP.TOGGLE(%s, %s)", idBinding, strCommand)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   lightToggle()
@@ -2064,7 +2093,7 @@ end
 -- consult on-mode state.
 function RFP.DYNAMIC_ON(idBinding, strCommand, tParams, args)
   log:trace("RFP.DYNAMIC_ON(%s, %s)", idBinding, strCommand)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   lightOn()
@@ -2072,7 +2101,7 @@ end
 
 function RFP.DYNAMIC_OFF(idBinding, strCommand, tParams, args)
   log:trace("RFP.DYNAMIC_OFF(%s, %s)", idBinding, strCommand)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   lightOff()
@@ -2080,7 +2109,7 @@ end
 
 function RFP.SET_LEVEL(idBinding, strCommand, tParams, args)
   log:trace("RFP.SET_LEVEL(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   local level = tointeger(Select(tParams, "LEVEL")) or 0
@@ -2097,7 +2126,7 @@ end
 -- and Alexa Voice Scenes (other LIGHT_V2 drivers carry the same forwarder).
 function RFP.RAMP_TO_LEVEL(idBinding, strCommand, tParams, args)
   log:trace("RFP.RAMP_TO_LEVEL(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   RFP.SET_BRIGHTNESS_TARGET(idBinding, "SET_BRIGHTNESS_TARGET", {
@@ -2108,7 +2137,7 @@ end
 
 function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   log:trace("RFP.SET_COLOR_TARGET(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
 
@@ -2648,7 +2677,7 @@ end
 
 function RFP.ACTIVATE_SCENE(idBinding, strCommand, tParams, args)
   log:trace("RFP.ACTIVATE_SCENE(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   local sceneId = tointeger(Select(tParams, "SCENE_ID"))
@@ -2682,7 +2711,7 @@ end
 
 function RFP.RAMP_SCENE_UP(idBinding, strCommand, tParams, args)
   log:trace("RFP.RAMP_SCENE_UP(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   local sceneId = tointeger(Select(tParams, "SCENE_ID"))
@@ -2702,7 +2731,7 @@ end
 
 function RFP.RAMP_SCENE_DOWN(idBinding, strCommand, tParams, args)
   log:trace("RFP.RAMP_SCENE_DOWN(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   local sceneId = tointeger(Select(tParams, "SCENE_ID"))
@@ -2742,7 +2771,7 @@ RFP.STOP_RAMP_SCENE = RFP.STOP_SCENE_RAMP
 
 function RFP.TOGGLE_SCENE(idBinding, strCommand, tParams, args)
   log:trace("RFP.TOGGLE_SCENE(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
   -- We don't track per-scene "active" state on the device side, so we always
@@ -3098,7 +3127,7 @@ end
 
 function RFP.BUTTON_ACTION(idBinding, strCommand, tParams, args)
   log:trace("RFP.BUTTON_ACTION(%s, %s, %s)", idBinding, strCommand, tParams)
-  if idBinding ~= PROXY_BINDING then
+  if idBinding ~= PROXY_BINDING or STATE == nil then
     return
   end
 
@@ -3140,7 +3169,7 @@ end
 function RFP.DO_CLICK(idBinding, strCommand, tParams, args)
   log:trace("RFP.DO_CLICK(%s, %s)", idBinding, strCommand)
   local buttonId = buttonIdFromBinding(idBinding)
-  if buttonId == nil then
+  if buttonId == nil or STATE == nil then
     return
   end
   handleButtonAction(buttonId, constants.ButtonActions.RELEASE_CLICK)
@@ -3149,7 +3178,7 @@ end
 function RFP.DO_PUSH(idBinding, strCommand, tParams, args)
   log:trace("RFP.DO_PUSH(%s, %s)", idBinding, strCommand)
   local buttonId = buttonIdFromBinding(idBinding)
-  if buttonId == nil then
+  if buttonId == nil or STATE == nil then
     return
   end
   handleButtonAction(buttonId, constants.ButtonActions.PRESS)
@@ -3158,7 +3187,7 @@ end
 function RFP.DO_RELEASE(idBinding, strCommand, tParams, args)
   log:trace("RFP.DO_RELEASE(%s, %s)", idBinding, strCommand)
   local buttonId = buttonIdFromBinding(idBinding)
-  if buttonId == nil then
+  if buttonId == nil or STATE == nil then
     return
   end
   handleButtonAction(buttonId, constants.ButtonActions.RELEASE_HOLD)
@@ -3356,7 +3385,7 @@ end
 -- Binding change
 ---------------------------------------------------------------------------
 
-OBC[OUTLET_BINDING] = function()
+OBC[OUTLET_BINDING] = function(_, _, bIsBound)
   ENTITY = nil
   STATE = nil
   dynamicCapsSent = false
@@ -3382,6 +3411,11 @@ OBC[OUTLET_BINDING] = function()
   cancelBrightnessRampTimers()
   cancelColorRampTimers()
   stopAllScenes()
+  -- An off would run Light Off programming: an unbind tells the proxy only that
+  -- the light is offline. A controller start binds before late init tells it.
+  if gInitialized and not bIsBound then
+    SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
+  end
   if gInitialized then
     backendStart()
   end
@@ -3400,13 +3434,6 @@ end
 -- The bound outlet wins; network properties are hidden while bound.
 
 local DIRECT_POLL_TIMER = "DirectPoll"
-
---- Whether the outlet binding is currently connected.
---- @return boolean
-local function isOutletBound()
-  local provider = C4:GetBoundProviderDevice(C4:GetDeviceID(), OUTLET_BINDING)
-  return provider ~= nil and provider ~= 0
-end
 
 --- Whether the direct-mode session believes the device is online.
 --- @type boolean
@@ -4025,6 +4052,8 @@ backendStart = function(retry)
 
   if isOutletBound() then
     transportName = "Outlet"
+    -- The outlet reaches the light: there is no address to follow.
+    follow.device:stop()
     setNetworkPropertiesAttribs(constants.HIDE_PROPERTY)
     SendToProxy(OUTLET_BINDING, "REFRESH_STATE", {}, "NOTIFY")
     return
@@ -4034,9 +4063,20 @@ backendStart = function(retry)
   directSchema = nil
   iotBulb = nil
 
+  --- End a start with no light to reach. A retry says nothing: the proxy was
+  --- told the light is offline when the attempt before it ended.
+  --- @param status string
+  local function noLight(status)
+    UpdateProperty("Driver Status", status)
+    if not retry then
+      SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
+    end
+  end
+
   local ip = Properties["IP Address"] or ""
   if IsEmpty(ip) then
-    UpdateProperty("Driver Status", "Bind to an outlet or set the IP Address property")
+    follow.device:stop()
+    noLight("Bind to an outlet or set the IP Address property")
     return
   end
 
@@ -4079,7 +4119,7 @@ backendStart = function(retry)
   --- @param reason string
   local function failed(reason)
     directDetecting = false
-    UpdateProperty("Driver Status", "Disconnected: " .. reason)
+    noLight("Disconnected: " .. reason)
     -- No protocol reached the light at its address: it may have moved.
     follow.device:lost()
   end
@@ -4215,7 +4255,7 @@ backendStart = function(retry)
 
   if mode == "KLAP" or (mode == "Auto" and hasCredentials) then
     if not hasCredentials then
-      UpdateProperty("Driver Status", "Set the TP-Link Username and Password properties (required for KLAP)")
+      noLight("Set the TP-Link Username and Password properties (required for KLAP)")
       return
     end
     directDetecting = true
@@ -4228,7 +4268,7 @@ backendStart = function(retry)
   end
 
   local pollSeconds = tointeger(Properties["Poll Rate (Seconds)"]) or 5
-  SetTimer(DIRECT_POLL_TIMER, pollSeconds * 1000, function()
+  SetTimer(DIRECT_POLL_TIMER, pollSeconds * ONE_SECOND, function()
     if directSchema ~= nil then
       directPoll()
     elseif not directDetecting then
@@ -4285,6 +4325,9 @@ local function credentialChanged()
   local ok, err = pcall(backendStart)
   if not ok then
     log:error("The backend did not start: %s", err)
+    --#ifdef DRIVERCENTRAL
+    require("lib.diagnostics"):captureError(tostring(err), nil, "TPLinkLight.CredentialChanged")
+    --#endif
   end
 end
 

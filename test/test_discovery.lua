@@ -13,7 +13,7 @@ local T = require("testlib")
 
 require("c4_shim")
 
-local cipher = require("lib.kasa-cipher")
+local cipher = require("tplink.kasa-cipher")
 local persist = require("lib.persist")
 
 --- Listeners open, by port; ports refused; every broadcast; ports closed.
@@ -53,7 +53,7 @@ function OnServerDataIn(_, strData, _, _, identifier)
   otherData[#otherData + 1] = { strData, identifier }
 end
 
-local Discovery = require("lib.discovery")
+local Discovery = require("tplink.discovery")
 
 --- The listener the shim's device id (12345) is given.
 local PORT = 47300 + 12345 % 500
@@ -169,9 +169,11 @@ end
 
 T.section("the follower learns its device's MAC and follows it to a new address")
 do
-  local moved = {}
-  local follower = Discovery.follower(function(address)
+  local moved, looking = {}, {}
+  local follower = Discovery.Follower:new(function(address)
     moved[#moved + 1] = address
+  end, function(on)
+    looking[#looking + 1] = on
   end)
   follower:forget()
   follower:lost()
@@ -185,19 +187,20 @@ do
 
   follower:lost()
   T.truthy("a lost device is searched for at once", servers[PORT])
-  T.eq("and Driver Status says so", Properties["Driver Status"], "Looking for the device on the network...")
+  T.eq("and the driver is told it is looking", looking, { true })
   follower:lost()
   T.eq("once", #broadcasts, 2)
   answer(klapAnswer("02-1A-2B-3C-4D-5E"), "192.0.2.77", 20002)
   T.eq("the driver is told where it is", moved, { "192.0.2.77" })
-  T.eq("Driver Status as it was", Properties["Driver Status"], "Disconnected: no answer")
+  T.eq("and that the search is over", looking, { true, false })
+  T.eq("Driver Status is the driver's own", Properties["Driver Status"], "Disconnected: no answer")
   reset()
 end
 
 T.section("a device not found is searched for again later, until it answers")
 do
   local moved = {}
-  local follower = Discovery.follower(function(address)
+  local follower = Discovery.Follower:new(function(address)
     moved[#moved + 1] = address
   end)
   follower:forget()
@@ -218,7 +221,7 @@ end
 
 T.section("a device that answers again stops the search, and a hand edit forgets the MAC")
 do
-  local follower = Discovery.follower(function() end)
+  local follower = Discovery.Follower:new(function() end)
   follower:forget()
   follower:accepts("02:1A:2B:3C:4D:5E")
   follower:lost()
@@ -230,6 +233,24 @@ do
   T.eq("forgotten", follower:mac(), nil)
   T.truthy("so whichever device answers next is followed", follower:accepts("02:1A:2B:3C:4D:99"))
   T.eq("from then on", follower:mac(), "02:1A:2B:3C:4D:99")
+  follower:forget()
+  reset()
+end
+
+T.section("a stop ends the search under way and leaves none due, as at a driver's destroy")
+do
+  local looking = {}
+  local follower = Discovery.Follower:new(function() end, function(on)
+    looking[#looking + 1] = on
+  end)
+  follower:forget()
+  follower:accepts("02:1A:2B:3C:4D:5E")
+  follower:lost()
+  follower:stop()
+  T.eq("the listener closed", next(servers), nil)
+  T.eq("the driver is told the search is over", looking, { true, false })
+  ShimFireTimers()
+  T.eq("and no search follows", next(servers), nil)
   follower:forget()
   reset()
 end

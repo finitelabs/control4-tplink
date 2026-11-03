@@ -62,8 +62,8 @@ local function newTransport()
   return setmetatable({}, Transport)
 end
 
-package.loaded["lib.klap"] = { new = newTransport }
-package.loaded["lib.legacy"] = { new = newTransport }
+package.loaded["tplink.klap"] = { new = newTransport }
+package.loaded["tplink.legacy"] = { new = newTransport }
 -- Loaded unprocessed, OnDriverInit runs both sides of --#ifdef DRIVERCENTRAL.
 package.loaded["cloud-client-byte"] = true
 

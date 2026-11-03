@@ -11,10 +11,11 @@
 --- never reports the port it was given, so the port is fixed per device.
 
 local deferred = require("deferred")
+local JSON = require("JSON")
 
 local log = require("lib.logging")
 local persist = require("lib.persist")
-local cipher = require("lib.kasa-cipher")
+local cipher = require("tplink.kasa-cipher")
 
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.handlers")
@@ -46,15 +47,13 @@ local STEP_MS = 1000
 local SENDS = 3
 local LISTEN_STEPS = 4
 
-local STEP_TIMER = "DiscoveryStep"
-
 --- The search under way: the MAC sought, its deferred, the listener's port.
 --- @type { mac: string, d: table, port: integer }?
 local search = nil
 
 --- Whether this controller can search: C4:SendBroadcast takes a source port
 --- from OS 4.0.
---- @return boolean
+--- @return boolean supported
 function Discovery.supported()
   local version = Select(C4:GetVersionInfo(), "version") or ""
   local major = tointeger(string.match(version, "^(%d+)%."))
@@ -64,7 +63,7 @@ end
 --- A MAC address in one spelling, AA:BB:CC:DD:EE:FF, from any of the three a
 --- device uses (colons, dashes, or none).
 --- @param mac any
---- @return string?
+--- @return string? mac The MAC address, or nil when it is not one.
 function Discovery.normalizeMac(mac)
   if type(mac) ~= "string" then
     return nil
@@ -105,7 +104,6 @@ local function finish(address)
     return
   end
   search = nil
-  CancelTimer(STEP_TIMER)
   C4:DestroyServer(done.port)
   done.d:resolve(address)
 end
@@ -135,13 +133,18 @@ local function install()
   end
   installed = true
   local previous = OnServerDataIn
-  OnServerDataIn = function(nHandle, strData, strAddress, strPort, identifier)
+  local function onServerDataIn(nHandle, strData, strAddress, strPort, identifier)
     if identifier == LISTENER_ID or (identifier == nil and search ~= nil) then
       onAnswer(strData, strAddress, strPort)
     elseif previous ~= nil then
       previous(nHandle, strData, strAddress, strPort, identifier)
     end
   end
+  --#ifdef DRIVERCENTRAL
+  -- No handler dispatcher runs OnServerDataIn, so its errors are reported here.
+  onServerDataIn = require("lib.diagnostics"):wrap(onServerDataIn, "Discovery.OnServerDataIn")
+  --#endif
+  OnServerDataIn = onServerDataIn
 end
 
 --- Opens the listener on this driver's port.
@@ -160,7 +163,7 @@ end
 
 --- Looks for the device with this MAC on the controller's network.
 --- @param mac string
---- @return Deferred<string?> The device's address, or nil when it did not answer.
+--- @return Deferred<string?> address The device's address, or nil when it did not answer.
 function Discovery.find(mac)
   local want = Discovery.normalizeMac(mac)
   if search ~= nil and search.mac == want then
@@ -179,23 +182,26 @@ function Discovery.find(mac)
   end
   search = { mac = want, d = d, port = port }
   local legacyQuery = cipher.scramble(LEGACY_QUERY)
-  local function send()
-    C4:SendBroadcast(KLAP_QUERY, KLAP_PORT, port)
-    C4:SendBroadcast(legacyQuery, LEGACY_PORT, port)
-  end
-  local step = 0
-  SetTimer(STEP_TIMER, STEP_MS, function()
+
+  --- Runs step n of this search, unless it has ended.
+  --- @param n integer
+  local function step(n)
     if search == nil or search.d ~= d then
       return
     end
-    step = step + 1
-    if step >= LISTEN_STEPS then
+    if n >= LISTEN_STEPS then
       finish(nil)
-    elseif step < SENDS then
-      send()
+      return
     end
-  end, true)
-  send()
+    if n < SENDS then
+      C4:SendBroadcast(KLAP_QUERY, KLAP_PORT, port)
+      C4:SendBroadcast(legacyQuery, LEGACY_PORT, port)
+    end
+    delay(STEP_MS):next(function()
+      step(n + 1)
+    end)
+  end
+  step(0)
   return d
 end
 
@@ -216,25 +222,34 @@ local P_MAC = "discovery_mac"
 local RETRY_SECONDS = { 30, 60, 120, 300 }
 local RETRY_TIMER = "DiscoveryRetry"
 
-local LOOKING_STATUS = "Looking for the device on the network..."
-
 --- Follows one device across address changes by its MAC address.
 --- @class Follower
 --- @field _onMoved fun(address: string)
+--- @field _onLooking fun(looking: boolean)?
 --- @field _tries integer Searches since the device was lost.
 --- @field _pending boolean A search is under way or scheduled.
 local Follower = {}
 Follower.__index = Follower
 
+--- Creates a follower for the driver's device.
 --- @param onMoved fun(address: string) Given the device's address when a search
 ---   finds it; the driver points itself there and connects.
---- @return Follower
-function Discovery.follower(onMoved)
-  return setmetatable({ _onMoved = onMoved, _tries = 0, _pending = false }, Follower)
+--- @param onLooking? fun(looking: boolean) Told when a search starts (true) and
+---   ends (false), so the driver can say so in its status.
+--- @return Follower follower
+function Follower:new(onMoved, onLooking)
+  local instance = setmetatable({}, self)
+  instance._onMoved = onMoved
+  instance._onLooking = onLooking
+  instance._tries = 0
+  instance._pending = false
+  return instance
 end
 
+Discovery.Follower = Follower
+
 --- The followed device's MAC address, AA:BB:CC:DD:EE:FF, if learned.
---- @return string?
+--- @return string? mac
 function Follower:mac()
   return persist:get(P_MAC)
 end
@@ -243,7 +258,7 @@ end
 --- first MAC seen is the device's from then on; an answer with none can't be
 --- told apart and is taken as the device's.
 --- @param mac any
---- @return boolean
+--- @return boolean accepted
 function Follower:accepts(mac)
   local seen = Discovery.normalizeMac(mac)
   if seen == nil then
@@ -258,12 +273,17 @@ function Follower:accepts(mac)
   return known == seen
 end
 
---- The device answers: stop looking for it.
-function Follower:found()
+--- Stops looking for the device: ends a search under way and cancels the next.
+function Follower:stop()
   self._tries = 0
   self._pending = false
   CancelTimer(RETRY_TIMER)
   Discovery.stop()
+end
+
+--- The device answers: stop looking for it.
+function Follower:found()
+  self:stop()
 end
 
 --- The device stopped answering, or another device answers at its address:
@@ -279,7 +299,7 @@ function Follower:lost()
     self:_look()
   else
     local seconds = RETRY_SECONDS[math.min(self._tries, #RETRY_SECONDS)]
-    SetTimer(RETRY_TIMER, seconds * 1000, function()
+    SetTimer(RETRY_TIMER, seconds * ONE_SECOND, function()
       self:_look()
     end)
   end
@@ -293,12 +313,13 @@ function Follower:_look()
     self._pending = false
     return
   end
-  local before = Properties["Driver Status"]
-  UpdateProperty("Driver Status", LOOKING_STATUS)
+  if self._onLooking then
+    self._onLooking(true)
+  end
   log:info("Looking for the device with MAC %s on the network", mac)
   Discovery.find(mac):next(function(address)
-    if Properties["Driver Status"] == LOOKING_STATUS then
-      UpdateProperty("Driver Status", before)
+    if self._onLooking then
+      self._onLooking(false)
     end
     if not self._pending then
       return
@@ -320,7 +341,7 @@ end
 function Follower:forget()
   log:debug("Forgetting the followed MAC")
   persist:delete(P_MAC)
-  self:found()
+  self:stop()
 end
 
 return Discovery

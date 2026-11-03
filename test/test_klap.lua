@@ -1,5 +1,5 @@
---- Tests for lib.klap (v1/v2 hashing + handshake + encrypted requests) and
---- lib.smart over a real KLAP session.
+--- Tests for tplink.klap (v1/v2 hashing + handshake + encrypted requests) and
+--- tplink.smart over a real KLAP session.
 ---
 --- Run with: ./run_test.sh test_klap.lua
 ---
@@ -8,12 +8,13 @@
 --- real device on the network when these environment variables are set:
 ---   TPLINK_TEST_IP, TPLINK_TEST_USERNAME, TPLINK_TEST_PASSWORD
 
+local T = require("testlib")
+
 require("lib.utils")
 require("drivers-common-public.global.lib")
 
-local T = require("testlib")
-local Klap = require("lib.klap")
-local Smart = require("lib.smart")
+local Klap = require("tplink.klap")
+local Smart = require("tplink.smart")
 
 -- Keyed on the shim's capability flag rather than a nil return from C4:Hash: a
 -- backend that loads and computes the WRONG digest also answers non-nil, and one
@@ -65,7 +66,7 @@ T.check(
 ---------------------------------------------------------------------------
 -- Fake KLAP device
 -- Independent implementation of the KLAP server side (seeds, hashes, session
--- keys, AES) following the python-kasa reference, NOT lib/klap.lua.
+-- keys, AES) following the python-kasa reference, NOT tplink/klap.lua.
 ---------------------------------------------------------------------------
 
 local RAW = { return_encoding = "NONE", data_encoding = "NONE" }
@@ -356,7 +357,7 @@ T.eq("EP25 energy mapped to power_mw", Select(outcome.resolved, "emeter", "get_r
 
 T.section("IOT bulb schema over a real KLAP v1 session (fake KL130 on KLAP firmware)")
 
-local IotBulb = require("lib.iotbulb")
+local IotBulb = require("tplink.iotbulb")
 local LIGHT_SERVICE = "smartlife.iot.smartbulb.lightingservice"
 
 local bulbLightState = { on_off = 1, mode = "normal", hue = 240, saturation = 100, color_temp = 0, brightness = 30 }

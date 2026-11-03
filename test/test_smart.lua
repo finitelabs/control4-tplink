@@ -1,13 +1,14 @@
---- Unit tests for lib.smart: IOT-schema <-> SMART-schema translation.
+--- Unit tests for tplink.smart: IOT-schema <-> SMART-schema translation.
 ---
 --- Run with: ./run_test.sh test_smart.lua
+
+local T = require("testlib")
 
 require("lib.utils")
 require("drivers-common-public.global.lib")
 
-local T = require("testlib")
 local deferred = require("deferred")
-local Smart = require("lib.smart")
+local Smart = require("tplink.smart")
 
 --- Fake Klap transport: records requests, replays queued responses.
 local FakeKlap = {}

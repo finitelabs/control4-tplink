@@ -5,15 +5,16 @@
 --- same legacy IOT JSON that KLAP devices use; only the transport differs,
 --- so the two transports are interchangeable behind `request(payload)`.
 ---
---- The "encryption" is a rolling XOR autokey cipher (lib.kasa-cipher).
+--- The "encryption" is a rolling XOR autokey cipher (tplink.kasa-cipher).
 ---
 --- Requests are serialized FIFO with a per-request timeout, since the
 --- protocol has no request/response correlation ids.
 
 local deferred = require("deferred")
+local JSON = require("JSON")
 
 local log = require("lib.logging")
-local cipher = require("lib.kasa-cipher")
+local cipher = require("tplink.kasa-cipher")
 
 require("drivers-common-public.global.timer")
 require("lib.utils")
@@ -151,7 +152,7 @@ function Legacy:_sendNext()
   end
 
   self._inFlight = table.remove(self._queue, 1)
-  C4:SendToNetwork(NETWORK_BINDING, PORT, cipher.scramble(JSON:encode(self._inFlight.payload)))
+  SendToNetwork(NETWORK_BINDING, PORT, cipher.scramble(JSON:encode(self._inFlight.payload)))
 
   SetTimer(TIMEOUT_TIMER, REQUEST_TIMEOUT_MS, function()
     local timedOut = self._inFlight

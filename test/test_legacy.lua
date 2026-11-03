@@ -1,15 +1,15 @@
---- Tests for lib.legacy: the port 9999 transport, one request at a time.
+--- Tests for tplink.legacy: the port 9999 transport, one request at a time.
 ---
 --- Run with: ./run_test.sh test_legacy.lua
 
+local T = require("testlib")
+
 require("lib.utils")
-require("drivers-common-public.global.lib")
 require("drivers-common-public.global.handlers")
+require("drivers-common-public.global.lib")
 
 local bit = require("bit")
-
-local T = require("testlib")
-local Legacy = require("lib.legacy")
+local Legacy = require("tplink.legacy")
 
 --- Collects a deferred's outcome.
 local function settle(d)
@@ -52,5 +52,32 @@ T.eq("it fails the request it answers", Select(first.rejected, "error"), "Legacy
 T.eq("and the next goes out", #ShimSentFrames(), 2)
 datagram(JSON:encode({ system = { get_sysinfo = { err_code = 0 } } }))
 T.eq("whose answer is read", Select(second.resolved, "system", "get_sysinfo", "err_code"), 0)
+
+T.section("A request the device never answers")
+do
+  ShimResetSentFrames()
+  local lost = settle(legacy:request(SYSINFO))
+  local waiting = settle(legacy:request(SYSINFO))
+  T.eq("one goes out", #ShimSentFrames(), 1)
+  ShimFireTimers()
+  T.eq("it times out", Select(lost.rejected, "error"), "Legacy: request timed out (no response on UDP 9999)")
+  T.eq("and the next goes out", #ShimSentFrames(), 2)
+  T.eq("which still waits for its answer", waiting, {})
+  datagram(JSON:encode({ system = { get_sysinfo = { err_code = 0 } } }))
+  T.eq("and gets it", Select(waiting.resolved, "system", "get_sysinfo", "err_code"), 0)
+end
+
+T.section("No address to send to")
+do
+  ShimResetSentFrames()
+  local unset = Legacy:new()
+  local one = settle(unset:request(SYSINFO))
+  local two = settle(unset:request(SYSINFO))
+  T.eq("each request fails", {
+    Select(one.rejected, "error"),
+    Select(two.rejected, "error"),
+  }, { "Legacy: no IP address configured", "Legacy: no IP address configured" })
+  T.eq("and nothing goes out", #ShimSentFrames(), 0)
+end
 
 T.finish()

@@ -58,12 +58,12 @@ function Transport:request(request)
   return deferred.new():resolve({})
 end
 
-package.loaded["lib.klap"] = {
+package.loaded["tplink.klap"] = {
   new = function()
     return setmetatable({}, Transport)
   end,
 }
-package.loaded["lib.legacy"] = {
+package.loaded["tplink.legacy"] = {
   new = function()
     return setmetatable({}, Transport)
   end,

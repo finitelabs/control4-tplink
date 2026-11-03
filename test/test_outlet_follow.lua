@@ -18,7 +18,7 @@ local T = require("testlib")
 require("c4_shim")
 
 local deferred = require("deferred")
-local cipher = require("lib.kasa-cipher")
+local cipher = require("tplink.kasa-cipher")
 
 -- From this file: make test runs at the repo root, run_test.sh in test/.
 local HERE = debug.getinfo(1, "S").source:match("^@(.*)/") or "."
@@ -86,12 +86,12 @@ function Transport:request(request)
   return deferred.new():resolve({})
 end
 
-package.loaded["lib.klap"] = {
+package.loaded["tplink.klap"] = {
   new = function()
     return setmetatable({ kind = "klap" }, Transport)
   end,
 }
-package.loaded["lib.legacy"] = {
+package.loaded["tplink.legacy"] = {
   new = function()
     return setmetatable({ kind = "legacy" }, Transport)
   end,

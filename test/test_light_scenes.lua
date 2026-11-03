@@ -2395,4 +2395,40 @@ do
   end
 end
 
+T.section("with its outlet offline, a light takes no command and tells the proxy nothing")
+do
+  light({ ColorMode.COLOR_MODE_RGB })
+  RFP.UPDATE_DISCONNECT(OUTLET, "UPDATE_DISCONNECT")
+  mark()
+  proxy("ON")
+  proxy("OFF")
+  proxy("TOGGLE")
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 1000 })
+  proxy("SET_COLOR_TARGET", { LIGHT_COLOR_TARGET_X = ON[1], LIGHT_COLOR_TARGET_Y = ON[2], LIGHT_COLOR_TARGET_MODE = 0 })
+  proxy("BUTTON_ACTION", { BUTTON_ID = 0, ACTION = 2 })
+  RFP.DO_CLICK(300, "DO_CLICK", {})
+  run(2000)
+  T.eq("nothing is told", sent, {})
+  RFP.UPDATE_STATE(OUTLET, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { ColorMode.COLOR_MODE_RGB } }),
+    state = SerializeSafe({ state = false, brightness = 1.0 }),
+  })
+  mark()
+  proxy("ON")
+  T.eq("once it reports again, a command goes to the outlet", commands(), 1)
+end
+
+T.section("an unbind tells the proxy the light is offline, and no level")
+do
+  light({ ColorMode.COLOR_MODE_RGB })
+  gInitialized = true
+  C4:Unbind(C4:GetDeviceID(), OUTLET)
+  OnBindingChanged(OUTLET, "TPLINK_LIGHT", false, 900, 1)
+  T.eq("offline", told("ONLINE_CHANGED", "STATE")[1], false)
+  T.eq("with no level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), {})
+  gInitialized = false
+  C4:Bind(900, 1, C4:GetDeviceID(), OUTLET, "TPLINK_LIGHT")
+end
+
 T.finish()
