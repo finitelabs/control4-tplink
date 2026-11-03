@@ -31,4 +31,4 @@ Every photo is `photos/frame.html` around one screenshot from `photos/sources/`.
 
 The DriverCentral viewer hides about the bottom 15% of a square photo until the popup is scrolled, so the frame keeps everything above that line (`SAFE` in `frame.html`).
 
-The screenshots come from Composer on the dev controller running the DriverCentral build. The output names, powers and states, the device name and MAC address, and the License Activated status are demo values set for the shots, and the project name in the Connections tree is blurred. The setup crop stops above the TP-Link account fields. Retake a screenshot when the view it shows changes, then rerender.
+The screenshots come from Composer on the dev controller running the DriverCentral build. The output names, powers and states, the device name and MAC address, and the License Activated status are demo values set for the shots, and the setup photo's IP address is a placeholder. In the Connections and Programming trees the project name and every item but the two TP-Link drivers are blurred. The setup crop stops above the TP-Link account fields. Retake a screenshot when the view it shows changes, then rerender.
