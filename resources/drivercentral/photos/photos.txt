@@ -1,5 +1,5 @@
 1-power-per-output|img=outlet-outputs.png&end=430&tail=80&t=Power%20for%20each%20output&s=Readings%2C%20In%20Use%20and%20Idle%20levels%2C%20and%20a%20hold%20time%20per%20output.
 2-button-link-connections|img=composer-connections-crop.png&fit=1&t=Connections&s=Each%20output%20has%20a%20relay%20and%20On%2C%20Off%20and%20Toggle%20keypad%20links.
-3-programming|img=composer-programming-crop.png&fit=1&t=Programming&s=Power%20and%20switch%20events%2C%20and%20output%20commands%2C%20in%20Control4%20scripts.
+3-programming|img=composer-programming-crop.png&fit=1&t=Programming&s=Power%20and%20switch%20events%2C%20and%20output%20commands%2C%20in%20Control4%20programming.
 4-native-light-settings|img=composer-light-crop.png&fit=1&t=Light%20settings&s=Bulbs%20and%20light%20strips%20use%20Control4%27s%20own%20light%20settings.
 5-device-setup|img=outlet-setup.png&fit=1&t=Setup&s=Enter%20the%20IP%20address.%20The%20driver%20finds%20the%20device%20again%20if%20it%20moves.
