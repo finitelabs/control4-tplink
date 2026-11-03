@@ -128,6 +128,13 @@
         <description>IP address of the light, or blank when bound to a TP-Link Outlet.</description>
       </property>
       <property>
+        <name>MAC Address</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+        <description>MAC address of the light, learned when it first connects.</description>
+      </property>
+      <property>
         <name>Protocol</name>
         <type>LIST</type>
         <items>

@@ -167,7 +167,7 @@ end
 --- Polls the bulb and maps the result for applyUpdate.
 --- Rejects when the device is unreachable or is not an IOT-schema light
 --- (no light_state in sysinfo), so probes can fall through.
---- @return Deferred<{ entity: table, state: table }, { error: string }>
+--- @return Deferred<{ entity: table, state: table, mac: string? }, { error: string }>
 function IotBulb:poll()
   log:trace("IotBulb:poll()")
   return self._transport:request({ system = { get_sysinfo = {} } }):next(function(response)
@@ -185,6 +185,8 @@ function IotBulb:poll()
     return {
       entity = synthesizeEntity(sysinfo, self._kelvinMin, self._kelvinMax),
       state = synthesizeState(sysinfo.light_state, sysinfo.lighting_effect_state),
+      -- Bulbs name it mic_mac, without separators.
+      mac = sysinfo.mac or sysinfo.mic_mac,
     }
   end)
 end

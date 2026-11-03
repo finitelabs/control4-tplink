@@ -134,6 +134,11 @@ Single-outlet devices appear as output 1.
 - **Programming commands**: Turn Output On / Turn Output Off / Toggle Output
 - Automatic session recovery (re-handshake) when the device restarts or drops
   the session
+- **Follows the device**: when it stops answering, the driver detects its
+  protocol again, so it keeps working when a firmware update, a rollback or a
+  reset changes how the device connects. When it gets a new address on the
+  controller's network, the driver finds it by its MAC address and updates
+  `IP Address` (OS 4.0 and later)
 
 # <span style="color:#4ACBD6">Installer Setup</span>
 
@@ -251,6 +256,8 @@ Displays the current status of the driver:
 - `Connected`: session established and the device is responding to polls
 - `Connecting...`: handshake in progress
 - `Disconnected: <reason>`: the device is unreachable or rejected the session
+- `Looking for the device on the network...`: the device stopped answering at
+  its address and the driver is looking for it by its MAC address
 - `Set the ... property`: required configuration is missing
 
 ##### Driver Version (read-only)
@@ -295,6 +302,11 @@ Sets the IP address of the plug or power strip (e.g. `192.168.1.50`).
 
 > ⚠️ You should ensure the address will not change by assigning a static IP or
 > creating a DHCP reservation for the device.
+
+If the device does get a new address on the controller's network, the driver
+finds it by its MAC address and updates this property (OS 4.0 and later).
+Entering an address by hand points the driver at whichever device answers there,
+such as a replacement plug.
 
 ##### Protocol \[ **_Auto_** | KLAP | Legacy \]
 
@@ -481,6 +493,12 @@ always require them.
 **`Disconnected: device rejected get_sysinfo over KLAP`**: The device answered
 the KLAP handshake but rejected both the SMART and legacy IOT command schemas.
 File a support request with the device model and firmware version.
+
+**`Disconnected: a different device is at ...; looking for this one`**: another
+TP-Link device now answers at this device's address, usually after DHCP gave the
+address to it. The driver controls nothing there and looks for its own device on
+the network. If you replaced the device, enter its address in
+[`IP Address`](#ip-address) to use the new one.
 
 **Output states lag behind the Kasa or Tapo app**: State changes made outside
 Control4 are picked up on the next poll; lower

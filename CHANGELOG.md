@@ -33,18 +33,32 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   by itself over the fades set in the Tapo app, which the driver switches on,
   and Control4 shows those: ramp rates and stops then do nothing. The property
   is shown only while such a light is connected.
+
   <!-- #ifdef DRIVERCENTRAL -->
+
 - Added a `Support Code` property to the TP-Link Outlet and TP-Link Light
   drivers. A code from Finite Labs support opens the driver's Lua tab in
   Composer for an hour; leave it blank otherwise.
+
 - Added a `Cloud Monitoring` property, Enabled by default, and a
   `Diagnostics Snapshot` action to every driver. Cloud Monitoring sends Finite
   Labs an hourly report of the driver's memory use and a report of each error it
   hits; the documentation says what they hold.
+
   <!-- #endif -->
+
+- The TP-Link Outlet and TP-Link Light drivers follow their device to a new
+  address. When DHCP gives the device another address on the controller's
+  network, the driver finds it by its MAC address and updates `IP Address` (OS
+  4.0 and later). A different device that answers at the address is not
+  controlled. The TP-Link Light driver shows the light's `MAC Address`.
 
 ### Fixed
 
+- Fixed a TP-Link device that changed protocol, as a firmware update, a rollback
+  or a reset can make it do, staying disconnected until the driver was
+  reconnected or the controller restarted. The driver now detects the device's
+  protocol again once it has missed three polls in a row.
 - Fixed an Advanced Lighting scene set to flash, with no delay or ramp time on
   any step, hanging the TP-Link Light driver. It now runs its steps once and
   stops.

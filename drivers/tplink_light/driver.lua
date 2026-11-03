@@ -74,6 +74,20 @@ local iotBulb = nil
 -- Forward declarations; assigned in the Backends section near the end.
 local backendStart, backendSendCommand, backendFade
 
+-- Following the light to a new address or protocol: in one table, as this
+-- chunk is near Lua's 200 locals.
+local follow = {}
+
+--- Follows the light to a new address by its MAC.
+follow.device = require("lib.discovery").follower(function(address)
+  if address == Properties["IP Address"] then
+    return
+  end
+  log:info("The light moved to %s", address)
+  UpdateProperty("IP Address", address)
+  backendStart()
+end)
+
 --- Human-readable name of the active transport ("Outlet", "SMART", "KLAP", or
 --- "Legacy"), for Driver Status.
 --- @type string?
@@ -146,7 +160,6 @@ local PRESET_ORIGIN_DEVICE = 1
 local PREVIOUS_ON_PRESET_ID = 10
 
 local SCENE_TIMER_PREFIX = "Scene_"
-local SCENE_RAMP_TIMER = "SceneRamp"
 
 local DEFAULT_PRESET_LEVEL = 100
 local DEFAULT_CLICK_RATE = 500
@@ -2334,7 +2347,6 @@ end
 
 local function stopAllScenes()
   sceneGeneration = sceneGeneration + 1
-  CancelTimer(SCENE_RAMP_TIMER)
   local scenes = getScenes()
   for sceneId, _ in pairs(scenes) do
     CancelTimer(SCENE_TIMER_PREFIX .. tostring(sceneId))
@@ -3562,6 +3574,46 @@ local function directFlight(request, onAnswer, onFail)
   request:next(landed(onAnswer), landed(onFail))
 end
 
+--- Polls in a row the light has not answered.
+follow.misses = 0
+
+--- A poll the light did not answer. From the third in a row the next poll
+--- detects its protocol again, as a firmware update, a rollback or a reset
+--- can change it; one slow answer keeps the session.
+function follow.missed()
+  follow.misses = follow.misses + 1
+  if directConnected then
+    directConnected = false
+    handleDisconnect()
+  end
+  if follow.misses >= 3 then
+    directSchema = nil
+    iotBulb = nil
+  end
+end
+
+--- A poll the light answered.
+function follow.answered()
+  follow.misses = 0
+  follow.device:found()
+end
+
+--- Another device answers at the light's address: control nothing there, and
+--- look for the light on the network.
+function follow.another()
+  follow.misses = 0
+  directSchema = nil
+  iotBulb = nil
+  if directConnected then
+    directConnected = false
+    handleDisconnect()
+  end
+  local ip = Properties["IP Address"] or ""
+  log:warn("A device other than this light answers at %s", ip)
+  UpdateProperty("Driver Status", "Disconnected: a different device is at " .. ip .. "; looking for this one")
+  follow.device:lost()
+end
+
 --- Poll the direct-mode device and feed the result into applyUpdate.
 local function directPoll()
   if directBusy then
@@ -3572,16 +3624,18 @@ local function directPoll()
 
   if directSchema == "iot" and iotBulb ~= nil then
     directFlight(iotBulb:poll(), function(result)
+      if not follow.device:accepts(result.mac) then
+        follow.another()
+        return
+      end
+      follow.answered()
       directConnected = true
       if asked == directCommands then
         applyUpdate(result.entity, result.state)
       end
     end, function(err)
       log:warn("IOT bulb poll failed: %s", Select(err, "error") or err)
-      if directConnected then
-        directConnected = false
-        handleDisconnect()
-      end
+      follow.missed()
       if Select(err, "code") == 403 then
         UpdateProperty("Driver Status", "Disconnected: " .. Select(err, "error"))
       end
@@ -3592,13 +3646,15 @@ local function directPoll()
   directFlight(klap:request({ method = "get_device_info", params = {} }), function(response)
     if tointeger(Select(response, "error_code")) ~= 0 then
       log:warn("get_device_info failed: %s", response)
-      if directConnected then
-        directConnected = false
-        handleDisconnect()
-      end
+      follow.missed()
       return
     end
     local info = Select(response, "result") or {}
+    if not follow.device:accepts(info.mac) then
+      follow.another()
+      return
+    end
+    follow.answered()
     -- A light that is back may be back with other fades of its own.
     ownFades.due = ownFades.due or not directConnected
     directConnected = true
@@ -3616,10 +3672,7 @@ local function directPoll()
     end
   end, function(err)
     log:warn("get_device_info failed: %s", Select(err, "error") or err)
-    if directConnected then
-      directConnected = false
-      handleDisconnect()
-    end
+    follow.missed()
     if Select(err, "code") == 403 then
       UpdateProperty("Driver Status", "Disconnected: " .. Select(err, "error"))
     end
@@ -3679,6 +3732,10 @@ end
 --- @param opts table
 --- @return boolean sent false when the command names nothing to send.
 local function directSend(opts)
+  if directSchema == nil then
+    log:debug("Light command dropped: the light is not connected")
+    return false
+  end
   if directSchema == "iot" and iotBulb ~= nil then
     directFlight(iotBulb:execute(opts), function() end, function(err)
       -- Command failures are logged only; the poll loop decides connectivity.
@@ -3922,6 +3979,7 @@ end
 local function setNetworkPropertiesAttribs(attrib)
   C4:SetPropertyAttribs("TP-Link Settings", attrib)
   C4:SetPropertyAttribs("IP Address", attrib)
+  C4:SetPropertyAttribs("MAC Address", attrib)
   C4:SetPropertyAttribs("Protocol", attrib)
   C4:SetPropertyAttribs("TP-Link Username", attrib)
   C4:SetPropertyAttribs("TP-Link Password", attrib)
@@ -4022,6 +4080,8 @@ backendStart = function(retry)
   local function failed(reason)
     directDetecting = false
     UpdateProperty("Driver Status", "Disconnected: " .. reason)
+    -- No protocol reached the light at its address: it may have moved.
+    follow.device:lost()
   end
 
   --- Adopt a probed schema/transport and apply its first poll result.
@@ -4030,7 +4090,15 @@ backendStart = function(retry)
   --- @param name string Transport name for Driver Status.
   --- @param entity table
   --- @param state table
-  local function adopt(schema, bulb, name, entity, state)
+  --- @param mac string? The MAC address the light reported.
+  local function adopt(schema, bulb, name, entity, state, mac)
+    if not follow.device:accepts(mac) then
+      log:warn("A device other than this light answers at %s", ip)
+      failed("a different device is at " .. ip .. "; looking for this one")
+      return
+    end
+    follow.answered()
+    UpdateProperty("MAC Address", follow.device:mac() or "")
     directDetecting = false
     directSchema = schema
     iotBulb = bulb
@@ -4057,7 +4125,7 @@ backendStart = function(retry)
     local bulb = IotBulb:new(transport)
     bulb:poll():next(
       live(function(result)
-        adopt("iot", bulb, name, result.entity, result.state)
+        adopt("iot", bulb, name, result.entity, result.state, result.mac)
       end),
       live(function(err)
         onFail(Select(err, "error") or "no response")
@@ -4072,7 +4140,7 @@ backendStart = function(retry)
       live(function(response)
         if tointeger(Select(response, "error_code")) == 0 then
           local info = Select(response, "result") or {}
-          adopt("smart", nil, "SMART", synthesizeEntity(info), synthesizeState(info))
+          adopt("smart", nil, "SMART", synthesizeEntity(info), synthesizeState(info), info.mac)
         else
           onFail("device rejected get_device_info over KLAP")
         end
@@ -4177,6 +4245,11 @@ end
 --- @param propertyValue string
 function OPC.IP_Address(propertyValue)
   log:trace("OPC.IP_Address('%s')", propertyValue)
+  -- An address set by hand may be another device's, as a replacement's is. The
+  -- follower's own write never reaches here; late init replays every property.
+  if gInitialized then
+    follow.device:forget()
+  end
   if gInitialized then
     backendStart()
   end
