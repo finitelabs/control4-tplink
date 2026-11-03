@@ -223,7 +223,6 @@ local LOOKING_STATUS = "Looking for the device on the network..."
 --- @field _onMoved fun(address: string)
 --- @field _tries integer Searches since the device was lost.
 --- @field _pending boolean A search is under way or scheduled.
---- @field _written string? The last address handed to onMoved.
 local Follower = {}
 Follower.__index = Follower
 
@@ -312,16 +311,8 @@ function Follower:_look()
       return
     end
     log:info("Found the device with MAC %s at %s", mac, address)
-    self._written = address
     self._onMoved(address)
   end)
-end
-
---- Whether an IP Address property change is the follower's own.
---- @param address string
---- @return boolean
-function Follower:wrote(address)
-  return address ~= nil and address == self._written
 end
 
 --- The installer pointed the driver at an address by hand: follow whichever
@@ -329,7 +320,6 @@ end
 function Follower:forget()
   log:debug("Forgetting the followed MAC")
   persist:delete(P_MAC)
-  self._written = nil
   self:found()
 end
 

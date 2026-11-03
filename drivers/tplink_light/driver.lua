@@ -4245,9 +4245,9 @@ end
 --- @param propertyValue string
 function OPC.IP_Address(propertyValue)
   log:trace("OPC.IP_Address('%s')", propertyValue)
-  -- An address set by hand may be another device's, as a replacement's is.
-  -- Late init replays every property, and that is no edit.
-  if gInitialized and not follow.device:wrote(propertyValue) then
+  -- An address set by hand may be another device's, as a replacement's is. The
+  -- follower's own write never reaches here; late init replays every property.
+  if gInitialized then
     follow.device:forget()
   end
   if gInitialized then

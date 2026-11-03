@@ -191,8 +191,6 @@ do
   answer(klapAnswer("02-1A-2B-3C-4D-5E"), "192.0.2.77", 20002)
   T.eq("the driver is told where it is", moved, { "192.0.2.77" })
   T.eq("Driver Status as it was", Properties["Driver Status"], "Disconnected: no answer")
-  T.truthy("the address it gave is known as its own", follower:wrote("192.0.2.77"))
-  T.falsy("another is not", follower:wrote("192.0.2.78"))
   reset()
 end
 
