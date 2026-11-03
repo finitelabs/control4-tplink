@@ -22,7 +22,7 @@
       <id>1</id>
       <name>DEVICE_CONNECTED</name>
       <type>BOOL</type>
-      <condition_statement>Kasa device connection status</condition_statement>
+      <condition_statement>TP-Link device connection status</condition_statement>
       <description>NAME is STRING</description>
       <true_text>Connected</true_text>
       <false_text>Disconnected</false_text>
@@ -199,15 +199,15 @@
       </property>
       <!-- #endif -->
       <property>
-        <name>Kasa Settings</name>
+        <name>TP-Link Settings</name>
         <type>LABEL</type>
-        <default>Kasa Settings</default>
+        <default>TP-Link Settings</default>
       </property>
       <property>
         <name>IP Address</name>
         <type>STRING</type>
         <default/>
-        <description>IP address of the Kasa device.</description>
+        <description>IP address of the plug or power strip.</description>
       </property>
       <property>
         <name>Protocol</name>

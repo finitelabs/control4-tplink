@@ -279,6 +279,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Declaring dimming is expected to end that. A lamp on a TP-Link Outlet is now
   shown as a dimmer until the outlet first reports, and stays one to anything
   that reads the driver's declared capabilities alone, as a HomeKit bridge may.
+- The TP-Link Outlet driver's `Kasa Settings` are now `TP-Link Settings`, and
+  its documentation names Tapo plugs and power strips alongside Kasa.
   <!-- #ifdef DRIVERCENTRAL -->
 - Changing `Automatic Updates` on any TP-Link Outlet or TP-Link Light driver now
   changes it on all of them, so the drivers update together.

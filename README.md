@@ -51,9 +51,9 @@ migrates a device.
 
 ## TP-Link Outlet
 
-Control Kasa smart power strips (HS300/KP303/KP400) and smart plugs. Every
-output is exposed as a standard Control4 relay binding with per-output events,
-variables, and real-time power readings.
+Control Kasa and Tapo smart plugs and power strips (e.g. HS300, KP303, EP25).
+Every output is exposed as a standard Control4 relay binding with per-output
+events, variables, and real-time power readings.
 
 **Key features:**
 
@@ -388,6 +388,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   Declaring dimming is expected to end that. A lamp on a TP-Link Outlet is now
   shown as a dimmer until the outlet first reports, and stays one to anything
   that reads the driver's declared capabilities alone, as a HomeKit bridge may.
+- The TP-Link Outlet driver's `Kasa Settings` are now `TP-Link Settings`, and
+  its documentation names Tapo plugs and power strips alongside Kasa.
 
 ## v20261002 - 2026-10-02
 
