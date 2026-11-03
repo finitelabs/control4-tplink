@@ -374,9 +374,9 @@ Displays the line voltage the energy meter reports, when supported.
 
 ##### Output N Name / State / Power (read-only)
 
-Displays each output's name (as set in the Kasa or Tapo app), current state, and
-last power reading. These properties are hidden until the device connects; only
-the outputs the device actually reports are shown.
+Displays each output's name (as set in the Kasa or Tapo app), whether it is On or
+Off, and its last power reading. These properties are hidden until the device
+connects; only the outputs the device actually reports are shown.
 
 ##### Output N In Use Above (W) / Output N Idle Below (W) \[ 0 - 4000, default: **_0_** \]
 

@@ -412,6 +412,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - The TP-Link Outlet driver's `Log Mode` now goes back to `Off` after 3 hours,
   as the TP-Link Light driver's does, and `Log Level` goes back to `3 - Info`
   while logging is off.
+- A TP-Link Outlet's `Output N State` properties now read `On` or `Off`. The
+  `Output N State` variables still read 1 or 0 for programming.
 
 ## v20261002 - 2026-10-02
 
