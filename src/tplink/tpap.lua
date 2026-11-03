@@ -5,27 +5,6 @@
 --- instead. Like KLAP it is schema-agnostic: callers send the SMART or the IOT
 --- JSON the device speaks and get its decoded answer.
 ---
---- Protocol summary (every step is a POST to the device's TPAP port):
----   1. /  {"method":"login","params":{"sub_method":"discover"}}
----      A device on TPAP answers with a `tpap` object: tls, port, pake types.
----   2. /  sub_method "pake_register": the user name (MD5 of "admin"), 32
----      random bytes, cipher suite 1 (SPAKE2+ P-256, SHA-256), AES-128-CCM.
----      The device answers with its share, salt, random, PBKDF2 iterations and
----      the password transform (`extra_crypt`).
----   3. credential = the transformed account password;
----      w0 || w1   = PBKDF2-HMAC-SHA256(credential, salt, iterations, 80 bytes),
----                   each 40-byte half reduced mod the P-256 order;
----      SPAKE2+ (RFC 9383) as the prover, with no identities and the context
----      SHA-256("PAKE V1" || user random || device random).
----   4. /  sub_method "pake_share": the share and its confirmation. The device
----      answers with its confirmation (checked), a session token (stok) and the
----      first sequence number.
----   5. Session: key = HKDF-SHA256(K_shared, "tp-kdf-salt-aes128-key",
----      "tp-kdf-info-aes128-key", 16) and the nonce base likewise with the iv
----      labels (12 bytes). Each request is POST /stok=<stok>/ds with
----      seq (4 bytes big-endian) || AES-128-CCM(key, base[1..8] || seq, JSON)
----      || 16-byte tag; seq starts at the device's and goes up by one.
----
 --- Every refused password counts toward a device lock (15 tries), so a refused
 --- one is never tried again until the credentials change, and a lock is waited
 --- out.
@@ -73,7 +52,7 @@ local REQUEST_TIMEOUT = 10
 --- The user name every login sends: MD5("admin").
 local USERNAME_HASH = "21232f297a57a5a743894a0e4a801fc3"
 
---- The cap both public implementations put on the device's PBKDF2 iterations.
+--- The most PBKDF2 iterations a device may ask for, so a hostile answer cannot stall the controller.
 local MAX_ITERATIONS = 100000
 
 --- Logging in again this long before the device's session ends, in ms.
