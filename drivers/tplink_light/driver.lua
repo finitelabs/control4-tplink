@@ -4289,8 +4289,6 @@ function OPC.IP_Address(propertyValue)
   -- follower's own write never reaches here; late init replays every property.
   if gInitialized then
     follow.device:forget()
-  end
-  if gInitialized then
     backendStart()
   end
 end

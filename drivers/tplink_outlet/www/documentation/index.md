@@ -87,8 +87,8 @@ programming.
 - **Local control** of each outlet with no TP-Link cloud dependency after setup
 - **Newer firmware**: works with the encrypted protocol TP-Link firmware has
   used since late 2024
-- **Tapo and newer Kasa plugs** (EP25 v2.6, KP125M) and Tapo power strips, found
-  automatically, with each strip outlet as its own output
+- **Tapo and newer Kasa plugs and power strips**, found automatically, with each
+  outlet as its own output
 - **Original Kasa firmware**: works with no credentials, and keeps working after
   TP-Link updates the device (add your account credentials)
 - Standard Control4 **relay bindings** for every output (bind relay-controlled
@@ -126,8 +126,8 @@ Other Kasa and Tapo plugs and power strips are expected to work:
 
 - Kasa plugs and power strips, on original or newer firmware
 - Newer Kasa plugs and Tapo plugs, which need the TP-Link account credentials
-- Tapo power strips and newer Kasa power strips, with each outlet as its own
-  output
+- Tapo power strips and newer Kasa multi-outlet plugs, with each outlet as its
+  own output
 
 Single-outlet devices appear as output 1.
 

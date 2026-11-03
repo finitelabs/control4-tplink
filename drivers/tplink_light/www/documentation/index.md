@@ -314,7 +314,7 @@ Sets the credentials of the TP-Link (Kasa or Tapo) account the light is set up
 with. The email is case sensitive. They are used only to connect to the light on
 your network in direct mode; the driver never contacts TP-Link's cloud. Required
 for Tapo lights and Kasa lights updated since late 2024; may be left blank for
-Kasa KL-series bulbs on original firmware.
+Kasa KL- or LB-series lights on original firmware.
 
 #### Poll Rate (Seconds) \[ 2 - 300, default: **_5_** \]
 
