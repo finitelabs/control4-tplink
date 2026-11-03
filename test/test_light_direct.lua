@@ -318,7 +318,7 @@ local CAPABILITY_KEYS = {
   "hide_proxy_events",
   "hide_proxy_conditionals_loops",
 }
---- Put the modelled proxy on driver.xml's capabilities, then those it is `told`.
+--- Put the modeled proxy on driver.xml's capabilities, then those it is `told`.
 local function showCapabilities(told)
   local caps = {}
   local f = assert(io.open(HERE .. "/../drivers/tplink_light/driver.xml", "rb"))
