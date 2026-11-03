@@ -160,7 +160,7 @@ local function setDeviceOnline(online, reason)
     updateDriverStatus(not IsEmpty(reason) and ("Disconnected: " .. reason) or "Disconnected")
     -- The first power reading after a reconnect is the device's as it is, not a change.
     for _, output in pairs(outputs) do
-      output.inUse = nil
+      output.inUse, output.heldSince = nil, nil
     end
     for _, binding in pairs(bindings:getDynamicBindings("light")) do
       SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", {}, "NOTIFY")
@@ -539,22 +539,39 @@ end
 --- @param n number Output number (1-based).
 --- @param watts number
 local function applyPower(n, watts)
+  local output = outputs[n]
   local above, below = powerLevels(n)
   if above == nil then
-    outputs[n].inUse = nil
+    output.inUse, output.heldSince = nil, nil
     return
   end
-  local was = outputs[n].inUse
-  local now
-  if was then
-    now = watts >= below
-  else
-    now = watts > above
+  local was = output.inUse
+  if was == nil then
+    output.inUse, output.heldSince = watts > above, nil
+    values:update("Output " .. n .. " In Use", output.inUse, "BOOL")
+    return
   end
-  outputs[n].inUse = now
-  values:update("Output " .. n .. " In Use", now, "BOOL")
-  if was ~= nil and now ~= was and gInitialized then
-    C4:FireEventByID((now and constants.EVENT_IN_USE_OFFSET or constants.EVENT_IDLE_OFFSET) + n)
+  local crossed
+  if was then
+    crossed = watts < below
+  else
+    crossed = watts > above
+  end
+  if not crossed then
+    output.heldSince = nil
+    return
+  end
+  -- The power must stay past the level for the hold time; readings come at the energy poll rate.
+  local now = C4:GetTime()
+  output.heldSince = output.heldSince or now
+  local holdSeconds = math.max(0, tointeger(Properties["Output " .. n .. " Hold (s)"]) or 0)
+  if now - output.heldSince < holdSeconds * ONE_SECOND then
+    return
+  end
+  output.inUse, output.heldSince = not was, nil
+  values:update("Output " .. n .. " In Use", output.inUse, "BOOL")
+  if gInitialized then
+    C4:FireEventByID((output.inUse and constants.EVENT_IN_USE_OFFSET or constants.EVENT_IDLE_OFFSET) + n)
   end
 end
 
@@ -592,6 +609,7 @@ local function pollEnergy()
               outputs[n].levelsShown = true
               C4:SetPropertyAttribs("Output " .. n .. " In Use Above (W)", constants.SHOW_PROPERTY)
               C4:SetPropertyAttribs("Output " .. n .. " Idle Below (W)", constants.SHOW_PROPERTY)
+              C4:SetPropertyAttribs("Output " .. n .. " Hold (s)", constants.SHOW_PROPERTY)
             end
             applyPower(n, watts)
           end
@@ -1117,11 +1135,12 @@ end
 for n = 1, constants.MAX_OUTPUTS do
   local function rebaseline()
     if outputs[n] ~= nil then
-      outputs[n].inUse = nil
+      outputs[n].inUse, outputs[n].heldSince = nil, nil
     end
   end
   OPC["Output_" .. n .. "_In_Use_Above_W"] = rebaseline
   OPC["Output_" .. n .. "_Idle_Below_W"] = rebaseline
+  OPC["Output_" .. n .. "_Hold_s"] = rebaseline
 end
 
 ---------------------------------------------------------------------------
@@ -1227,6 +1246,7 @@ function OnDriverInit()
     C4:SetPropertyAttribs("Output " .. n .. " Power", constants.HIDE_PROPERTY)
     C4:SetPropertyAttribs("Output " .. n .. " In Use Above (W)", constants.HIDE_PROPERTY)
     C4:SetPropertyAttribs("Output " .. n .. " Idle Below (W)", constants.HIDE_PROPERTY)
+    C4:SetPropertyAttribs("Output " .. n .. " Hold (s)", constants.HIDE_PROPERTY)
   end
 
   -- Restore dynamic bindings and output variables here: programming attached

@@ -390,6 +390,14 @@
         <description>Watts below which the output is idle; 0 uses the In Use level.</description>
       </property>
       <property>
+        <name>Output 1 Hold (s)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>3600</maximum>
+        <default>0</default>
+        <description>Seconds the power must stay past a level before In Use or Idle fires.</description>
+      </property>
+      <property>
         <name>Output 2 Name</name>
         <type>STRING</type>
         <default/>
@@ -422,6 +430,14 @@
         <maximum>4000</maximum>
         <default>0</default>
         <description>Watts below which the output is idle; 0 uses the In Use level.</description>
+      </property>
+      <property>
+        <name>Output 2 Hold (s)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>3600</maximum>
+        <default>0</default>
+        <description>Seconds the power must stay past a level before In Use or Idle fires.</description>
       </property>
       <property>
         <name>Output 3 Name</name>
@@ -458,6 +474,14 @@
         <description>Watts below which the output is idle; 0 uses the In Use level.</description>
       </property>
       <property>
+        <name>Output 3 Hold (s)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>3600</maximum>
+        <default>0</default>
+        <description>Seconds the power must stay past a level before In Use or Idle fires.</description>
+      </property>
+      <property>
         <name>Output 4 Name</name>
         <type>STRING</type>
         <default/>
@@ -490,6 +514,14 @@
         <maximum>4000</maximum>
         <default>0</default>
         <description>Watts below which the output is idle; 0 uses the In Use level.</description>
+      </property>
+      <property>
+        <name>Output 4 Hold (s)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>3600</maximum>
+        <default>0</default>
+        <description>Seconds the power must stay past a level before In Use or Idle fires.</description>
       </property>
       <property>
         <name>Output 5 Name</name>
@@ -526,6 +558,14 @@
         <description>Watts below which the output is idle; 0 uses the In Use level.</description>
       </property>
       <property>
+        <name>Output 5 Hold (s)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>3600</maximum>
+        <default>0</default>
+        <description>Seconds the power must stay past a level before In Use or Idle fires.</description>
+      </property>
+      <property>
         <name>Output 6 Name</name>
         <type>STRING</type>
         <default/>
@@ -558,6 +598,14 @@
         <maximum>4000</maximum>
         <default>0</default>
         <description>Watts below which the output is idle; 0 uses the In Use level.</description>
+      </property>
+      <property>
+        <name>Output 6 Hold (s)</name>
+        <type>RANGED_INTEGER</type>
+        <minimum>0</minimum>
+        <maximum>3600</maximum>
+        <default>0</default>
+        <description>Seconds the power must stay past a level before In Use or Idle fires.</description>
       </property>
     </properties>
     <actions>

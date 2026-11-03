@@ -51,7 +51,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 - Added `Output N In Use` and `Output N Idle` events and an `Output N In Use`
   variable to the TP-Link Outlet driver, set from each output's power and two
-  levels, `In Use Above (W)` and `Idle Below (W)`.
+  levels, `In Use Above (W)` and `Idle Below (W)`. `Hold (s)` sets how long the
+  power must stay past a level before the event fires.
 
 - Added address following to the TP-Link Outlet and TP-Link Light drivers: when
   DHCP gives the device another address on the controller's network, the driver

@@ -91,7 +91,7 @@ events, variables, and real-time power readings.
 - Turn Output On / Turn Output Off / Toggle Output programming commands
 - On, Off and Toggle keypad button links per output, with LEDs that follow it
 - `Output N In Use` / `Output N Idle` events from each output's power, with two
-  levels you set
+  levels and a hold time you set
 - Follows the device to a new protocol after a firmware update, a rollback or a
   reset, and to a new address on the controller's network (OS 4.0 and later)
 - Output Light bindings pair with the TP-Link Light driver to present an output

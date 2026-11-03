@@ -103,6 +103,7 @@ Properties = {
   ["WiFi RSSI"] = "",
   ["Output 1 In Use Above (W)"] = "0",
   ["Output 1 Idle Below (W)"] = "0",
+  ["Output 1 Hold (s)"] = "0",
 }
 
 dofile(HERE .. "/../drivers/tplink_outlet/driver.lua")
@@ -253,6 +254,38 @@ do
   draw(10)
   T.eq("above it: In Use", draw(90), { 21 })
   T.eq("below it: Idle", draw(70), { 31 })
+end
+
+T.section("with a hold time the power must stay past a level that long")
+do
+  local clock = 0
+  local getTime = C4.GetTime
+  function C4:GetTime()
+    return clock
+  end
+  --- The plug draws this many watts at this many seconds, and the driver reads it.
+  local function at(seconds, watts)
+    clock = seconds * 1000
+    return draw(watts)
+  end
+  setProperty("Output 1 In Use Above (W)", "50")
+  setProperty("Output 1 Idle Below (W)", "5")
+  setProperty("Output 1 Hold (s)", "60")
+  at(0, 90)
+  T.eq("in use", Variables["Output 1 In Use"], "1")
+  T.eq("below Idle: nothing yet", at(10, 2), {})
+  T.eq("still below at 50 s: nothing yet", at(60, 2), {})
+  T.eq("back between the levels: the wait starts again", at(65, 30), {})
+  T.eq("below again", at(70, 2), {})
+  T.eq("59 s later: nothing", at(129, 2), {})
+  T.eq("60 s later: Idle", at(130, 2), { 31 })
+  T.eq("In Use cleared", Variables["Output 1 In Use"], "0")
+  T.eq("a spike above In Use: nothing yet", at(140, 90), {})
+  T.eq("gone at the next reading: nothing", at(145, 2), {})
+  T.eq("and nothing later", at(300, 2), {})
+  T.eq("still idle", Variables["Output 1 In Use"], "0")
+  setProperty("Output 1 Hold (s)", "0")
+  C4.GetTime = getTime
 end
 
 T.finish()
