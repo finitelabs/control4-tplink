@@ -358,7 +358,8 @@ herein are proprietary to Finite Labs LLC and its suppliers and may be covered
 by U.S. and Foreign Patents, patents in process, and are protected by trade
 secret or copyright law. Dissemination of this information or reproduction of
 this material is strictly forbidden unless prior written permission is obtained
-from Finite Labs LLC.
+from Finite Labs LLC. For the latest information, please visit
+https://drivercentral.io/platforms/control4-drivers/lighting/tp-link-kasa-and-tapo
 
 <!-- #endif -->
 
