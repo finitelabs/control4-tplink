@@ -320,7 +320,10 @@ local CAPABILITY_KEYS = {
   "hide_proxy_events",
   "hide_proxy_conditionals_loops",
 }
---- The order the proxy takes a notify's capabilities in, each with whether a change to it rewrites 6661.
+--- The order the proxy takes a notify's capabilities in, each with whether a change to it rewrites 6661. Measured on
+--- dev (2026-11-03): supports_target, dimmer, supports_color, supports_color_correlated_temperature, has_extras and
+--- cold_start come before the stop flags, the brightness rates after supports_target, and the color rates and CCT range
+--- after the stop flags. The rest of the order is inferred.
 local TAKEN = {
   { "dimmer", true },
   { "supports_target", true },
@@ -4763,17 +4766,24 @@ do
       T.eq(name .. ": and is told no level or color", { levels(), colorsTold() }, { {}, {} })
     end
   end
-  forgetSetup()
-  light()
-  local kept = shows
-  local shown = kept[6661]
-  kept[6661] = shown:gsub("<color_correlated_temperature_max>%d+<", "<color_correlated_temperature_max>6000<")
-  startDriver()
-  shows = kept
-  shakeHands()
-  reply(info())
-  T.eq("a proxy that lists other capabilities is told the light's once", #told("DYNAMIC_CAPABILITIES_CHANGED"), 1)
-  T.eq("and lists them", shows[6661], shown)
+  local kept
+  for _, key in ipairs({ "color_correlated_temperature_min", "color_correlated_temperature_max" }) do
+    forgetSetup()
+    light()
+    kept = shows
+    local shown = kept[6661]
+    kept[6661] = shown:gsub("<" .. key .. ">%d+<", "<" .. key .. ">6000<")
+    startDriver()
+    shows = kept
+    shakeHands()
+    reply(info())
+    T.eq(
+      ("a proxy that lists %s 6000 is told the light's capabilities once"):format(key),
+      #told("DYNAMIC_CAPABILITIES_CHANGED"),
+      1
+    )
+    T.eq(("and with %s 6000: lists them"):format(key), shows[6661], shown)
+  end
   -- A capability whose change alone leaves 6661 as it is can lag there after a correct tell, and no later tell puts it
   -- right: the proxy holds a dimmer's brightness stop and lists it False (dev, 2026-11-03).
   forgetSetup()
