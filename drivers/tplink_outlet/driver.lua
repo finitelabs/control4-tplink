@@ -382,7 +382,7 @@ end
 --- @param n number Output number (1-based).
 --- @param state boolean New relay state.
 local function applyOutputState(n, state)
-  local changed = values:update("Output " .. n .. " State", state, "BOOL")
+  local changed = values:update("Output " .. n .. " State", state, "BOOL", nil, { [true] = "On", [false] = "Off" })
   outputs[n].state = state
 
   if changed then

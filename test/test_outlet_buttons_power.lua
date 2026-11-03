@@ -101,6 +101,7 @@ Properties = {
   ["MAC Address"] = "",
   ["Firmware"] = "",
   ["WiFi RSSI"] = "",
+  ["Output 1 State"] = "",
   ["Output 1 In Use Above (W)"] = "0",
   ["Output 1 Idle Below (W)"] = "0",
   ["Output 1 Hold (s)"] = "0",
@@ -184,6 +185,8 @@ do
   plug.relay = 1
   EC.RefreshNow()
   T.eq("switched on at the plug", (drain()), { on = { true }, off = { false }, toggle = { true } })
+  T.eq("its State property reads On", Properties["Output 1 State"], "On")
+  T.eq("while programming reads 1", Variables["Output 1 State"], "1")
   EC.RefreshNow()
   T.eq("a poll with no change tells nothing", (drain()), {})
 end
