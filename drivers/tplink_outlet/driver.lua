@@ -251,6 +251,11 @@ end
 --- sends DO_PUSH then DO_CLICK, and some senders send only one of them.
 local BUTTON_LINK_COALESCE_MS = 500
 
+--- Keypad links inside their coalescing window, by binding id. Kept outside the
+--- handlers, which each sysinfo poll wires again.
+--- @type table<integer, boolean>
+local buttonCoalescing = {}
+
 --- Each output's keypad links, by the key of their binding.
 local BUTTON_LINKS = {
   { key = "on", name = "On" },
@@ -294,18 +299,17 @@ local function ensureButtonLinks(n)
       "BUTTON_LINK"
     )
     if binding ~= nil then
-      local coalescing = false
       RFP[binding.bindingId] = function(idBinding, strCommand)
         log:trace("RFP button output=%s link=%s strCommand=%s", n, link.key, strCommand)
         if strCommand ~= "DO_PUSH" and strCommand ~= "DO_CLICK" then
           return
         end
-        if coalescing then
+        if buttonCoalescing[idBinding] then
           return
         end
-        coalescing = true
+        buttonCoalescing[idBinding] = true
         SetTimer("ButtonLinkCoalesce" .. idBinding, BUTTON_LINK_COALESCE_MS, function()
-          coalescing = false
+          buttonCoalescing[idBinding] = nil
         end)
         if link.key == "on" then
           setOutput(n, true)

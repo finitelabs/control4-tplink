@@ -206,6 +206,12 @@ do
   drain()
   ReceivedFromProxy(link("on").bindingId, "DO_RELEASE", {})
   T.eq("a release does nothing", select(2, drain()), {})
+  ShimFireTimers()
+  drain()
+  ReceivedFromProxy(link("toggle").bindingId, "DO_PUSH", {})
+  EC.RefreshNow()
+  ReceivedFromProxy(link("toggle").bindingId, "DO_CLICK", {})
+  T.eq("a poll between a tap's push and click: one switch", #select(2, drain()), 1)
 end
 
 T.section("with both levels at 0 an output's power fires nothing")
