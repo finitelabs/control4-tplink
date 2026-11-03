@@ -383,10 +383,7 @@ end
 --- @param state boolean New relay state.
 local function applyOutputState(n, state)
   local name = "Output " .. n .. " State"
-  local before = values:getValue(name)
-  values:update(name, state, "BOOL", nil, { [true] = "On", [false] = "Off" })
-  -- On the value alone: a record that only gains its labels, after an update, is not a switch.
-  local changed = before == nil or before.deleted or before.value ~= state
+  local changed = values:update(name, state, "BOOL", nil, { [true] = "On", [false] = "Off" })
   outputs[n].state = state
 
   if changed then
