@@ -26,16 +26,12 @@ ______________________________________________________________________
 
 <!-- #endif -->
 
-This suite provides local, cloud-free control of TP-Link Kasa and Tapo smart
-home devices from Control4, across the generations of TP-Link's local protocols.
-Older Kasa integrations rely on TP-Link's plaintext protocol on port 9999;
-firmware updates rolled out since late 2024 disable that protocol and replace it
-with KLAP, an encrypted local protocol, and newer Kasa hardware (e.g. the EP25
-v2.6) also swaps the legacy command schema for the SMART schema that Tapo
-devices speak. These drivers implement the KLAP handshake and session encryption
-(both hash generations) and both command schemas, and auto-detect devices still
-on the original firmware, so the same driver instance keeps working when TP-Link
-migrates a device.
+This suite gives Control4 local control of TP-Link Kasa and Tapo smart plugs,
+power strips and lights, with no TP-Link cloud. It works with Kasa devices on
+original firmware, with Kasa devices TP-Link has updated since late 2024, and
+with Tapo devices and newer Kasa models such as the EP25 v2.6. The drivers work
+out how each device connects, so a device keeps working when TP-Link updates its
+firmware.
 
 # <span style="color:#4ACBD6">Index</span>
 
@@ -61,14 +57,14 @@ migrates a device.
 # <span style="color:#4ACBD6">System Requirements</span>
 
 - Control4 OS 3.3+
-- TP-Link (Kasa/Tapo) account credentials for devices on KLAP firmware; devices
-  on original Kasa firmware need no credentials
-- **Third-Party Compatibility** enabled for devices on newer firmware (Tapo app:
-  `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
-  `Settings → Third-Party Compatibility`). Firmware updates can turn this
-  setting off, in which case the device refuses local connections until it is
-  re-enabled. A device added after the setting was turned on may also refuse
-  them until the setting is turned off and back on
+- TP-Link (Kasa or Tapo) account credentials for Tapo devices and for Kasa
+  devices updated since late 2024; Kasa devices on original firmware need none
+- **Third-Party Compatibility** turned on for devices on newer firmware, in the
+  Tapo app (under **Me**, then **Tapo Lab**) or the Kasa app (under
+  **Settings**). Firmware updates can turn this setting off, in which case the
+  device refuses local connections until it is turned back on. A device added
+  after the setting was turned on may also refuse them until the setting is
+  turned off and back on
 
 # <span style="color:#4ACBD6">Included Drivers</span>
 
@@ -81,15 +77,15 @@ events, variables, and real-time power readings.
 **Key features:**
 
 - Local control of each output with no TP-Link cloud dependency after setup
-- KLAP encrypted transport plus automatic legacy protocol detection
-- Speaks both the legacy IOT and the newer SMART command schemas, so
-  SMART-firmware plugs and power strips (Kasa EP25 v2.6/KP125M/EP40M, Tapo
-  P-series) work alongside classic Kasa hardware
+- Works on original Kasa firmware and on the firmware TP-Link has rolled out
+  since late 2024, and works out which one a device runs
+- Newer Kasa plugs and power strips (EP25 v2.6, KP125M, EP40M) and Tapo P-series
+  plugs and power strips work alongside older Kasa models
 - Standard Control4 relay binding per output
 - `Output N Turned On` / `Output N Turned Off`, `Connected`, and `Disconnected`
   events
 - Per-output variables (`Output N Name`, `Output N State`, `Output N Power`,
-  `Voltage`) for programming
+  `Output N In Use`, `Voltage`) for programming
 - Real-time energy monitoring per outlet with a configurable poll rate, on
   devices that support it
 - Turn Output On / Turn Output Off / Toggle Output programming commands
@@ -103,16 +99,15 @@ events, variables, and real-time power readings.
 
 ## TP-Link Light
 
-Present a Control4 light (light_v2) backed by a TP-Link device, in one of two
-modes:
+A Control4 light backed by a TP-Link device, in direct mode or proxy mode.
 
 **Key features:**
 
-- **Direct mode**: connects to a TP-Link light: Tapo L900/L920/L930 strips and
-  Tapo bulbs over KLAP + SMART, or legacy Kasa KL/LB-series bulbs and light
-  strips over KLAP or port 9999 with the IOT schema, auto-detected. Brightness,
-  color, and color temperature are enabled dynamically from what the device
-  reports
+- **Direct mode**: connects to a TP-Link light on your network: a Tapo L900,
+  L920 or L930 light strip, a Tapo bulb, or a Kasa KL- or LB-series bulb or
+  light strip, on original or newer firmware. The driver works out how the light
+  connects. Brightness, color and color temperature are offered when the light
+  has them
 - **Proxy mode**: binds to a TP-Link Outlet output so a lamp plugged into a
   smart outlet appears as a real on/off light, with state kept in sync from the
   outlet
@@ -156,7 +151,7 @@ documentation for setting it up.
 <!-- #else -->
 
 1. Download the latest `control4-tplink.zip` from
-   [Github](https://github.com/finitelabs/control4-tplink/releases/latest).
+   [GitHub](https://github.com/finitelabs/control4-tplink/releases/latest).
 1. Extract and install the desired `.c4z` driver files.
 1. Use the "Search" tab in Composer Pro to find the driver by name and add it to
    your project.

@@ -27,21 +27,12 @@ ______________________________________________________________________
 <!-- #endif -->
 
 The TP-Link Outlet driver provides local, cloud-free control of TP-Link Kasa and
-Tapo smart plugs and power strips directly from Control4, across the generations
-of TP-Link's local protocols.
+Tapo smart plugs and power strips directly from Control4.
 
-Older Kasa drivers rely on TP-Link's plaintext protocol on port 9999. TP-Link
-firmware updates rolled out since late 2024 disable that protocol and replace it
-with KLAP, an encrypted local protocol. Newer Kasa hardware (e.g. the EP25 v2.6)
-goes a step further and also replaces the legacy IOT command schema with the
-SMART schema that Tapo devices speak. This driver implements the KLAP handshake
-and session encryption (both hash generations) and both command schemas,
-auto-detecting the combination the device uses, so devices that stopped
-responding to older drivers after a firmware update, and plugs that never spoke
-the legacy protocol at all, work from the same driver. Devices still on the
-original firmware are also supported: the driver falls back to the port 9999
-transport, so the same driver instance continues to work when TP-Link migrates
-the device to KLAP.
+It works with Kasa devices on original firmware, with Kasa devices TP-Link has
+updated since late 2024, and with Tapo plugs and newer Kasa plugs such as the
+EP25 v2.6. The driver works out how the device connects, so the same driver
+keeps working when TP-Link updates the device's firmware.
 
 Each output is exposed as a standard Control4 **relay binding**, along with
 per-output events, variables, and real-time power (wattage) readings for
@@ -53,6 +44,7 @@ programming.
 
 - [System Requirements](#system-requirements)
 - [Features](#features)
+- [Compatibility](#compatibility)
 - [Installer Setup](#installer-setup)
   <!-- #ifdef DRIVERCENTRAL -->
   - [DriverCentral Cloud Setup](#drivercentral-cloud-setup)
@@ -65,7 +57,7 @@ programming.
       - [TP-Link Settings](#tp-link-settings)
       - [Device Information](#device-information)
       - [Outputs](#outputs)
-  - [Driver Actions](#driver-actions)
+    - [Driver Actions](#driver-actions)
   - [Connections](#connections)
   - [Programming](#programming)
 - [Troubleshooting](#troubleshooting)
@@ -80,69 +72,80 @@ programming.
 # <span style="color:#4ACBD6">System Requirements</span>
 
 - Control4 OS 3.3+
-- A TP-Link Kasa or Tapo smart plug or power strip on KLAP firmware, on the same
-  network as the controller (or routable from it)
-- The TP-Link (Kasa/Tapo) account credentials the device is bound to
-- Devices on newer firmware must have **Third-Party Compatibility** enabled
-  (Tapo app: `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
-  `Settings → Third-Party Compatibility`). If a device refuses to connect while
-  it is already on, turn it off and back on (see
-  [Troubleshooting](#troubleshooting))
-
-**Verified hardware:**
-
-| Device | Type         | Outputs | Energy Metering  | Verified Transport  |
-| ------ | ------------ | ------- | ---------------- | ------------------- |
-| HS300  | Power strip  | 6       | Yes (per outlet) | KLAP (IOT schema)   |
-| EP25   | Smart plug   | 1       | Yes              | KLAP (SMART schema) |
-| KP115  | Smart plug   | 1       | Yes              | Legacy              |
-| HS110  | Smart plug   | 1       | Yes              | Legacy              |
-| EP40A  | Outdoor plug | 2       | No               | Legacy              |
-
-The SMART schema over KLAP is also verified against a Tapo L930 light strip via
-the shared transport stack.
-
-Other Kasa and Tapo devices are expected to work across firmware generations:
-
-- Legacy-schema devices (e.g. KP200, KP303, KP400, KP401, HS103), on original
-  port 9999 firmware or after their post-2024 KLAP firmware update
-- SMART-schema devices (e.g. KP125M, and Tapo plugs such as the P110), which
-  require the TP-Link account credentials
-- Multi-outlet SMART-schema devices (Tapo power strips such as the P300, and the
-  EP40M), controlled through their child outlets
-
-Single-outlet devices appear as output 1.
+- A TP-Link Kasa or Tapo smart plug or power strip on a network the controller
+  can reach
+- For Tapo devices and for Kasa devices updated since late 2024, the credentials
+  of the TP-Link (Kasa or Tapo) account the device is set up with. Kasa devices
+  on original firmware need none.
+- Devices on newer firmware must have **Third-Party Compatibility** turned on in
+  the Tapo app (under **Me**, then **Tapo Lab**) or the Kasa app (under
+  **Settings**). If a device refuses to connect while it is already on, turn it
+  off and back on (see [Troubleshooting](#troubleshooting))
 
 # <span style="color:#4ACBD6">Features</span>
 
 - **Local control** of each outlet with no TP-Link cloud dependency after setup
-- **KLAP** encrypted transport (works on firmware that disabled port 9999), with
-  both hash generations of the handshake
-- **SMART command schema** support for newer Kasa plugs (EP25 v2.6, KP125M) and
-  Tapo plugs and power strips, auto-detected during connect; strip outlets are
-  controlled through their child devices
-- **Legacy protocol support** with automatic detection. Devices on original Kasa
-  firmware work with no credentials required and keep working after TP-Link
-  migrates them to KLAP (add your account credentials)
+- **Newer firmware**: works with the encrypted protocol TP-Link firmware has
+  used since late 2024
+- **Tapo and newer Kasa plugs** (EP25 v2.6, KP125M) and Tapo power strips, found
+  automatically, with each strip outlet as its own output
+- **Original Kasa firmware**: works with no credentials, and keeps working after
+  TP-Link updates the device (add your account credentials)
 - Standard Control4 **relay bindings** for every output (bind relay-controlled
   devices, use in scenes, dashboards, etc.)
 - **Events**: `Output N Turned On` / `Output N Turned Off`, `Connected`,
   `Disconnected`
 - **Variables** per output (`Output N Name`, `Output N State`, `Output N Power`,
-  and `Voltage`) for use in programming
+  `Output N In Use`, and `Voltage`) for use in programming
 - **Real-time energy monitoring** per outlet with configurable poll rate
 - **Programming commands**: Turn Output On / Turn Output Off / Toggle Output
 - **Keypad buttons**: On, Off and Toggle button links for each output, with LEDs
   that follow it
 - **In Use / Idle events** for each output, from its power and two levels you
   set, on devices with energy monitoring
-- Automatic session recovery (re-handshake) when the device restarts or drops
-  the session
+- Reconnects automatically when the device restarts or drops the connection
 - **Follows the device**: when it stops answering, the driver detects its
   protocol again, so it keeps working when a firmware update, a rollback or a
   reset changes how the device connects. When it gets a new address on the
   controller's network, the driver finds it by its MAC address and updates
   `IP Address` (OS 4.0 and later)
+
+# <span style="color:#4ACBD6">Compatibility</span>
+
+**Verified hardware:**
+
+| Device | Type         | Outputs | Energy Metering  | Shows As             |
+| ------ | ------------ | ------- | ---------------- | -------------------- |
+| HS300  | Power strip  | 6       | Yes (per outlet) | `Connected (KLAP)`   |
+| EP25   | Smart plug   | 1       | Yes              | `Connected (SMART)`  |
+| KP115  | Smart plug   | 1       | Yes              | `Connected (Legacy)` |
+| HS110  | Smart plug   | 1       | Yes              | `Connected (Legacy)` |
+| EP40A  | Outdoor plug | 2       | No               | `Connected (Legacy)` |
+
+Other Kasa and Tapo plugs and power strips are expected to work:
+
+- Kasa plugs and strips such as the KP200, KP303, KP400, KP401 and HS103, on
+  original or newer firmware
+- Newer Kasa plugs such as the KP125M, and Tapo plugs such as the P110, which
+  need the TP-Link account credentials
+- Tapo power strips such as the P300, and the EP40M, with each outlet as its own
+  output
+
+Single-outlet devices appear as output 1.
+
+<!-- #ifdef DRIVERCENTRAL -->
+
+If you have a model that works and is not listed, or one that does not work,
+please contact us at
+[driver-support@finitelabs.com](mailto:driver-support@finitelabs.com).
+
+<!-- #else -->
+
+If you have a model that works and is not listed, or one that does not work,
+please
+[open an issue](https://github.com/finitelabs/control4-tplink/issues/new).
+
+<!-- #endif -->
 
 # <span style="color:#4ACBD6">Installer Setup</span>
 
@@ -170,7 +173,7 @@ for setting it up.
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/lighting/tp-link-kasa-and-tapo).
 
 1. Extract and
-   [install](<(https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)>)
+   [install](https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)
    the `tplink_outlet.c4z` driver.
 
 1. Use the "Search" tab to find the "TP-Link Outlet" driver and add it to your
@@ -182,7 +185,7 @@ for setting it up.
    remaining trial duration.
 
 1. You can refresh license status by selecting the "DriverCentral Cloud" driver
-   in the "System Design" tab and perform the "Check Drivers" action.
+   in the "System Design" tab and performing the "Check Drivers" action.
    <br><img alt="Check Drivers" src="./images/check-drivers.png" width="300"/>
 
 1. Configure the [TP-Link Settings](#tp-link-settings) with the device IP
@@ -192,15 +195,15 @@ for setting it up.
    display `Connected`. If the driver fails to connect, set the
    [`Log Mode`](#log-mode--off--print--log--print-and-log-) property to `Print`
    and run action [`Reconnect`](#reconnect) from the actions tab. Then check the
-   lua output window for more information.
+   Lua output window for more information.
 
 <!-- #else -->
 
 1. Download the latest `control4-tplink.zip` from
-   [Github](https://github.com/finitelabs/control4-tplink/releases/latest).
+   [GitHub](https://github.com/finitelabs/control4-tplink/releases/latest).
 
 1. Extract and
-   [install](<(https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)>)
+   [install](https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)
    the `tplink_outlet.c4z` driver.
 
 1. Use the "Search" tab to find the "TP-Link Outlet" driver and add it to your
@@ -213,7 +216,7 @@ for setting it up.
    display `Connected`. If the driver fails to connect, set the
    [`Log Mode`](#log-mode--off--print--log--print-and-log-) property to `Print`
    and run action [`Reconnect`](#reconnect) from the actions tab. Then check the
-   lua output window for more information.
+   Lua output window for more information.
 
 <!-- #endif -->
 
@@ -225,29 +228,29 @@ for setting it up.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-##### Cloud Status
+##### Cloud Status (read-only)
 
 Displays the DriverCentral cloud license status.
 
 <!-- #endif -->
 
-##### Automatic Updates
+##### Automatic Updates \[ Off | **_On_** \]
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-Turns on/off the DriverCentral cloud automatic updates. Changing it on any
+Turns automatic driver updates from DriverCentral on or off. Changing it on any
 TP-Link Outlet or TP-Link Light driver changes it on all of them.
 
 <!-- #else -->
 
-Turns on/off the GitHub cloud automatic updates. Changing it on any TP-Link
-Outlet or TP-Link Light driver changes it on all of them.
+Turns automatic driver updates from GitHub releases on or off. Changing it on
+any TP-Link Outlet or TP-Link Light driver changes it on all of them.
 
-##### Update Channel
+##### Update Channel \[ **_Production_** | Prerelease \]
 
-Sets the update channel for which releases are considered during an automatic
-update from the GitHub repo releases. Changing it on any TP-Link Outlet or
-TP-Link Light driver changes it on all of them.
+Selects whether automatic updates take only production releases or prereleases
+too. Changing it on any TP-Link Outlet or TP-Link Light driver changes it on all
+of them.
 
 <!-- #endif -->
 
@@ -257,9 +260,13 @@ TP-Link Light driver changes it on all of them.
 
 Displays the current status of the driver:
 
-- `Connected`: session established and the device is responding to polls
-- `Connecting...`: handshake in progress
-- `Disconnected: <reason>`: the device is unreachable or rejected the session
+- `Connected (SMART)`, `Connected (KLAP)` or `Connected (Legacy)`: the driver is
+  connected and the device is answering. The word in parentheses is the protocol
+  it found (see [Protocol](#protocol--auto--klap--legacy-)).
+- `Connecting (KLAP)...` or `Connecting (Legacy)...`: the driver is connecting
+  to the device.
+- `Disconnected: <reason>`: the device can't be reached or refused the
+  connection. See [Troubleshooting](#troubleshooting) for the common reasons.
 - `Looking for the device on the network...`: the device stopped answering at
   its address and the driver is looking for it by its MAC address
 - `Set the ... property`: required configuration is missing
@@ -268,13 +275,13 @@ Displays the current status of the driver:
 
 Displays the current version of the driver.
 
-##### Log Level \[ Fatal | Error | Warning | **_Info_** | Debug | Trace | Ultra \]
+##### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
-Sets the logging level. Default is `Info`.
+Sets the logging level. Default is `3 - Info`.
 
 ##### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
-Sets the logging mode. Default is `Off`.
+Sets the logging mode. Default is `Off`. It goes back to `Off` after 3 hours.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
@@ -304,8 +311,8 @@ address is removed.
 
 Sets the IP address of the plug or power strip (e.g. `192.168.1.50`).
 
-> ⚠️ You should ensure the address will not change by assigning a static IP or
-> creating a DHCP reservation for the device.
+> **Note:** Give the device a DHCP reservation or a static IP address so its
+> address does not change.
 
 If the device does get a new address on the controller's network, the driver
 finds it by its MAC address and updates this property (OS 4.0 and later).
@@ -314,62 +321,57 @@ such as a replacement plug.
 
 ##### Protocol \[ **_Auto_** | KLAP | Legacy \]
 
-Selects the local protocol. `KLAP` is the encrypted protocol of TP-Link firmware
-since late 2024. `Legacy` is the plaintext port 9999 protocol of Kasa devices on
-original firmware.
+Selects the local protocol. `Auto` (default) works it out: with the TP-Link
+credentials set it tries the newer protocol first and then the original one;
+without them it uses the original one. `KLAP` is the protocol of Tapo devices
+and of Kasa firmware since late 2024. `Legacy` is the protocol of Kasa devices
+on original firmware. Choose `KLAP` or `Legacy` only to skip the detection.
 
-`Auto` (default) tries KLAP first when credentials are set and falls back to the
-legacy port 9999 protocol; without credentials it connects over the legacy
-protocol directly. Over KLAP the driver probes the SMART command schema first
-(newer Kasa plugs like the EP25 v2.6, and Tapo plugs), then the legacy IOT
-schema, and retries the handshake with v1 hashing for original Kasa devices that
-were firmware-updated to KLAP. Pin it to `KLAP` or `Legacy` only if you need to
-skip detection.
-
-The detected combination is shown in `Driver Status`: `Connected (SMART)` (KLAP
-transport, SMART schema), `Connected (KLAP)` (KLAP transport, legacy IOT
-schema), or `Connected (Legacy)` (port 9999).
+`Driver Status` shows what was found: `Connected (SMART)` for Tapo plugs and
+newer Kasa plugs, `Connected (KLAP)` for older Kasa devices on newer firmware,
+and `Connected (Legacy)` for Kasa devices on original firmware.
 
 ##### TP-Link Username
 
-Sets the email address of the TP-Link (Kasa/Tapo) account the device is bound
-to. **Case sensitive**, enter it exactly as registered. Required for KLAP
-firmware; may be left blank for legacy-firmware devices.
+Sets the email address of the TP-Link (Kasa or Tapo) account the device is set
+up with. **Case sensitive**, enter it exactly as registered. Required for Tapo
+devices and for Kasa devices updated since late 2024; may be left blank for Kasa
+devices on original firmware.
 
 ##### TP-Link Password
 
-Sets the password of the TP-Link account the device is bound to. Required for
-KLAP firmware; may be left blank for legacy-firmware devices.
+Sets the password of the TP-Link account the device is set up with. Required for
+Tapo devices and for Kasa devices updated since late 2024; may be left blank for
+Kasa devices on original firmware.
 
-> KLAP authentication is derived from the account credentials the device was
-> provisioned with in the Kasa/Tapo app. They are used only for the local
-> handshake; the driver never contacts TP-Link's cloud. Setting them on a
-> legacy-firmware device is harmless and recommended: when TP-Link pushes the
-> KLAP firmware update, the driver switches over automatically.
+> Use the account the device was set up with in the Kasa or Tapo app. The driver
+> uses it only to connect to the device on your network and never contacts
+> TP-Link's cloud. Set it on a Kasa device on original firmware too: when
+> TP-Link updates the device, the driver keeps working.
 
-##### Poll Rate (Seconds) [ 2 - 300 ]
+##### Poll Rate (Seconds) \[ 2 - 300, default: **_10_** \]
 
-How often output states are polled. Default is `10`.
+Sets how often the driver reads the outputs' states. Default is `10`.
 
-##### Energy Poll Rate (Seconds) [ 0 - 300 ]
+##### Energy Poll Rate (Seconds) \[ 0 - 300, default: **_5_** \]
 
-How often per-output power usage is polled. `0` disables energy polling. Default
-is `5`.
+Sets how often the driver reads each output's power. `0` turns energy polling
+off. Default is `5`.
 
-> Energy polling issues one request per outlet per cycle. On a 6-outlet strip at
-> the default rate that is a light, steady load the device handles easily, but
-> you can raise the interval if you don't use wattage in programming.
+> On a power strip the driver reads each outlet's power separately. Set a longer
+> interval if you don't use power readings in programming, or `0` to turn them
+> off.
 
 #### Device Information
 
 ##### Model / Device Name / MAC Address / Firmware / WiFi RSSI (read-only)
 
-Reported by the device after connecting. A very low RSSI (below about -75) often
-explains slow or flaky responses.
+Displays what the device reports after connecting. A very low RSSI (below about
+-75) often explains slow or flaky responses.
 
 ##### Voltage (read-only)
 
-Line voltage reported by the energy meter, when supported.
+Displays the line voltage the energy meter reports, when supported.
 
 #### Outputs
 
@@ -379,10 +381,10 @@ Displays each output's name (as set in the Kasa or Tapo app), current state, and
 last power reading. These properties are hidden until the device connects; only
 the outputs the device actually reports are shown.
 
-##### Output N In Use Above (W) / Output N Idle Below (W) [ 0 - 4000 ]
+##### Output N In Use Above (W) / Output N Idle Below (W) \[ 0 - 4000, default: **_0_** \]
 
-The power levels for the output's `In Use` and `Idle` events. The output is in
-use once its power rises above `In Use Above`, and idle once it falls below
+Sets the power levels for the output's `In Use` and `Idle` events. The output is
+in use once its power rises above `In Use Above`, and idle once it falls below
 `Idle Below`. Between the two it stays as it was, so a reading that wobbles
 around one level doesn't fire over and over. With one level at 0 the other is
 used both ways; with both at 0 (the default) the events are off. Shown once the
@@ -391,28 +393,29 @@ output has reported its power.
 For example, a TV that draws 1 W on standby and 90 W when on: set `In Use Above`
 to 30 and `Idle Below` to 5.
 
-## Driver Actions
-
-##### Refresh Now
-
-Immediately poll the device for output states and energy readings.
-
-##### Reconnect
-
-Discard the current KLAP session and perform a fresh handshake.
+### Driver Actions
 
 <!-- #ifndef DRIVERCENTRAL -->
 
-##### Update Drivers
+#### Update Drivers
 
-Trigger all TP-Link drivers to update from the latest release on GitHub,
-regardless of the current version.
+Updates every TP-Link driver in the project to the latest release on GitHub,
+even when it is already current.
 
 <!-- #endif -->
 
+#### Refresh Now
+
+Reads the output states and power readings from the device now.
+
+#### Reconnect
+
+Drops the connection to the device and connects again, working out its protocol
+again when Protocol is `Auto`.
+
 <!-- #ifdef DRIVERCENTRAL -->
 
-##### Diagnostics Snapshot
+#### Diagnostics Snapshot
 
 Prints a report in the Lua output, and sends it to Finite Labs only while Cloud
 Monitoring is Enabled.
@@ -421,12 +424,16 @@ Monitoring is Enabled.
 
 ## Connections
 
+### Output N Relay (provider, dynamic)
+
 Each output the device reports is exposed as a Control4 **relay** control
 binding (`Output 1 Relay`, `Output 2 Relay`, ...). Bindings are created
 dynamically after the driver connects, so only the outputs that exist on the
 device appear in Composer Connections. Bind any relay-consuming device or use
-the outputs directly from programming. Relay commands `ON`/`CLOSE`,
-`OFF`/`OPEN`, `TOGGLE`, and `TRIGGER` (pulse) are supported.
+the outputs directly from programming. A relay driver bound to an output can
+turn it on or off, toggle it, or pulse it.
+
+### Output N Light (provider, dynamic)
 
 Each output is also exposed as a **light** control binding (`Output 1 Light`,
 `Output 2 Light`, ...). Bind an instance of the **TP-Link Light** driver here to
@@ -437,6 +444,8 @@ Light driver, connect its **TP-Link Outlet** binding to the output's Light
 binding here, and leave the light driver's IP Address blank. See the TP-Link
 Light documentation for the full walkthrough.
 
+### Output N On / Off / Toggle Button Link (provider, dynamic)
+
 Each output also has keypad **button links** (`Output 1 On Button Link`,
 `Output 1 Off Button Link`, `Output 1 Toggle Button Link`, ...). Bind a keypad
 button to one to switch the output from that button. The button's LED follows
@@ -446,23 +455,31 @@ the output: On and Toggle are lit while it is on, Off while it is off.
 
 **Events:**
 
-- **Output N Turned On / Turned Off**: Fires when an output changes state,
-  whether from Control4, the Kasa or Tapo app, or the physical button
-- **Output N In Use / Idle**: Fires when an output's power rises above its
-  `In Use Above` level, or falls below its `Idle Below` level. A reading the
-  output already has when the driver starts or reconnects, or when a level
-  changes, fires neither
-- **Connected / Disconnected**: Fires when the driver's connection to the device
-  is established or lost
+| Event               | Description                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------- |
+| Output N Turned On  | Fires when an output turns on, whether from Control4, the Kasa or Tapo app, or the physical button  |
+| Output N Turned Off | Fires when an output turns off, whether from Control4, the Kasa or Tapo app, or the physical button |
+| Output N In Use     | Fires when an output's power rises above its `In Use Above` level                                   |
+| Output N Idle       | Fires when an output's power falls below its `Idle Below` level                                     |
+| Connected           | Fires when the driver connects to the device                                                        |
+| Disconnected        | Fires when the driver loses its connection to the device                                            |
+
+A power reading the output already has when the driver starts or reconnects, or
+when a level changes, fires neither `Output N In Use` nor `Output N Idle`.
 
 **Conditionals:**
 
-- **Device Connected**: Check whether the device is currently connected
+| Conditional                      | Description                                               |
+| -------------------------------- | --------------------------------------------------------- |
+| TP-Link device connection status | Tests whether the device is `Connected` or `Disconnected` |
 
 **Commands:**
 
-- **Turn Output On / Turn Output Off / Toggle Output**: Control an output by
-  number from programming
+| Command         | Parameters                | Description          |
+| --------------- | ------------------------- | -------------------- |
+| Turn Output On  | Output (1 - 6, default 1) | Turns the output on  |
+| Turn Output Off | Output (1 - 6, default 1) | Turns the output off |
+| Toggle Output   | Output (1 - 6, default 1) | Toggles the output   |
 
 **Variables (per output N):**
 
@@ -479,46 +496,42 @@ reports get variables.
 
 # <span style="color:#4ACBD6">Troubleshooting</span>
 
-**`Disconnected: ... handshake1 auth mismatch ...`**: The device is bound to a
-different TP-Link account (or the password is wrong). Enter the credentials for
-the account that owns the device in the Kasa/Tapo app, exactly as registered
-(the email is case sensitive). Note that in `Auto` mode a mismatch alone does
-not take the device offline: some transitional Kasa firmware answers KLAP with
-unrecognized credentials while still serving the legacy protocol, and the driver
-falls back to it automatically; the mismatch only shows when the legacy probe
-also failed.
+**`Disconnected: ... handshake1 auth mismatch ...`**: The device is set up with
+a different TP-Link account (or the password is wrong). Enter the credentials
+for the account that owns the device in the Kasa or Tapo app, exactly as
+registered (the email is case sensitive). In `Auto`, the driver also tries the
+original protocol, which some Kasa firmware still answers, so this shows only
+when that fails too.
 
 **`Disconnected: ... device refused the handshake (HTTP 403) ...`**: The device
-is rejecting the KLAP handshake before credentials are checked, which means it
-is not accepting third-party connections. Work through these in order:
+is refusing connections from other apps. Work through these in order:
 
-1. Make sure **Third-Party Compatibility** is on (Tapo app:
-   `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
-   `Settings → Third-Party Compatibility`). Firmware updates are known to turn
-   it off.
+1. Make sure **Third-Party Compatibility** is on in the Tapo app (under **Me**,
+   then **Tapo Lab**) or the Kasa app (under **Settings**). Firmware updates are
+   known to turn it off.
 1. If it is already on, turn it off and back on. A device added after the
    setting was turned on, or one that was just updated, may keep refusing
    connections until the setting is toggled, even though the app shows it on.
 1. Run the [`Reconnect`](#reconnect) action. The driver also retries on every
-   poll, so the status clears on its own once the device accepts the handshake.
-1. If it still fails, power cycle the device to clear a handshake lockout, then
-   run [`Reconnect`](#reconnect) again.
+   poll, so the status clears on its own once the device accepts the connection.
+1. If it still fails, unplug the device for a few seconds, then run
+   [`Reconnect`](#reconnect) again.
 
-**`Driver Status` stuck at `Connecting...` or timeouts**: Verify the IP address,
-that the device is on a network reachable from the controller, and that nothing
-is blocking TCP port 80 to the device.
+**`Driver Status` stuck at `Connecting (KLAP)...` or `Connecting (Legacy)...`,
+or timeouts**: Verify the IP address, that the device is on a network reachable
+from the controller, and that no firewall or network rule stops the controller
+reaching the device.
 
 **A newer Kasa plug (e.g. EP25 v2.6) or Tapo plug won't connect on any
-protocol**: SMART-schema devices on early firmware use an AES secure-passthrough
-transport this driver does not implement (on the EP25 v2.6 that is firmware
-1.0.2 and older). Update the device firmware in the Kasa/Tapo app (TP-Link's
-updates move these devices to KLAP), then run the [`Reconnect`](#reconnect)
-action. Make sure the TP-Link account credentials are set; SMART-schema devices
-always require them.
+protocol**: Some newer Kasa plugs and Tapo plugs on early firmware use a
+connection method this driver does not support (on the EP25 v2.6, firmware 1.0.2
+and older). Update the device's firmware in the Kasa or Tapo app, then run the
+[`Reconnect`](#reconnect) action. These devices always need the TP-Link account
+credentials.
 
-**`Disconnected: device rejected get_sysinfo over KLAP`**: The device answered
-the KLAP handshake but rejected both the SMART and legacy IOT command schemas.
-File a support request with the device model and firmware version.
+**`Disconnected: device rejected get_sysinfo over KLAP`**: The device accepted
+the connection but answered none of the driver's requests. File a support
+request with the device model and firmware version.
 
 **`Disconnected: a different device is at ...; looking for this one`**: another
 TP-Link device now answers at this device's address, usually after DHCP gave the
@@ -528,8 +541,8 @@ the network. If you replaced the device, enter its address in
 
 **Output states lag behind the Kasa or Tapo app**: State changes made outside
 Control4 are picked up on the next poll; lower
-[`Poll Rate (Seconds)`](#poll-rate-seconds--2---300-) if you need faster
-convergence.
+[`Poll Rate (Seconds)`](#poll-rate-seconds--2---300-default-10-) if you need
+changes made in the app to show sooner.
 
 <!-- #ifdef DRIVERCENTRAL -->
 

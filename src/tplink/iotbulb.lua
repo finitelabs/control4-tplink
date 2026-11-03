@@ -6,9 +6,9 @@
 --- go through `smartlife.iot.smartbulb.lightingservice.transition_light_state`
 --- (per the python-kasa reference). Light strips (KL400/KL420/KL430) take the
 --- same parameters through `smartlife.iot.lightStrip.set_light_state`; a
---- `length` field in sysinfo marks a strip. The schema is transport-agnostic —
---- devices on original firmware answer over the legacy port 9999 transport,
---- devices on post-2024 firmware answer over KLAP — so this adapter takes any
+--- `length` field in sysinfo marks a strip. The schema is transport-agnostic
+--- (devices on original firmware answer over the legacy port 9999 transport,
+--- devices on post-2024 firmware answer over KLAP), so this adapter takes any
 --- transport exposing `request(payload)` and maps the schema to the entity/
 --- state/command shapes the light driver's direct mode uses:
 ---

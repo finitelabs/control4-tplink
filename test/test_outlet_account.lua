@@ -34,7 +34,7 @@ end
 
 local klap
 
-package.loaded["lib.klap"] = {
+package.loaded["tplink.klap"] = {
   new = function(_, opts)
     local transport = setmetatable({}, Transport)
     if Select(opts, "authVersion") ~= 1 then
@@ -43,7 +43,7 @@ package.loaded["lib.klap"] = {
     return transport
   end,
 }
-package.loaded["lib.legacy"] = {
+package.loaded["tplink.legacy"] = {
   new = function()
     return setmetatable({}, Transport)
   end,

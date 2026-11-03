@@ -1,14 +1,15 @@
---- Unit tests for lib.iotbulb: IOT bulb schema -> light entity/state mapping.
+--- Unit tests for tplink.iotbulb: IOT bulb schema -> light entity/state mapping.
 ---
 --- Run with: ./run_test.sh test_iotbulb.lua
+
+local T = require("testlib")
 
 require("lib.utils")
 require("drivers-common-public.global.lib")
 
-local T = require("testlib")
 local deferred = require("deferred")
 local constants = require("constants")
-local IotBulb = require("lib.iotbulb")
+local IotBulb = require("tplink.iotbulb")
 
 local ColorMode = constants.LightColorMode
 

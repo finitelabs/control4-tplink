@@ -29,6 +29,7 @@
 ---      POST /app/request?seq=<seq>
 
 local deferred = require("deferred")
+local JSON = require("JSON")
 
 local log = require("lib.logging")
 local http = require("lib.http")

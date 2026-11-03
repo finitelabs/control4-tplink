@@ -11,6 +11,8 @@ require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
 
+JSON = require("JSON")
+
 local log = require("lib.logging")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
@@ -24,10 +26,10 @@ local diagnostics = require("lib.diagnostics")
 local constants = require("constants")
 local bindings = require("lib.bindings")
 local values = require("lib.values")
-local Klap = require("lib.klap")
-local Legacy = require("lib.legacy")
-local Smart = require("lib.smart")
-local Discovery = require("lib.discovery")
+local Klap = require("tplink.klap")
+local Legacy = require("tplink.legacy")
+local Smart = require("tplink.smart")
+local Discovery = require("tplink.discovery")
 
 ---------------------------------------------------------------------------
 -- State
@@ -85,6 +87,16 @@ local sysinfoInFlight = false
 --- @type boolean
 local energyInFlight = false
 
+--- Counts reconnect(): a probe, a poll or a write answered after the next one
+--- began does nothing.
+--- @type integer
+local connectGeneration = 0
+
+--- Whether a connect attempt is still probing. The poll timer's retry waits
+--- for it: a start would replace it before it had found or failed to find.
+--- @type boolean
+local detecting = false
+
 --- Properties that stay hidden until the device reports data for them.
 --- @type string[]
 local DEVICE_PROPERTIES = { "Device Information", "Model", "Device Name", "MAC Address", "Firmware", "WiFi RSSI" }
@@ -114,6 +126,19 @@ end
 --- @param status string
 local function updateDriverStatus(status)
   UpdateProperty("Driver Status", status)
+end
+
+--- A continuation of the connect attempt `generation`, which does nothing once
+--- reconnect() has begun another.
+--- @param generation integer
+--- @param continuation function
+--- @return function live
+local function live(generation, continuation)
+  return function(...)
+    if generation == connectGeneration then
+      return continuation(...)
+    end
+  end
 end
 
 --- Follows the device to a new address; defined with the transport detection.
@@ -462,26 +487,30 @@ local function pollSysinfo()
     return
   end
   sysinfoInFlight = true
-  transport:request({ system = { get_sysinfo = {} } }):next(function(response)
-    sysinfoInFlight = false
-    local sysinfo = Select(response, "system", "get_sysinfo")
-    if type(sysinfo) ~= "table" or tointeger(sysinfo.err_code) ~= 0 then
-      log:warn("get_sysinfo failed: %s", response)
-      missedPoll("device rejected get_sysinfo")
-      return
-    end
-    if not follower:accepts(sysinfo.mac) then
-      anotherDevice()
-      return
-    end
-    missedPolls = 0
-    applySysinfo(sysinfo)
-    setDeviceOnline(true)
-  end, function(err)
-    sysinfoInFlight = false
-    log:warn("sysinfo poll failed: %s", Select(err, "error") or err)
-    missedPoll(Select(err, "error"))
-  end)
+  local generation = connectGeneration
+  transport:request({ system = { get_sysinfo = {} } }):next(
+    live(generation, function(response)
+      sysinfoInFlight = false
+      local sysinfo = Select(response, "system", "get_sysinfo")
+      if type(sysinfo) ~= "table" or tointeger(sysinfo.err_code) ~= 0 then
+        log:warn("get_sysinfo failed: %s", response)
+        missedPoll("device rejected get_sysinfo")
+        return
+      end
+      if not follower:accepts(sysinfo.mac) then
+        anotherDevice()
+        return
+      end
+      missedPolls = 0
+      applySysinfo(sysinfo)
+      setDeviceOnline(true)
+    end),
+    live(generation, function(err)
+      sysinfoInFlight = false
+      log:warn("sysinfo poll failed: %s", Select(err, "error") or err)
+      missedPoll(Select(err, "error"))
+    end)
+  )
 end
 
 --- An output's In Use and Idle levels in watts, or nil when both are 0. A
@@ -535,58 +564,62 @@ local function pollEnergy()
     return
   end
   energyInFlight = true
+  local generation = connectGeneration
 
   local voltageReported = false
 
   local function pollOutput(n)
-    if n > outputCount then
+    if n > outputCount or transport == nil then
       energyInFlight = false
       return
     end
-    transport:request(forOutput(n, { emeter = { get_realtime = {} } })):next(function(response)
-      local realtime = Select(response, "emeter", "get_realtime")
-      if type(realtime) == "table" and tointeger(realtime.err_code) == 0 then
-        -- Hardware v1 reports floats in base units (power/voltage); v2 reports
-        -- integers in milli-units (power_mw/voltage_mv).
-        local watts
-        if realtime.power_mw ~= nil then
-          local milliWatts = tofinite(realtime.power_mw)
-          watts = milliWatts and milliWatts / 1000
-        else
-          watts = tofinite(realtime.power)
-        end
-        if watts ~= nil then
-          values:update("Output " .. n .. " Power", string.format("%.1f", watts), "NUMBER", nil, " W")
-          if not outputs[n].levelsShown then
-            outputs[n].levelsShown = true
-            C4:SetPropertyAttribs("Output " .. n .. " In Use Above (W)", constants.SHOW_PROPERTY)
-            C4:SetPropertyAttribs("Output " .. n .. " Idle Below (W)", constants.SHOW_PROPERTY)
+    transport:request(forOutput(n, { emeter = { get_realtime = {} } })):next(
+      live(generation, function(response)
+        local realtime = Select(response, "emeter", "get_realtime")
+        if type(realtime) == "table" and tointeger(realtime.err_code) == 0 then
+          -- Hardware v1 reports floats in base units (power/voltage); v2 reports
+          -- integers in milli-units (power_mw/voltage_mv).
+          local watts
+          if realtime.power_mw ~= nil then
+            local milliWatts = tofinite(realtime.power_mw)
+            watts = milliWatts and milliWatts / 1000
+          else
+            watts = tofinite(realtime.power)
           end
-          applyPower(n, watts)
+          if watts ~= nil then
+            values:update("Output " .. n .. " Power", string.format("%.1f", watts), "NUMBER", nil, " W")
+            if not outputs[n].levelsShown then
+              outputs[n].levelsShown = true
+              C4:SetPropertyAttribs("Output " .. n .. " In Use Above (W)", constants.SHOW_PROPERTY)
+              C4:SetPropertyAttribs("Output " .. n .. " Idle Below (W)", constants.SHOW_PROPERTY)
+            end
+            applyPower(n, watts)
+          end
+          local voltage
+          if realtime.voltage_mv ~= nil then
+            local milliVolts = tofinite(realtime.voltage_mv)
+            voltage = milliVolts and milliVolts / 1000
+          else
+            voltage = tofinite(realtime.voltage)
+          end
+          if voltage ~= nil and not voltageReported then
+            voltageReported = true
+            values:update("Voltage", string.format("%.0f", voltage), "NUMBER", nil, " V")
+          end
+        elseif n == 1 then
+          -- Device without an energy meter; don't keep asking.
+          log:info("Device does not support energy metering; disabling energy polling")
+          CancelTimer("EnergyPoll")
+          energyInFlight = false
+          return
         end
-        local voltage
-        if realtime.voltage_mv ~= nil then
-          local milliVolts = tofinite(realtime.voltage_mv)
-          voltage = milliVolts and milliVolts / 1000
-        else
-          voltage = tofinite(realtime.voltage)
-        end
-        if voltage ~= nil and not voltageReported then
-          voltageReported = true
-          values:update("Voltage", string.format("%.0f", voltage), "NUMBER", nil, " V")
-        end
-      elseif n == 1 then
-        -- Device without an energy meter; don't keep asking.
-        log:info("Device does not support energy metering; disabling energy polling")
-        CancelTimer("EnergyPoll")
+        pollOutput(n + 1)
+      end),
+      live(generation, function(err)
+        log:debug("energy poll for output %d failed: %s", n, Select(err, "error") or err)
         energyInFlight = false
-        return
-      end
-      pollOutput(n + 1)
-    end, function(err)
-      log:debug("energy poll for output %d failed: %s", n, Select(err, "error") or err)
-      energyInFlight = false
-    end)
+      end)
+    )
   end
 
   pollOutput(1)
@@ -601,18 +634,18 @@ local function restartPollTimers()
   CancelTimer("EnergyPoll")
 
   local pollSeconds = tointeger(Properties["Poll Rate (Seconds)"]) or 10
-  SetTimer("SysinfoPoll", pollSeconds * 1000, function()
-    if transport == nil then
-      -- Detection failed or never ran; keep retrying until the device answers.
-      reconnect()
-    else
+  SetTimer("SysinfoPoll", pollSeconds * ONE_SECOND, function()
+    if transport ~= nil then
       pollSysinfo()
+    elseif not detecting then
+      -- Detection found no device; keep retrying until it answers.
+      reconnect(true)
     end
   end, true)
 
   local energySeconds = tointeger(Properties["Energy Poll Rate (Seconds)"]) or 0
   if energySeconds > 0 then
-    SetTimer("EnergyPoll", energySeconds * 1000, pollEnergy, true)
+    SetTimer("EnergyPoll", energySeconds * ONE_SECOND, pollEnergy, true)
   end
 end
 
@@ -621,6 +654,7 @@ end
 --- @param name string
 --- @param sysinfo table The probe's get_sysinfo result.
 local function adoptTransport(t, name, sysinfo)
+  detecting = false
   if not follower:accepts(sysinfo.mac) then
     anotherDevice()
     return
@@ -634,77 +668,96 @@ local function adoptTransport(t, name, sysinfo)
 end
 
 --- Probe the legacy (port 9999) transport with a get_sysinfo request.
+--- @param generation integer The connect attempt the probe is for.
 --- @param onFail fun(reason: string)
-local function tryLegacy(onFail)
-  legacy:request({ system = { get_sysinfo = {} } }):next(function(response)
-    local sysinfo = Select(response, "system", "get_sysinfo")
-    if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
-      adoptTransport(legacy, "Legacy", sysinfo)
-    else
-      onFail("device rejected get_sysinfo over legacy protocol")
-    end
-  end, function(err)
-    onFail(Select(err, "error") or "no response over legacy protocol")
-  end)
+local function tryLegacy(generation, onFail)
+  legacy:request({ system = { get_sysinfo = {} } }):next(
+    live(generation, function(response)
+      local sysinfo = Select(response, "system", "get_sysinfo")
+      if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
+        adoptTransport(legacy, "Legacy", sysinfo)
+      else
+        onFail("device rejected get_sysinfo over legacy protocol")
+      end
+    end),
+    live(generation, function(err)
+      onFail(Select(err, "error") or "no response over legacy protocol")
+    end)
+  )
 end
 
 --- Probe an established KLAP session with an IOT-schema get_sysinfo.
 --- @param t Klap
+--- @param generation integer The connect attempt the probe is for.
 --- @param onFail fun(reason: string)
-local function tryKlapIot(t, onFail)
-  t:request({ system = { get_sysinfo = {} } }):next(function(response)
-    local sysinfo = Select(response, "system", "get_sysinfo")
-    if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
-      adoptTransport(t, "KLAP", sysinfo)
-    else
-      onFail("device rejected get_sysinfo over KLAP")
-    end
-  end, function(err)
-    onFail(Select(err, "error") or "KLAP request failed")
-  end)
+local function tryKlapIot(t, generation, onFail)
+  t:request({ system = { get_sysinfo = {} } }):next(
+    live(generation, function(response)
+      local sysinfo = Select(response, "system", "get_sysinfo")
+      if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
+        adoptTransport(t, "KLAP", sysinfo)
+      else
+        onFail("device rejected get_sysinfo over KLAP")
+      end
+    end),
+    live(generation, function(err)
+      onFail(Select(err, "error") or "KLAP request failed")
+    end)
+  )
 end
 
 --- Probe an established KLAP v2 session with a SMART-schema get_device_info
 --- (the smart adapter translates it to/from the IOT shapes the driver reads).
+--- @param generation integer The connect attempt the probe is for.
 --- @param onFail fun(reason: string)
-local function trySmart(onFail)
-  smart:request({ system = { get_sysinfo = {} } }):next(function(response)
-    local sysinfo = Select(response, "system", "get_sysinfo")
-    if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
-      adoptTransport(smart, "SMART", sysinfo)
-    else
-      onFail("device rejected get_device_info over KLAP")
-    end
-  end, function(err)
-    onFail(Select(err, "error") or "SMART request failed")
-  end)
+local function trySmart(generation, onFail)
+  smart:request({ system = { get_sysinfo = {} } }):next(
+    live(generation, function(response)
+      local sysinfo = Select(response, "system", "get_sysinfo")
+      if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
+        adoptTransport(smart, "SMART", sysinfo)
+      else
+        onFail("device rejected get_device_info over KLAP")
+      end
+    end),
+    live(generation, function(err)
+      onFail(Select(err, "error") or "SMART request failed")
+    end)
+  )
 end
 
 --- Probe the KLAP transports: v2 handshake, then the SMART schema (EP25
 --- v2.6/KP125M/Tapo), then the legacy IOT schema over the same session. A v2
 --- auth mismatch retries the handshake with v1 hashing, which legacy Kasa
 --- devices use after their KLAP firmware update.
+--- @param generation integer The connect attempt the probe is for.
 --- @param onFail fun(reason: string, code: number?) code is the HTTP status of a
 ---   refused handshake, if any.
-local function tryKlap(onFail)
-  klap:connect():next(function()
-    trySmart(function(smartReason)
-      log:info("SMART probe failed (%s); trying legacy IOT schema over KLAP", smartReason)
-      tryKlapIot(klap, onFail)
+local function tryKlap(generation, onFail)
+  klap:connect():next(
+    live(generation, function()
+      trySmart(generation, function(smartReason)
+        log:info("SMART probe failed (%s); trying legacy IOT schema over KLAP", smartReason)
+        tryKlapIot(klap, generation, onFail)
+      end)
+    end),
+    live(generation, function(err)
+      local reason = Select(err, "error") or "KLAP connection failed"
+      if string.find(reason, "auth mismatch", 1, true) == nil then
+        onFail(reason, Select(err, "code"))
+        return
+      end
+      log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
+      klapV1:connect():next(
+        live(generation, function()
+          tryKlapIot(klapV1, generation, onFail)
+        end),
+        live(generation, function(v1Err)
+          onFail(Select(v1Err, "error") or "KLAP connection failed", Select(v1Err, "code"))
+        end)
+      )
     end)
-  end, function(err)
-    local reason = Select(err, "error") or "KLAP connection failed"
-    if string.find(reason, "auth mismatch", 1, true) == nil then
-      onFail(reason, Select(err, "code"))
-      return
-    end
-    log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
-    klapV1:connect():next(function()
-      tryKlapIot(klapV1, onFail)
-    end, function(v1Err)
-      onFail(Select(v1Err, "error") or "KLAP connection failed", Select(v1Err, "code"))
-    end)
-  end)
+  )
 end
 
 --- A poll the device did not answer. From the third in a row the next poll
@@ -735,23 +788,46 @@ end
 --- No protocol reached the device at its address: it may have moved.
 --- @param reason string
 local function detectionFailed(reason)
+  detecting = false
   setDeviceOnline(false, reason)
   follower:lost()
 end
 
-follower = Discovery.follower(function(address)
+--- Driver Status while the device is searched for on the network.
+local LOOKING_STATUS = "Looking for the device on the network..."
+
+--- Driver Status as it was when the search began.
+--- @type string?
+local statusBeforeLooking = nil
+
+follower = Discovery.Follower:new(function(address)
   if address == Properties["IP Address"] then
     return
   end
   log:info("The device moved to %s", address)
   UpdateProperty("IP Address", address)
   reconnect()
+end, function(looking)
+  if looking then
+    statusBeforeLooking = Properties["Driver Status"]
+    updateDriverStatus(LOOKING_STATUS)
+  elseif Properties["Driver Status"] == LOOKING_STATUS then
+    updateDriverStatus(statusBeforeLooking or "")
+  end
 end)
 
 --- Reconfigure the transports from properties, detect the right one, and poll.
-function reconnect()
+--- @param retry boolean? The poll timer trying again after no device was found.
+function reconnect(retry)
+  -- What is still on its way, a probe, a poll or a write, was for the attempt
+  -- this one replaces.
+  connectGeneration = connectGeneration + 1
+  local generation = connectGeneration
+  detecting = false
   transport = nil
   transportName = nil
+  sysinfoInFlight = false
+  energyInFlight = false
 
   local ip = Properties["IP Address"] or ""
   local config = {
@@ -763,6 +839,8 @@ function reconnect()
   klapV1:configure(config)
   smart:reset()
   legacy:configure({ ip = ip })
+  -- A probe the last attempt left on the legacy port would hold this one's.
+  legacy:reset()
 
   if IsEmpty(ip) then
     updateDriverStatus("Set the IP Address property")
@@ -772,13 +850,23 @@ function reconnect()
   local mode = Properties["Protocol"] or "Auto"
   local hasCredentials = not IsEmpty(Properties["TP-Link Username"]) and not IsEmpty(Properties["TP-Link Password"])
 
+  --- Say which protocol is being tried. A retry says nothing: the reason the
+  --- last attempt failed for stays up until this one ends another way.
+  --- @param name string
+  local function connecting(name)
+    if not retry then
+      updateDriverStatus("Connecting (" .. name .. ")...")
+    end
+  end
+
   if mode == "KLAP" or (mode == "Auto" and hasCredentials) then
     if not hasCredentials then
       updateDriverStatus("Set the TP-Link Username and Password properties (required for KLAP)")
       return
     end
-    updateDriverStatus("Connecting (KLAP)...")
-    tryKlap(function(klapReason, klapCode)
+    detecting = true
+    connecting("KLAP")
+    tryKlap(generation, function(klapReason, klapCode)
       if mode == "KLAP" then
         detectionFailed(klapReason)
         return
@@ -788,8 +876,8 @@ function reconnect()
       -- match no known scheme while still serving the legacy protocol. If
       -- legacy also fails, the combined reason still surfaces the mismatch.
       log:info("KLAP probe failed (%s); trying legacy protocol", klapReason)
-      updateDriverStatus("Connecting (Legacy)...")
-      tryLegacy(function(legacyReason)
+      connecting("Legacy")
+      tryLegacy(generation, function(legacyReason)
         if klapCode == 403 then
           log:info("Legacy probe failed: %s", legacyReason)
           detectionFailed(klapReason)
@@ -800,8 +888,9 @@ function reconnect()
     end)
   else
     -- Legacy mode, or Auto without credentials.
-    updateDriverStatus("Connecting (Legacy)...")
-    tryLegacy(function(legacyReason)
+    detecting = true
+    connecting("Legacy")
+    tryLegacy(generation, function(legacyReason)
       if mode == "Auto" then
         legacyReason = legacyReason .. " (set TP-Link credentials if this device is on KLAP firmware)"
       end
@@ -828,19 +917,21 @@ function setOutput(n, state)
     return
   end
   outputs[n] = outputs[n] or {}
-  transport
-    :request(forOutput(n, { system = { set_relay_state = { state = state and 1 or 0 } } }))
-    :next(function(response)
+  local generation = connectGeneration
+  transport:request(forOutput(n, { system = { set_relay_state = { state = state and 1 or 0 } } })):next(
+    live(generation, function(response)
       local result = Select(response, "system", "set_relay_state")
       if type(result) ~= "table" or tointeger(result.err_code) ~= 0 then
         log:error("set_relay_state for output %d failed: %s", n, response)
         return
       end
       applyOutputState(n, state)
-    end, function(err)
+    end),
+    live(generation, function(err)
       log:error("Failed to set output %d %s: %s", n, state and "on" or "off", Select(err, "error") or err)
       setDeviceOnline(false, Select(err, "error"))
     end)
+  )
 end
 
 --- Toggle an output based on its last known state.
@@ -906,15 +997,54 @@ end
 --#endif
 
 --- @param propertyValue string
-function OPC.Log_Level(propertyValue)
-  log:trace("OPC.Log_Level('%s')", propertyValue)
-  log:setLogLevel(propertyValue)
+function OPC.Driver_Status(propertyValue)
+  log:trace("OPC.Driver_Status('%s')", propertyValue)
+  if not gInitialized then
+    UpdateProperty("Driver Status", "Initializing", false)
+    return
+  end
+end
+
+--- @param propertyValue string
+function OPC.Driver_Version(propertyValue)
+  log:trace("OPC.Driver_Version('%s')", propertyValue)
+  C4:UpdateProperty("Driver Version", C4:GetDriverConfigInfo("version"))
 end
 
 --- @param propertyValue string
 function OPC.Log_Mode(propertyValue)
   log:trace("OPC.Log_Mode('%s')", propertyValue)
   log:setLogMode(propertyValue)
+  CancelTimer("LogMode")
+  if not log:isEnabled() then
+    UpdateProperty("Log Level", "3 - Info", true)
+    return
+  end
+  log:warn("Log mode '%s' will expire in 3 hours", propertyValue)
+  SetTimer("LogMode", 3 * ONE_HOUR, function()
+    log:warn("Setting log mode to 'Off' (timer expired)")
+    UpdateProperty("Log Mode", "Off", true)
+  end)
+  OnPropertyChanged("Log Level")
+end
+
+--- @param propertyValue string
+function OPC.Log_Level(propertyValue)
+  log:trace("OPC.Log_Level('%s')", propertyValue)
+  log:setLogLevel(propertyValue)
+  if log:getLogLevel() >= 6 and log:isPrintEnabled() then
+    DEBUGPRINT = true
+    DEBUG_TIMER = true
+    DEBUG_RFN = true
+    DEBUG_URL = true
+    DEBUG_WEBSOCKET = true
+  else
+    DEBUGPRINT = false
+    DEBUG_TIMER = false
+    DEBUG_RFN = false
+    DEBUG_URL = false
+    DEBUG_WEBSOCKET = false
+  end
 end
 
 --- @param propertyValue string
@@ -943,6 +1073,9 @@ local function credentialChanged()
   local ok, err = pcall(reconnect)
   if not ok then
     log:error("The reconnect did not run: %s", err)
+    --#ifdef DRIVERCENTRAL
+    diagnostics:captureError(tostring(err), nil, "TPLinkOutlet.CredentialChanged")
+    --#endif
   end
 end
 
@@ -1034,10 +1167,8 @@ end
 
 function EC.Reconnect()
   log:info("Action: Reconnect")
-  klap:reset()
-  klapV1:reset()
-  smart:reset()
-  legacy:reset()
+  -- reconnect() resets the transports itself, once what they fail is the
+  -- replaced attempt's.
   reconnect()
 end
 
@@ -1112,9 +1243,6 @@ function OnDriverLateInit()
     return
   end
 
-  -- Set driver version
-  UpdateProperty("Driver Version", C4:GetDeviceData(C4:GetDeviceID(), "version"))
-
   -- Fire OnPropertyChanged for all properties to ensure consistent state
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)
@@ -1125,7 +1253,7 @@ function OnDriverLateInit()
 
   --#ifndef DRIVERCENTRAL
   -- Periodic update check (every 30 minutes, leader instance only)
-  SetTimer("UpdateCheck", 30 * 60 * 1000, function()
+  SetTimer("UpdateCheck", 30 * ONE_MINUTE, function()
     -- Recompute leader each cycle in case the previous leader was removed
     local isLeaderInstance = Select(getDriverIds(), 1) == C4:GetDeviceID()
     if isLeaderInstance and toboolean(Properties["Automatic Updates"]) then
@@ -1149,5 +1277,5 @@ function OnDriverDestroyed()
   log:info("TP-Link Outlet driver shutting down")
   CancelTimer("SysinfoPoll")
   CancelTimer("EnergyPoll")
-  Discovery.stop()
+  follower:stop()
 end

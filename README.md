@@ -9,16 +9,12 @@ ______________________________________________________________________
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4 or TP-Link.
 
-This suite provides local, cloud-free control of TP-Link Kasa and Tapo smart
-home devices from Control4, across the generations of TP-Link's local protocols.
-Older Kasa integrations rely on TP-Link's plaintext protocol on port 9999;
-firmware updates rolled out since late 2024 disable that protocol and replace it
-with KLAP, an encrypted local protocol, and newer Kasa hardware (e.g. the EP25
-v2.6) also swaps the legacy command schema for the SMART schema that Tapo
-devices speak. These drivers implement the KLAP handshake and session encryption
-(both hash generations) and both command schemas, and auto-detect devices still
-on the original firmware, so the same driver instance keeps working when TP-Link
-migrates a device.
+This suite gives Control4 local control of TP-Link Kasa and Tapo smart plugs,
+power strips and lights, with no TP-Link cloud. It works with Kasa devices on
+original firmware, with Kasa devices TP-Link has updated since late 2024, and
+with Tapo devices and newer Kasa models such as the EP25 v2.6. The drivers work
+out how each device connects, so a device keeps working when TP-Link updates its
+firmware.
 
 # <span style="color:#4ACBD6">Index</span>
 
@@ -38,14 +34,14 @@ migrates a device.
 # <span style="color:#4ACBD6">System Requirements</span>
 
 - Control4 OS 3.3+
-- TP-Link (Kasa/Tapo) account credentials for devices on KLAP firmware; devices
-  on original Kasa firmware need no credentials
-- **Third-Party Compatibility** enabled for devices on newer firmware (Tapo app:
-  `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
-  `Settings → Third-Party Compatibility`). Firmware updates can turn this
-  setting off, in which case the device refuses local connections until it is
-  re-enabled. A device added after the setting was turned on may also refuse
-  them until the setting is turned off and back on
+- TP-Link (Kasa or Tapo) account credentials for Tapo devices and for Kasa
+  devices updated since late 2024; Kasa devices on original firmware need none
+- **Third-Party Compatibility** turned on for devices on newer firmware, in the
+  Tapo app (under **Me**, then **Tapo Lab**) or the Kasa app (under
+  **Settings**). Firmware updates can turn this setting off, in which case the
+  device refuses local connections until it is turned back on. A device added
+  after the setting was turned on may also refuse them until the setting is
+  turned off and back on
 
 # <span style="color:#4ACBD6">Included Drivers</span>
 
@@ -58,15 +54,15 @@ events, variables, and real-time power readings.
 **Key features:**
 
 - Local control of each output with no TP-Link cloud dependency after setup
-- KLAP encrypted transport plus automatic legacy protocol detection
-- Speaks both the legacy IOT and the newer SMART command schemas, so
-  SMART-firmware plugs and power strips (Kasa EP25 v2.6/KP125M/EP40M, Tapo
-  P-series) work alongside classic Kasa hardware
+- Works on original Kasa firmware and on the firmware TP-Link has rolled out
+  since late 2024, and works out which one a device runs
+- Newer Kasa plugs and power strips (EP25 v2.6, KP125M, EP40M) and Tapo P-series
+  plugs and power strips work alongside older Kasa models
 - Standard Control4 relay binding per output
 - `Output N Turned On` / `Output N Turned Off`, `Connected`, and `Disconnected`
   events
 - Per-output variables (`Output N Name`, `Output N State`, `Output N Power`,
-  `Voltage`) for programming
+  `Output N In Use`, `Voltage`) for programming
 - Real-time energy monitoring per outlet with a configurable poll rate, on
   devices that support it
 - Turn Output On / Turn Output Off / Toggle Output programming commands
@@ -80,16 +76,15 @@ events, variables, and real-time power readings.
 
 ## TP-Link Light
 
-Present a Control4 light (light_v2) backed by a TP-Link device, in one of two
-modes:
+A Control4 light backed by a TP-Link device, in direct mode or proxy mode.
 
 **Key features:**
 
-- **Direct mode**: connects to a TP-Link light: Tapo L900/L920/L930 strips and
-  Tapo bulbs over KLAP + SMART, or legacy Kasa KL/LB-series bulbs and light
-  strips over KLAP or port 9999 with the IOT schema, auto-detected. Brightness,
-  color, and color temperature are enabled dynamically from what the device
-  reports
+- **Direct mode**: connects to a TP-Link light on your network: a Tapo L900,
+  L920 or L930 light strip, a Tapo bulb, or a Kasa KL- or LB-series bulb or
+  light strip, on original or newer firmware. The driver works out how the light
+  connects. Brightness, color and color temperature are offered when the light
+  has them
 - **Proxy mode**: binds to a TP-Link Outlet output so a lamp plugged into a
   smart outlet appears as a real on/off light, with state kept in sync from the
   outlet
@@ -107,7 +102,7 @@ modes:
 ## Installing the Drivers
 
 1. Download the latest `control4-tplink.zip` from
-   [Github](https://github.com/finitelabs/control4-tplink/releases/latest).
+   [GitHub](https://github.com/finitelabs/control4-tplink/releases/latest).
 1. Extract and install the desired `.c4z` driver files.
 1. Use the "Search" tab in Composer Pro to find the driver by name and add it to
    your project.
@@ -156,10 +151,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   level it had already reached. With `Driver`, the default, the driver makes the
   fade itself, sending the light a new level or color as fast as it answers
   until the fade ends, so ramp rates, stops, held buttons and scene fades work.
-  A long fade is many small requests to the light. With `Light` the light fades
-  by itself over the fades set in the Tapo app, which the driver switches on,
-  and Control4 shows those: ramp rates and stops then do nothing. The property
-  is shown only while such a light is connected.
+  With `Light` the light fades by itself over the fades set in the Tapo app,
+  which the driver switches on, and Control4 shows those: ramp rates and stops
+  then do nothing. The property is shown only while such a light is connected.
 
 - Added On, Off and Toggle keypad button links to each TP-Link Outlet output. A
   keypad button bound to one switches the output, and its LED follows it.
@@ -168,11 +162,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   variable to the TP-Link Outlet driver, set from each output's power and two
   levels, `In Use Above (W)` and `Idle Below (W)`.
 
-- The TP-Link Outlet and TP-Link Light drivers follow their device to a new
-  address. When DHCP gives the device another address on the controller's
-  network, the driver finds it by its MAC address and updates `IP Address` (OS
-  4.0 and later). A different device that answers at the address is not
-  controlled. The TP-Link Light driver shows the light's `MAC Address`.
+- Added address following to the TP-Link Outlet and TP-Link Light drivers: when
+  DHCP gives the device another address on the controller's network, the driver
+  finds it by its MAC address and updates `IP Address` (OS 4.0 and later). A
+  different device that answers at the address is not controlled. The TP-Link
+  Light driver shows the light's `MAC Address`.
 
 ### Fixed
 
@@ -280,30 +274,37 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a TP-Link light in direct mode resting at a level or color that was not
   the last one asked for, after presses in quick succession or a dragged slider,
   while it was shown at the last one: commands that reached the light together
-  were taken in another order. The light is now sent one command at a time, and
-  what is asked while it answers goes out next as one command with the latest
-  values.
+  were taken in another order. The light now ends at the last level or color
+  asked for.
 - Fixed a TP-Link light in direct mode being shown, for a few seconds after a
   command, at the level or color it had just before it, when the driver's poll
   of the light was already on its way as the command was made.
 - Fixed the TP-Link Light driver showing
   `Disconnected: Legacy: request timed out` in `Driver Status` for a light that
   was connected and working, after the username and password were entered, or
-  after any two connection properties were changed a few seconds apart. A
-  connection attempt went on acting after a later one had replaced it: it could
-  write its own result over the status, and could leave the driver connected
-  over a protocol the `Protocol` property excludes.
-- Fixed `Driver Status` of the TP-Link Light driver flipping between
-  `Connecting` and the reason the light was not found, every poll, while the
-  driver kept trying. The reason now stays until an attempt ends another way.
+  after any two connection properties were changed a few seconds apart. It also
+  could leave the driver connected over a protocol the `Protocol` property
+  excludes.
+- Fixed the TP-Link Outlet driver showing `Disconnected` and running its
+  Disconnected programming for a device that was connected and working, after
+  the username and password were entered, or after two connection properties
+  were changed a few seconds apart. A TP-Link Light bound to one of its outputs
+  went off in Control4 until the next poll.
+- Fixed `Driver Status` of the TP-Link Light and TP-Link Outlet drivers flipping
+  between `Connecting` and the reason the device was not found, every poll,
+  while the driver kept trying. The reason now stays until an attempt ends
+  another way.
+- Fixed a TP-Link Light unbound from its outlet, or one that found no light
+  after a connection property was changed or Reconnect was run, staying online
+  in Navigator at its last level.
+- Fixed a TP-Link light that was offline, or bound to an outlet that was, being
+  shown on or off, and running its Light On or Light Off programming, for a
+  command it never got. It now ignores commands until it reports again.
 - Fixed the TP-Link Light and TP-Link Outlet drivers failing to connect to a
   device that was answering, until the next retry, when a connection property
-  was changed or Reconnect was run at the moment a KLAP handshake was half done.
-  The session that handshake made had lost its cookie, and the device refused
-  every request on it.
-- Fixed a change of IP address or TP-Link account made while a KLAP handshake
-  was still under way being answered by that handshake, begun for the old device
-  or account, so the new settings were not tried until the next retry.
+  was changed or Reconnect was run while the driver was connecting.
+- Fixed a change of IP address or TP-Link account, made while the driver was
+  connecting, not being tried until the next retry.
 - Fixed a ramped On of a TP-Link light in direct mode first switching the light
   on at the level it was last at, ahead of the fade to the level asked for.
 - Fixed the TP-Link Light driver sending a light its level again when a ramp
@@ -334,12 +335,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   account to the Lua output and the log: the password at `Log Level`
   `6 - Ultra`, and the username from `5 - Trace` up. Neither is printed at any
   level now.
-- Fixed a request to a TP-Link device being left with neither an answer nor a
-  failure in two cases: over KLAP when the driver reconnected while the request
-  was on its way, and over either protocol when the device's reply could not be
-  read. The TP-Link Outlet driver sends no poll while one is unanswered, so from
-  then on it no longer noticed an output switched at the device or in the Kasa
-  or Tapo app, or the device going offline, until the driver was reloaded.
+- Fixed the TP-Link Outlet driver no longer noticing an output switched at the
+  device or in the Kasa or Tapo app, or the device going offline, until the
+  driver was reloaded, after a reconnect or a reply it could not read.
 - Fixed a TP-Link light turned on over a ramp time being shown as off until the
   ramp ended. The light now comes on at once and is shown on from the start.
 - Fixed a TP-Link light asked for its level during a ramp being shown as stopped
@@ -349,14 +347,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   off while it was turned on over a ramp time, until the ramp ended. They now
   show it on from the start of the ramp.
 - Fixed a TP-Link light turned on over a ramp time, and stopped or turned off
-  part way, having its Previous On level set to 1 %. Previous On now keeps its
+  part way, having its Previous On level set to 1%. Previous On now keeps its
   level, or takes the one the light had reached.
 - Fixed a Tapo light with Dim-To-Warm and `Fades` on `Driver` taking its
   Dim-To-Warm color at once when a ramp began from a color set on it, while it
   was shown fading there, and changing color on its way to off. Its color now
   fades as it is shown to.
 - Fixed Max On Level and Min On Level, set on a TP-Link light in Composer,
-  having no effect: a light with a Max On Level of 80 still went to 100 %. The
+  having no effect: a light with a Max On Level of 80 still went to 100%. The
   light's levels 1 to 100 now run between the two, as on a Control4 dimmer, for
   every level it is sent and shown. A change of either leaves the light where it
   is, shown at its level on the new range, until its next level command moves it
@@ -403,17 +401,17 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - With Dim-To-Warm, a brightness command for the level a TP-Link light is
   already at now returns a color set on it from the Tapo app to its Dim-To-Warm
   color. It used to do nothing.
-- The TP-Link Light driver now declares a light as a dimmer and turns dimming
-  off once it has connected to one that only switches, a light bound to a
-  TP-Link Outlet output. It used to declare none and turn dimming on at connect.
-  The proxy announces its default ramp rate when dimming turns on, before
-  Composer has the light's color capabilities, and at a color light's first
-  connect Composer showed "Error setting default color rate from driver".
-  Declaring dimming is expected to end that. A lamp on a TP-Link Outlet is now
-  shown as a dimmer until the outlet first reports, and stays one to anything
-  that reads the driver's declared capabilities alone, as a HomeKit bridge may.
+- The TP-Link Light driver now shows a light as a dimmer until it connects, and
+  turns dimming off once it finds the light only switches, as a lamp on a
+  TP-Link Outlet output does. This should stop Composer showing "Error setting
+  default color rate from driver" at a color light's first connect. A lamp on a
+  TP-Link Outlet is shown as a dimmer until the outlet first reports, and stays
+  one to other drivers that read only its declared type.
 - The TP-Link Outlet driver's `Kasa Settings` are now `TP-Link Settings`, and
   its documentation names Tapo plugs and power strips alongside Kasa.
+- The TP-Link Outlet driver's `Log Mode` now goes back to `Off` after 3 hours,
+  as the TP-Link Light driver's does, and `Log Level` goes back to `3 - Info`
+  while logging is off.
 
 ## v20261002 - 2026-10-02
 

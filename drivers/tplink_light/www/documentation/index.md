@@ -26,15 +26,14 @@ ______________________________________________________________________
 
 <!-- #endif -->
 
-The TP-Link Light driver presents a Control4 light (light_v2) backed by a
-TP-Link device. It operates in one of two modes:
+The TP-Link Light driver adds a Control4 light backed by a TP-Link device. It
+works in one of two modes:
 
-- **Direct mode**: the driver connects to a TP-Link light over the local
-  network: a Tapo L900/L920/L930 light strip or Tapo bulb speaking the SMART
-  command schema over KLAP, or a legacy Kasa KL/LB-series bulb or light strip
-  speaking the IOT schema over KLAP or the original port 9999 protocol. The
-  transport and schema are auto-detected. Brightness, color, and color
-  temperature are supported when the device reports them.
+- **Direct mode**: the driver connects to a TP-Link light on your network: a
+  Tapo L900, L920 or L930 light strip, a Tapo bulb, or a Kasa KL- or LB-series
+  bulb or light strip, on original or newer firmware. The driver works out how
+  the light connects. Brightness, color and color temperature are offered when
+  the light has them.
 - **Proxy mode**: the driver's TP-Link Outlet connection is bound to an output
   of the TP-Link Outlet driver. The light is then an on/off switch light backed
   by that outlet, useful for lamps and fixtures plugged into a smart outlet.
@@ -48,11 +47,6 @@ rollback or a reset changes how the light connects. When it gets a new address
 on the controller's network, the driver finds it by its MAC address and updates
 `IP Address` (OS 4.0 and later).
 
-All standard light features are available and gate on what the device supports:
-on/off, brightness with target ramps and stop, color and color temperature with
-ramps, click/hold button rates, advanced lighting scenes, brightness and color
-presets, and dim-to-warm color on-mode.
-
 A Tapo light takes no fade time from a command: its only fades are the short
 ones set in the Tapo app. The `Fades` property chooses who makes a fade on such
 a light, the driver or the light. A Kasa bulb takes the fade time with each
@@ -63,12 +57,18 @@ command and fades by itself.
 <div style="font-size: small">
 
 - [System Requirements](#system-requirements)
+- [Features](#features)
+- [Compatibility](#compatibility)
 - [Installer Setup](#installer-setup)
   <!-- #ifdef DRIVERCENTRAL -->
   - [DriverCentral Cloud Setup](#drivercentral-cloud-setup)
   <!-- #endif -->
   - [Driver Installation](#driver-installation)
   - [Driver Properties](#driver-properties)
+    - [Cloud Settings](#cloud-settings)
+    - [Driver Settings](#driver-settings)
+    - [TP-Link Settings](#tp-link-settings)
+  - [Driver Actions](#driver-actions)
   - [Connections](#connections)
 - [Programming](#programming)
 - [Troubleshooting](#troubleshooting)
@@ -83,16 +83,26 @@ command and fades by itself.
 # <span style="color:#4ACBD6">System Requirements</span>
 
 - Control4 OS 3.3+
-- Direct mode: a TP-Link light on a network reachable from the controller.
-  Devices on KLAP firmware (Tapo bulbs and light strips, and firmware-updated
-  Kasa bulbs) also need the TP-Link account credentials they are bound to; Kasa
-  KL/LB-series bulbs on original firmware need no credentials. Devices on newer
-  firmware must also have **Third-Party Compatibility** enabled (Tapo app:
-  `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
-  `Settings → Third-Party Compatibility`). If a device refuses to connect while
-  it is already on, turn it off and back on (see
-  [Troubleshooting](#troubleshooting))
+- Direct mode: a TP-Link light on a network reachable from the controller. Tapo
+  lights and Kasa lights updated since late 2024 also need the credentials of
+  the TP-Link account they are set up with; Kasa KL/LB-series bulbs on original
+  firmware need none. Lights on newer firmware must also have **Third-Party
+  Compatibility** turned on in the Tapo app (under **Me**, then **Tapo Lab**) or
+  the Kasa app (under **Settings**). If a light refuses to connect while it is
+  already on, turn it off and back on (see [Troubleshooting](#troubleshooting))
 - Proxy mode: a configured TP-Link Outlet driver instance
+
+# <span style="color:#4ACBD6">Features</span>
+
+All standard light features are available where the light supports them:
+
+- On and off, and brightness with target ramps and stop
+- Color and color temperature, with ramps
+- Click and hold button rates
+- Advanced Lighting Scenes
+- Brightness and color presets, and Dim-To-Warm as a Color On Mode
+
+# <span style="color:#4ACBD6">Compatibility</span>
 
 **Verified hardware:**
 
@@ -103,13 +113,25 @@ command and fades by itself.
 | HS110  | Smart plug  | On/off via outlet binding     | Proxy  |
 | KP115  | Smart plug  | On/off via outlet binding     | Proxy  |
 
-Other Kasa KL/LB-series bulbs (e.g. KL110, KL120, KL125, KL135, LB-series) and
-Kasa light strips (KL400/KL420/KL430) speak the same IOT schema (strips take
-commands through their own lighting module, which the driver selects
-automatically) and are expected to work in direct mode across firmware
-generations. Starting any light command from Control4 takes over from a lighting
-effect running on a strip; effects themselves are not controllable from
+Other Kasa KL- and LB-series bulbs (KL110, KL120, KL125, KL135) and Kasa light
+strips (KL400, KL420, KL430) are expected to work in direct mode on original or
+newer firmware. Starting any light command from Control4 takes over from a
+lighting effect running on a strip; effects themselves are not controllable from
 Control4.
+
+<!-- #ifdef DRIVERCENTRAL -->
+
+If you have a model that works and is not listed, or one that does not work,
+please contact us at
+[driver-support@finitelabs.com](mailto:driver-support@finitelabs.com).
+
+<!-- #else -->
+
+If you have a model that works and is not listed, or one that does not work,
+please
+[open an issue](https://github.com/finitelabs/control4-tplink/issues/new).
+
+<!-- #endif -->
 
 # <span style="color:#4ACBD6">Installer Setup</span>
 
@@ -131,38 +153,121 @@ for setting it up.
 
 ## Driver Installation
 
-1. Install the `tplink_light.c4z` driver (distributed in the same package as the
-   TP-Link Outlet driver).
+<!-- #ifdef DRIVERCENTRAL -->
+
+1. Download the latest `control4-tplink.zip` from
+   [DriverCentral](https://drivercentral.io/platforms/control4-drivers/lighting/tp-link-kasa-and-tapo).
+
+1. Extract and
+   [install](https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)
+   the `tplink_light.c4z` driver.
+
 1. Use the "Search" tab to find the "TP-Link Light" driver and add it to the
    room the light lives in.
+
+1. Select the newly added driver in the "System Design" tab. You will notice
+   that the `Cloud Status` reflects the license state. If you have purchased a
+   license it will show `License Activated`, otherwise `Trial Running` and
+   remaining trial duration.
+
+1. You can refresh license status by selecting the "DriverCentral Cloud" driver
+   in the "System Design" tab and performing the "Check Drivers" action.
+   <br><img alt="Check Drivers" src="./images/check-drivers.png" width="300"/>
+
 1. For direct mode, set the [IP Address](#ip-address) property, plus the TP-Link
-   credential properties for devices on KLAP firmware. For proxy mode, bind the
+   credentials for Tapo lights and updated Kasa lights. For proxy mode, bind the
    driver's TP-Link Outlet connection to an output of a TP-Link Outlet driver
    instead.
-1. `Driver Status` shows the connection and the detected transport/schema:
-   `Connected (SMART)` (KLAP, Tapo-class), `Connected (KLAP)` (KLAP, KL-series
-   bulb), `Connected (Legacy)` (port 9999), or `Connected (Outlet)` in proxy
-   mode. If the driver fails to connect, set `Log Mode` to `Print`, run the
-   `Reconnect` action, and check the lua output window.
+
+1. `Driver Status` shows the connection: `Connected (SMART)` for a Tapo light,
+   `Connected (KLAP)` for a Kasa light on newer firmware, `Connected (Legacy)`
+   for a Kasa light on original firmware, or `Connected (Outlet)` in proxy mode.
+   If the driver fails to connect, set `Log Mode` to `Print`, run the
+   `Reconnect` action, and check the Lua output window.
+
+<!-- #else -->
+
+1. Download the latest `control4-tplink.zip` from
+   [GitHub](https://github.com/finitelabs/control4-tplink/releases/latest).
+
+1. Extract and
+   [install](https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)
+   the `tplink_light.c4z` driver.
+
+1. Use the "Search" tab to find the "TP-Link Light" driver and add it to the
+   room the light lives in.
+
+1. For direct mode, set the [IP Address](#ip-address) property, plus the TP-Link
+   credentials for Tapo lights and updated Kasa lights. For proxy mode, bind the
+   driver's TP-Link Outlet connection to an output of a TP-Link Outlet driver
+   instead.
+
+1. `Driver Status` shows the connection: `Connected (SMART)` for a Tapo light,
+   `Connected (KLAP)` for a Kasa light on newer firmware, `Connected (Legacy)`
+   for a Kasa light on original firmware, or `Connected (Outlet)` in proxy mode.
+   If the driver fails to connect, set `Log Mode` to `Print`, run the
+   `Reconnect` action, and check the Lua output window.
+
+<!-- #endif -->
 
 ## Driver Properties
 
-### Driver Status (read-only)
-
-Displays the current status of the driver.
-
-### Log Level / Log Mode
-
-Standard logging controls. Log mode expires after 3 hours.
+### Cloud Settings
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-### Support Code
+#### Cloud Status (read-only)
+
+Displays the DriverCentral cloud license status.
+
+<!-- #endif -->
+
+#### Automatic Updates \[ Off | **_On_** \]
+
+<!-- #ifdef DRIVERCENTRAL -->
+
+Turns automatic driver updates from DriverCentral on or off. Changing it on any
+TP-Link Outlet or TP-Link Light driver changes it on all of them.
+
+<!-- #else -->
+
+Turns automatic driver updates from GitHub releases on or off. Changing it on
+any TP-Link Outlet or TP-Link Light driver changes it on all of them.
+
+#### Update Channel \[ **_Production_** | Prerelease \]
+
+Selects whether automatic updates take only production releases or prereleases
+too. Changing it on any TP-Link Outlet or TP-Link Light driver changes it on all
+of them.
+
+<!-- #endif -->
+
+### Driver Settings
+
+#### Driver Status (read-only)
+
+Displays the current status of the driver.
+
+#### Driver Version (read-only)
+
+Displays the current version of the driver.
+
+#### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
+
+Sets the logging level. Default is `3 - Info`.
+
+#### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
+
+Sets the logging mode. Default is `Off`. It goes back to `Off` after 3 hours.
+
+<!-- #ifdef DRIVERCENTRAL -->
+
+#### Support Code
 
 Leave it blank unless Finite Labs support gives you a code: it opens Composer's
 Lua tab to this driver for an hour.
 
-### Cloud Monitoring \[ Disabled | **_Enabled_** \]
+#### Cloud Monitoring \[ Disabled | **_Enabled_** \]
 
 When Enabled, the driver sends Finite Labs a short report once an hour, and a
 report of each error it hits, at most 10 a minute. We use them to find and fix
@@ -177,62 +282,62 @@ address is removed.
 
 <!-- #endif -->
 
-### IP Address
+### TP-Link Settings
 
-IP address of the light device for direct mode. Leave blank when bound to an
+#### IP Address
+
+Sets the IP address of the light for direct mode. Leave blank when bound to an
 outlet. Use a DHCP reservation so it does not change. If the light does get a
 new address on the controller's network, the driver finds it by its MAC address
 and updates this property (OS 4.0 and later). Entering an address by hand points
 the driver at whichever light answers there, such as a replacement.
 
-### MAC Address (read-only)
+#### MAC Address (read-only)
 
-The MAC address of the light, learned when the driver first connects to it.
+Displays the MAC address of the light, learned when the driver first connects to
+it.
 
-### Protocol \[ **_Auto_** | KLAP | Legacy \]
+#### Protocol \[ **_Auto_** | KLAP | Legacy \]
 
 Selects the local protocol for direct mode. `KLAP` is the encrypted protocol of
 Tapo lights, and of Kasa KL/LB-series bulbs and light strips on firmware updated
-since late 2024. `Legacy` is the port 9999 protocol of Kasa KL/LB-series bulbs
-and light strips on original firmware.
+since late 2024. `Legacy` is the protocol of Kasa KL/LB-series bulbs and light
+strips on original firmware.
 
 `Auto` (default) tries KLAP first when credentials are set and falls back to the
 legacy protocol; without credentials it connects over the legacy protocol
-directly. Over KLAP it probes the SMART schema, then the IOT bulb schema, with
-both KLAP hash generations. Pin it to `KLAP` or `Legacy` only if you need to
-skip detection.
+directly. Pin it to `KLAP` or `Legacy` only if you need to skip detection.
 
-### TP-Link Username / TP-Link Password
+#### TP-Link Username / TP-Link Password
 
-Credentials of the TP-Link (Kasa/Tapo) account the device is bound to. The email
-is case sensitive. Used only for the local KLAP handshake in direct mode; the
-driver never contacts TP-Link's cloud. Required for KLAP firmware; may be left
-blank for KL-series bulbs on original firmware.
+Sets the credentials of the TP-Link (Kasa or Tapo) account the light is set up
+with. The email is case sensitive. They are used only to connect to the light on
+your network in direct mode; the driver never contacts TP-Link's cloud. Required
+for Tapo lights and Kasa lights updated since late 2024; may be left blank for
+Kasa KL-series bulbs on original firmware.
 
-### Poll Rate (Seconds) [ 2 - 300 ]
+#### Poll Rate (Seconds) \[ 2 - 300, default: **_5_** \]
 
-How often the light state is polled in direct mode. Default is `5`.
+Sets how often the driver reads the light's state in direct mode. Default is
+`5`.
 
-### Fades \[ **_Driver_** | Light \]
+#### Fades \[ **_Driver_** | Light \]
 
-Who makes a fade on a light that takes no fade time from a command. A Tapo light
-is one: whatever ramp rate it is sent, it changes over its own short fades, the
-ones set in the Tapo app. The property is shown only while such a light is
-connected. A Kasa bulb fades over the time each command carries, and a light
-bound to an outlet only switches, so neither has the choice.
+Selects who makes a fade on a light that takes no fade time from a command. A
+Tapo light is one: whatever ramp rate it is sent, it changes over its own short
+fades, the ones set in the Tapo app. The property is shown only while such a
+light is connected. A Kasa bulb fades over the time each command carries, and a
+light bound to an outlet only switches, so neither has the choice.
 
 - `Driver` (default): the driver makes the fade. It sends the light a new level
   or color as fast as the light answers, a few times a second, until the fade
   ends. Ramp rates, stops, held buttons and scene fades work as they do on other
   lights. What it costs:
-  - A fade sends the light a request each time the level or the color has moved
-    on and the light has answered the last one, at most ten a second. A Tapo
-    light strip answers about five a second: a quick fade skips levels to keep
-    up, and a slow one is a request for each level it crosses, 100 from off to
-    full however long it takes.
-  - A quick fade is a few coarse steps: an on over 750 ms is three or four. The
-    light takes each step over its own fade between states where that is on in
-    the Tapo app, and at once where it is off.
+  - A fade sends the light a new level or color a few times a second. A slow
+    fade moves level by level; a quick one is a few visible steps (an on over
+    three quarters of a second is three or four), each taken over the light's
+    own fade between states where that is on in the Tapo app, and at once where
+    it is off.
   - A level or an off set from the Tapo app or another controller during a fade
     is mostly overridden by the fade's next step. The driver ends the fade and
     leaves the light as it was set only if it polls the light first, which is
@@ -257,15 +362,25 @@ bound to an outlet only switches, so neither has the choice.
     scene does nothing, though a scene still waits out a step's ramp time before
     its next step.
   - A stop does nothing, and a held button takes the light all the way up or
-    down. A click is two commands: its press is sent as a hold, to full or to
-    off, and the click's own level after it.
+    down. A click first starts the light toward full or off, then sets the
+    click's level.
   - The fades the driver switched on stay on when `Driver` is chosen again.
 
 ## Driver Actions
 
 ### Reconnect
 
-Discard any established sessions, re-run protocol detection, and reconnect.
+Drops the connection to the light and connects again, working out its protocol
+again.
+
+<!-- #ifndef DRIVERCENTRAL -->
+
+### Update Drivers
+
+Updates every TP-Link driver in the project to the latest release on GitHub,
+even when it is already current.
+
+<!-- #endif -->
 
 <!-- #ifdef DRIVERCENTRAL -->
 
@@ -278,11 +393,18 @@ Monitoring is Enabled.
 
 ## Connections
 
-- **Light**: the light_v2 proxy consumed by rooms, keypads, and scenes.
-- **TP-Link Outlet**: bind to an `Output N Light` connection of a TP-Link Outlet
-  driver for proxy mode.
-- **On / Off / Toggle Button Link**: standard button links with LED state
-  tracking.
+### Light (provider)
+
+The Control4 light that rooms, keypads and scenes use.
+
+### TP-Link Outlet (consumer)
+
+Bind to an `Output N Light` connection of a TP-Link Outlet driver for proxy
+mode.
+
+### On / Off / Toggle Button Link (provider)
+
+Bind a keypad button to switch the light; its LED follows the light.
 
 # <span style="color:#4ACBD6">Programming</span>
 
@@ -306,27 +428,25 @@ controller restart or a driver update.
 **`Driver Status` shows `Bind to an outlet or set the IP Address property`**:
 the driver has neither an outlet binding nor a direct-mode configuration.
 
-**Direct mode never connects**: verify the IP address, that TCP port 80 (KLAP)
-or UDP port 9999 (legacy) is reachable from the controller, and, for devices on
-KLAP firmware, that the credentials match the account the device is bound to in
-the Tapo/Kasa app (auth mismatches are reported in the lua output window with
-`Log Mode` set to `Print`).
+**Direct mode never connects**: check the IP address and that no firewall or
+network rule stops the controller reaching the light. For Tapo lights and Kasa
+lights updated since late 2024, check that the credentials match the account the
+light is set up with in the Tapo or Kasa app. A wrong account shows in the Lua
+output with `Log Mode` set to `Print`.
 
 **`Disconnected: ... device refused the handshake (HTTP 403) ...`**: The device
-is rejecting the KLAP handshake before credentials are checked, which means it
-is not accepting third-party connections. Work through these in order:
+is refusing connections from other apps. Work through these in order:
 
-1. Make sure **Third-Party Compatibility** is on (Tapo app:
-   `Me → Tapo Lab → Third-Party Compatibility`; Kasa app:
-   `Settings → Third-Party Compatibility`). Firmware updates are known to turn
-   it off.
+1. Make sure **Third-Party Compatibility** is on in the Tapo app (under **Me**,
+   then **Tapo Lab**) or the Kasa app (under **Settings**). Firmware updates are
+   known to turn it off.
 1. If it is already on, turn it off and back on. A device added after the
    setting was turned on, or one that was just updated, may keep refusing
    connections until the setting is toggled, even though the app shows it on.
 1. Run the [`Reconnect`](#reconnect) action. The driver also retries on every
-   poll, so the status clears on its own once the device accepts the handshake.
-1. If it still fails, power cycle the device to clear a handshake lockout, then
-   run [`Reconnect`](#reconnect) again.
+   poll, so the status clears on its own once the device accepts the connection.
+1. If it still fails, turn the light's power off for a few seconds, then run
+   [`Reconnect`](#reconnect) again.
 
 **`Disconnected: a different device is at ...; looking for this one`**: another
 TP-Link device now answers at the light's address, usually after DHCP gave the

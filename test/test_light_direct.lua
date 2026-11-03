@@ -140,7 +140,7 @@ end
 -- The driver's three transports, as it made them when it was last loaded.
 local klap, klapV1, legacy
 
-package.loaded["lib.klap"] = {
+package.loaded["tplink.klap"] = {
   new = function(_, opts)
     local transport = setmetatable({ handshakes = {}, resets = 0 }, Transport)
     if Select(opts, "authVersion") == 1 then
@@ -151,7 +151,7 @@ package.loaded["lib.klap"] = {
     return transport
   end,
 }
-package.loaded["lib.legacy"] = {
+package.loaded["tplink.legacy"] = {
   new = function()
     legacy = setmetatable({ handshakes = {}, resets = 0 }, Transport)
     return legacy
@@ -657,9 +657,7 @@ do
     { { device_on = true, brightness = 40 } }
   )
   reply()
-  T.eq("which what waits then follows", flying(), { { device_on = false } })
-  reply()
-  T.eq("and the poll behind it", flying(), { "poll" })
+  T.eq("an Off made while the light was not answering is dropped: the poll goes next", flying(), { "poll" })
   mark()
   reply(info({ device_on = false }))
   T.eq("whose answer is the light connected again", told("ONLINE_CHANGED", "STATE"), { true })
@@ -684,7 +682,7 @@ do
   T.eq("a request failed as it is made lets the poll behind it go", flying(), { "poll" })
   proxy("ON")
   run(16000)
-  T.eq("and that poll is given up on in its turn", flying()[2], { device_on = true })
+  T.eq("and that poll is given up on in its turn, the On made meanwhile dropped", flying()[2], "poll")
 end
 
 T.section("a Kasa bulb on the IOT schema is sent one request at a time too")
@@ -4819,7 +4817,41 @@ do
     "Looking for the device on the network..."
   )
   T.eq("and shows no MAC of its own", Properties["MAC Address"], "")
-  require("lib.discovery").stop()
+  require("tplink.discovery").stop()
+  require("lib.persist"):delete("discovery_mac")
+end
+
+T.section("a light bound to an outlet, or removed, stops looking for the light it had")
+do
+  local opened, closed = 0, 0
+  function C4:CreateServer()
+    opened = opened + 1
+    return true
+  end
+  function C4:DestroyServer()
+    closed = closed + 1
+  end
+  function C4:SendBroadcast() end
+  light({ mac = "02-00-00-00-00-0C" }, { ["MAC Address"] = "" })
+  run(5000)
+  reply(info({ mac = "02-00-00-00-00-0D" }))
+  T.eq("another device at the address starts a search", opened, 1)
+  C4:Bind(900, 1, C4:GetDeviceID(), 1, "TPLINK_LIGHT")
+  OnBindingChanged(1, "TPLINK_LIGHT", true, 900, 1)
+  T.eq("a bind to an outlet ends it", closed, 1)
+  T.truthy("and the status no longer says so", status() ~= "Looking for the device on the network...")
+  run(10 * 60 * 1000)
+  T.eq("with no search after it", opened, 1)
+  C4:Unbind(C4:GetDeviceID(), 1)
+
+  light({ mac = "02-00-00-00-00-0C" }, { ["MAC Address"] = "" })
+  run(5000)
+  reply(info({ mac = "02-00-00-00-00-0D" }))
+  T.eq("a removed light's search", opened, 2)
+  OnDriverDestroyed()
+  T.eq("is ended", closed, 2)
+  run(10 * 60 * 1000)
+  T.eq("and none follows it", opened, 2)
   require("lib.persist"):delete("discovery_mac")
 end
 
