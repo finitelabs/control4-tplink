@@ -12,9 +12,8 @@ ______________________________________________________________________
 This suite gives Control4 local control of TP-Link Kasa and Tapo smart plugs,
 power strips and lights, with no TP-Link cloud. It works with Kasa devices on
 original firmware, with Kasa devices TP-Link has updated since late 2024, and
-with Tapo devices and newer Kasa models such as the EP25 v2.6. The drivers work
-out how each device connects, so a device keeps working when TP-Link updates its
-firmware.
+with Tapo devices and newer Kasa models. The drivers work out how each device
+connects, so a device keeps working when TP-Link updates its firmware.
 
 # <span style="color:#4ACBD6">Index</span>
 
@@ -47,9 +46,9 @@ firmware.
 
 ## TP-Link Outlet
 
-Control Kasa and Tapo smart plugs and power strips (e.g. HS300, KP303, EP25).
-Every output is exposed as a standard Control4 relay binding with per-output
-events, variables, and real-time power readings.
+Control Kasa and Tapo smart plugs and power strips. Every output is exposed as a
+standard Control4 relay binding with per-output events, variables, and real-time
+power readings.
 
 **Key features:**
 
@@ -383,9 +382,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   still fading coming back on, with Color On Mode set to Previous, in the color
   the fade began in.
 - Fixed a TP-Link light's color in Navigator and in its variables staying on the
-  old color after a color preset was picked, one of the Color Agent's (such as
-  Relax) or one of the light's own, or after the Control4 app turned the light
-  on in its Color On Mode color. The light itself changed color.
+  old color after a color preset was picked, one of the Color Agent's or one of
+  the light's own, or after the Control4 app turned the light on in its Color On
+  Mode color. The light itself changed color.
 - Fixed a relay driver connected to a TP-Link Outlet output running its
   programming for the relay closing or opening when it was connected, though the
   output had not changed. A relay driver that asks for the output's state is now

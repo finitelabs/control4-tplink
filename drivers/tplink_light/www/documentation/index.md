@@ -290,7 +290,7 @@ Sets the IP address of the light for direct mode. Leave blank when bound to an
 outlet. Use a DHCP reservation so it does not change. If the light does get a
 new address on the controller's network, the driver finds it by its MAC address
 and updates this property (OS 4.0 and later). Entering an address by hand points
-the driver at whichever light answers there, such as a replacement.
+the driver at whichever light answers there.
 
 #### MAC Address (read-only)
 
