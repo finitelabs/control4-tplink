@@ -65,6 +65,8 @@ then pull the change in with `copier update`.
 - `xml/`: XML parser (xml2lua)
 - `cloud-client-byte.lua`: DriverCentral cloud licensing
 - `version.lua`: semver comparison (used by github-updater)
+- `bitn.lua`: bit manipulation library
+- `crypto.lua`: cryptographic primitives (core build; requires `bitn`)
 
 **Tools (`tools/`):**
 

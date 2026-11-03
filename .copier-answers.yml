@@ -18,4 +18,4 @@ stale_close_days: 14
 stale_days: 30
 stale_exempt_authors: derek-miller svc-finitelabs[bot]
 stale_issues: true
-vendor_modules: ''
+vendor_modules: bitn crypto
