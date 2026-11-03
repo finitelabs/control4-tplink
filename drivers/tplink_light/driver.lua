@@ -117,7 +117,7 @@ local transportName = nil
 -- ESPHome color modes that include brightness control
 ---------------------------------------------------------------------------
 
---- @type table<ProtoColorMode, boolean>
+--- @type table<number, boolean>
 local COLOR_MODES_SUPPORTING_BRIGHTNESS = {
   [ColorMode.COLOR_MODE_UNKNOWN] = false,
   [ColorMode.COLOR_MODE_ON_OFF] = false,
@@ -132,7 +132,7 @@ local COLOR_MODES_SUPPORTING_BRIGHTNESS = {
   [ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE] = true,
 }
 
---- @type table<ProtoColorMode, boolean>
+--- @type table<number, boolean>
 local COLOR_MODES_SUPPORTING_RGB = {
   [ColorMode.COLOR_MODE_RGB] = true,
   [ColorMode.COLOR_MODE_RGB_WHITE] = true,
@@ -140,7 +140,7 @@ local COLOR_MODES_SUPPORTING_RGB = {
   [ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE] = true,
 }
 
---- @type table<ProtoColorMode, boolean>
+--- @type table<number, boolean>
 local COLOR_MODES_SUPPORTING_CCT = {
   [ColorMode.COLOR_MODE_COLOR_TEMPERATURE] = true,
   [ColorMode.COLOR_MODE_COLD_WARM_WHITE] = true,
@@ -680,12 +680,9 @@ local function updateDynamicCapabilities(entity)
   -- its color variables' events for any it is told. Whatever it is told, it lists supports_color_stop False without
   -- CCT, and without dimming supports_brightness_stop True and a brightness rate range of 0.
   local ok, xml = pcall(function()
-    return C4:GetDeviceVariable(C4:GetProxyDevices(), 6661)
+    return ParseXml(C4:GetDeviceVariable(C4:GetProxyDevices(), 6661))
   end)
-  local shown, same = {}, nil
-  for key, value in string.gmatch(ok and tostring(xml or "") or "", "<([%w_]+)>([^<]*)</%1>") do
-    shown[key] = value
-  end
+  local shown, same = ok and Select(xml, "DynamicCapabilities") or {}, nil
   local derived = { supports_color_stop = true }
   if not supportsDimming then
     derived.supports_brightness_stop, derived.brightness_rate_min, derived.brightness_rate_max = true, true, true
