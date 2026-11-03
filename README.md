@@ -70,6 +70,9 @@ events, variables, and real-time power readings.
 - Real-time energy monitoring per outlet with a configurable poll rate, on
   devices that support it
 - Turn Output On / Turn Output Off / Toggle Output programming commands
+- On, Off and Toggle keypad button links per output, with LEDs that follow it
+- `Output N In Use` / `Output N Idle` events from each output's power, with two
+  levels you set
 - Follows the device to a new protocol after a firmware update, a rollback or a
   reset, and to a new address on the controller's network (OS 4.0 and later)
 - Output Light bindings pair with the TP-Link Light driver to present an output
@@ -157,6 +160,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   by itself over the fades set in the Tapo app, which the driver switches on,
   and Control4 shows those: ramp rates and stops then do nothing. The property
   is shown only while such a light is connected.
+
+- Added On, Off and Toggle keypad button links to each TP-Link Outlet output. A
+  keypad button bound to one switches the output, and its LED follows it.
+
+- Added `Output N In Use` and `Output N Idle` events and an `Output N In Use`
+  variable to the TP-Link Outlet driver, set from each output's power and two
+  levels, `In Use Above (W)` and `Idle Below (W)`.
 
 - The TP-Link Outlet and TP-Link Light drivers follow their device to a new
   address. When DHCP gives the device another address on the controller's

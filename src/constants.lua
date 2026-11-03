@@ -46,6 +46,14 @@ return {
   --- @type number
   EVENT_OFF_OFFSET = 50,
 
+  --- Event ID offset for "Output N In Use" events.
+  --- @type number
+  EVENT_IN_USE_OFFSET = 20,
+
+  --- Event ID offset for "Output N Idle" events.
+  --- @type number
+  EVENT_IDLE_OFFSET = 30,
+
   --- Event ID fired when the device connection is established.
   --- @type number
   EVENT_CONNECTED = 100,

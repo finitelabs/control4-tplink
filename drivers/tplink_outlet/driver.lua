@@ -133,6 +133,10 @@ local function setDeviceOnline(online, reason)
     updateDriverStatus(transportName and ("Connected (" .. transportName .. ")") or "Connected")
   else
     updateDriverStatus(not IsEmpty(reason) and ("Disconnected: " .. reason) or "Disconnected")
+    -- The first power reading after a reconnect is the device's as it is, not a change.
+    for _, output in pairs(outputs) do
+      output.inUse = nil
+    end
     for _, binding in pairs(bindings:getDynamicBindings("light")) do
       SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", {}, "NOTIFY")
     end
@@ -243,6 +247,87 @@ local function ensureLightBinding(n)
   end
 end
 
+--- How long after a keypad button's press its other half is ignored: a tap
+--- sends DO_PUSH then DO_CLICK, and some senders send only one of them.
+local BUTTON_LINK_COALESCE_MS = 500
+
+--- Keypad links inside their coalescing window, by binding id. Kept outside the
+--- handlers, which each sysinfo poll wires again.
+--- @type table<integer, boolean>
+local buttonCoalescing = {}
+
+--- Each output's keypad links, by the key of their binding.
+local BUTTON_LINKS = {
+  { key = "on", name = "On" },
+  { key = "off", name = "Off" },
+  { key = "toggle", name = "Toggle" },
+}
+
+--- Tell a keypad link its LED state: On and Toggle light while the output is
+--- on, Off while it is off. Sends nothing while the state is unknown.
+--- @param idBinding integer
+--- @param n number Output number (1-based).
+--- @param key string "on", "off" or "toggle".
+local function reportButtonLed(idBinding, n, key)
+  local state = Select(outputs, n, "state")
+  if state ~= nil then
+    SendToProxy(idBinding, "MATCH_LED_STATE", { STATE = (key == "off") ~= state }, "NOTIFY", true)
+  end
+end
+
+--- Tell each of an output's keypad links its LED state.
+--- @param n number Output number (1-based).
+local function reportButtonLeds(n)
+  for _, link in ipairs(BUTTON_LINKS) do
+    local binding = bindings:getDynamicBinding("button", "output_" .. n .. "_" .. link.key)
+    if binding ~= nil then
+      reportButtonLed(binding.bindingId, n, link.key)
+    end
+  end
+end
+
+--- Get or create an output's keypad links and wire their handlers.
+--- @param n number Output number (1-based).
+local function ensureButtonLinks(n)
+  for _, link in ipairs(BUTTON_LINKS) do
+    local binding = bindings:getOrAddDynamicBinding(
+      "button",
+      "output_" .. n .. "_" .. link.key,
+      "CONTROL",
+      true,
+      "Output " .. n .. " " .. link.name .. " Button Link",
+      "BUTTON_LINK"
+    )
+    if binding ~= nil then
+      RFP[binding.bindingId] = function(idBinding, strCommand)
+        log:trace("RFP button output=%s link=%s strCommand=%s", n, link.key, strCommand)
+        if strCommand ~= "DO_PUSH" and strCommand ~= "DO_CLICK" then
+          return
+        end
+        if buttonCoalescing[idBinding] then
+          return
+        end
+        buttonCoalescing[idBinding] = true
+        SetTimer("ButtonLinkCoalesce" .. idBinding, BUTTON_LINK_COALESCE_MS, function()
+          buttonCoalescing[idBinding] = nil
+        end)
+        if link.key == "on" then
+          setOutput(n, true)
+        elseif link.key == "off" then
+          setOutput(n, false)
+        else
+          toggleOutput(n)
+        end
+      end
+      OBC[binding.bindingId] = function(idBinding, _, bIsBound)
+        if bIsBound then
+          reportButtonLed(idBinding, n, link.key)
+        end
+      end
+    end
+  end
+end
+
 --- Re-wire RFP/OBC handlers for relay and light bindings restored from persistence.
 local function restoreRelayHandlers()
   for key, _ in pairs(bindings:getDynamicBindings("relay")) do
@@ -256,6 +341,13 @@ local function restoreRelayHandlers()
     local n = tointeger(string.match(key, "^output_(%d+)$"))
     if n then
       ensureLightBinding(n)
+      outputs[n] = outputs[n] or {}
+    end
+  end
+  for key, _ in pairs(bindings:getDynamicBindings("button")) do
+    local n = tointeger(string.match(key, "^output_(%d+)_"))
+    if n then
+      ensureButtonLinks(n)
       outputs[n] = outputs[n] or {}
     end
   end
@@ -273,6 +365,7 @@ local function applyOutputState(n, state)
     if binding then
       SendToProxy(binding.bindingId, state and "CLOSED" or "OPENED", {}, "NOTIFY")
     end
+    reportButtonLeds(n)
     if gInitialized then
       C4:FireEventByID(state and n or (constants.EVENT_OFF_OFFSET + n))
     end
@@ -315,6 +408,7 @@ local function applySysinfo(sysinfo)
       outputs[n].childId = childId
       ensureRelayBinding(n)
       ensureLightBinding(n)
+      ensureButtonLinks(n)
       values:update("Output " .. n .. " Name", tostring(child.alias or ("Output " .. n)), "STRING")
       applyOutputState(n, tointeger(child.state) == 1)
     end
@@ -325,6 +419,7 @@ local function applySysinfo(sysinfo)
     outputs[1].childId = nil
     ensureRelayBinding(1)
     ensureLightBinding(1)
+    ensureButtonLinks(1)
     values:update("Output 1 Name", tostring(sysinfo.alias or "Output 1"), "STRING")
     applyOutputState(1, tointeger(sysinfo.relay_state) == 1)
   end
@@ -389,6 +484,51 @@ local function pollSysinfo()
   end)
 end
 
+--- An output's In Use and Idle levels in watts, or nil when both are 0. A
+--- level left at 0 takes the other's, and Idle is never above In Use.
+--- @param n number Output number (1-based).
+--- @return number? above
+--- @return number? below
+local function powerLevels(n)
+  local above = tonumber(Properties["Output " .. n .. " In Use Above (W)"]) or 0
+  local below = tonumber(Properties["Output " .. n .. " Idle Below (W)"]) or 0
+  if above <= 0 and below <= 0 then
+    return nil, nil
+  end
+  if above <= 0 then
+    above = below
+  end
+  if below <= 0 or below > above then
+    below = above
+  end
+  return above, below
+end
+
+--- Apply a power reading to an output's In Use state, firing In Use or Idle
+--- when it changes. The first reading after a start, a reconnect or a level
+--- change only sets the state.
+--- @param n number Output number (1-based).
+--- @param watts number
+local function applyPower(n, watts)
+  local above, below = powerLevels(n)
+  if above == nil then
+    outputs[n].inUse = nil
+    return
+  end
+  local was = outputs[n].inUse
+  local now
+  if was then
+    now = watts >= below
+  else
+    now = watts > above
+  end
+  outputs[n].inUse = now
+  values:update("Output " .. n .. " In Use", now, "BOOL")
+  if was ~= nil and now ~= was and gInitialized then
+    C4:FireEventByID((now and constants.EVENT_IN_USE_OFFSET or constants.EVENT_IDLE_OFFSET) + n)
+  end
+end
+
 --- Poll per-output power usage via emeter get_realtime, one output after another.
 local function pollEnergy()
   if transport == nil or energyInFlight or outputCount == 0 or not deviceOnline then
@@ -417,6 +557,12 @@ local function pollEnergy()
         end
         if watts ~= nil then
           values:update("Output " .. n .. " Power", string.format("%.1f", watts), "NUMBER", nil, " W")
+          if not outputs[n].levelsShown then
+            outputs[n].levelsShown = true
+            C4:SetPropertyAttribs("Output " .. n .. " In Use Above (W)", constants.SHOW_PROPERTY)
+            C4:SetPropertyAttribs("Output " .. n .. " Idle Below (W)", constants.SHOW_PROPERTY)
+          end
+          applyPower(n, watts)
         end
         local voltage
         if realtime.voltage_mv ~= nil then
@@ -834,6 +980,17 @@ function OPC.Energy_Poll_Rate_Seconds(propertyValue)
   end
 end
 
+-- A changed level takes the next reading as the output's state, not a change.
+for n = 1, constants.MAX_OUTPUTS do
+  local function rebaseline()
+    if outputs[n] ~= nil then
+      outputs[n].inUse = nil
+    end
+  end
+  OPC["Output_" .. n .. "_In_Use_Above_W"] = rebaseline
+  OPC["Output_" .. n .. "_Idle_Below_W"] = rebaseline
+end
+
 ---------------------------------------------------------------------------
 -- Command Handlers (Composer programming)
 ---------------------------------------------------------------------------
@@ -937,6 +1094,8 @@ function OnDriverInit()
     C4:SetPropertyAttribs("Output " .. n .. " Name", constants.HIDE_PROPERTY)
     C4:SetPropertyAttribs("Output " .. n .. " State", constants.HIDE_PROPERTY)
     C4:SetPropertyAttribs("Output " .. n .. " Power", constants.HIDE_PROPERTY)
+    C4:SetPropertyAttribs("Output " .. n .. " In Use Above (W)", constants.HIDE_PROPERTY)
+    C4:SetPropertyAttribs("Output " .. n .. " Idle Below (W)", constants.HIDE_PROPERTY)
   end
 
   -- Restore dynamic bindings and output variables here: programming attached
