@@ -565,7 +565,7 @@ local function applyPower(n, watts)
     output.heldSince = nil
     return
   end
-  -- The power must stay past the level for the hold time; readings come at the energy poll rate.
+  -- Readings come at the energy poll rate, so the event fires with the first one after the hold.
   local now = C4:GetTime()
   output.heldSince = output.heldSince or now
   local holdSeconds = math.max(0, tointeger(Properties["Output " .. n .. " Hold (s)"]) or 0)
@@ -841,8 +841,6 @@ end)
 --- Reconfigure the transports from properties, detect the right one, and poll.
 --- @param retry boolean? The poll timer trying again after no device was found.
 function reconnect(retry)
-  -- What is still on its way, a probe, a poll or a write, was for the attempt
-  -- this one replaces.
   connectGeneration = connectGeneration + 1
   local generation = connectGeneration
   detecting = false
@@ -1076,8 +1074,6 @@ function OPC.IP_Address(propertyValue)
   -- follower's own write never reaches here; late init replays every property.
   if gInitialized then
     follower:forget()
-  end
-  if gInitialized then
     reconnect()
   end
 end
@@ -1190,8 +1186,8 @@ end
 
 function EC.Reconnect()
   log:info("Action: Reconnect")
-  -- reconnect() resets the transports itself, once what they fail is the
-  -- replaced attempt's.
+  -- No transport reset first: it would fail requests whose callbacks are still
+  -- live and mark a working device offline.
   reconnect()
 end
 

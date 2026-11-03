@@ -78,8 +78,8 @@ power readings.
 - Local control of each output with no TP-Link cloud dependency after setup
 - Works on original Kasa firmware and on the firmware TP-Link has rolled out
   since late 2024, and works out which one a device runs
-- Newer Kasa plugs and power strips (EP25 v2.6, KP125M, EP40M) and Tapo P-series
-  plugs and power strips work alongside older Kasa models
+- Tapo plugs and power strips and newer Kasa models work alongside older Kasa
+  ones
 - Standard Control4 relay binding per output
 - `Output N Turned On` / `Output N Turned Off`, `Connected`, and `Disconnected`
   events
