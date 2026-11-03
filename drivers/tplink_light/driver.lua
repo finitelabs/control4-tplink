@@ -2171,10 +2171,10 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   -- Skip the light command if a SET_BRIGHTNESS_TARGET just before already
   -- merged this color into the brightness ramp cmd. Otherwise a second cmd
   -- would cancel and restart the in-flight transition, making the brightness
-  -- fade-up snap visually. The earlier merged-color
-  -- path already emitted notifyColorChanging, and brightnessRampFinished
-  -- will emit notifyColorChanged when the ramp completes - so there is
-  -- nothing to notify here, just suppress the redundant light command.
+  -- fade-up snap visually. The earlier merged-color path already emitted
+  -- notifyColorChanging, and brightnessRampFinished will emit
+  -- notifyColorChanged when the ramp completes - so there is nothing to notify
+  -- here, just suppress the redundant light command.
   local now = C4:GetTime()
   local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
   local window = mergedColorSent and now < mergedColorSent.untilMs
@@ -3690,10 +3690,10 @@ local function directPoll()
   end)
 end
 
---- Translate an internal light command to the
---- params of a SMART set_device_info request. A ramp rate the command carries
---- is not sent: the light takes no fade time from a command. A color for a
---- light that is off is held (smartPendingColor), and added to the next on.
+--- Translate an internal light command to the params of a SMART
+--- set_device_info request. A ramp rate the command carries is not sent: the
+--- light takes no fade time from a command. A color for a light that is off is
+--- held (smartPendingColor), and added to the next on.
 --- @param opts table
 --- @return table? params nil when the command names nothing to send.
 local function smartParams(opts)
