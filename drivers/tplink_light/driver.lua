@@ -677,18 +677,27 @@ local function updateDynamicCapabilities(entity)
     caps[capability] = value
   end
   -- Told only where the proxy's Navigator Dynamic Capabilities (6661) list another: after a controller start it fires
-  -- its color variables' events for any it is told. Whatever it is told, it lists supports_color_stop False without
-  -- CCT, and without dimming supports_brightness_stop True and a brightness rate range of 0.
+  -- its color variables' events for any it is told.
   local ok, xml = pcall(function()
     return ParseXml(C4:GetDeviceVariable(C4:GetProxyDevices(), 6661))
   end)
   local shown, same = ok and Select(xml, "DynamicCapabilities") or {}, nil
-  local derived = { supports_color_stop = true }
-  if not supportsDimming then
-    derived.supports_brightness_stop, derived.brightness_rate_min, derived.brightness_rate_max = true, true, true
-  end
+  -- The proxy rewrites 6661 only when one of these changes, so the others can lag what it holds.
+  local rewrites = {
+    dimmer = true,
+    supports_target = true,
+    supports_color = true,
+    supports_color_correlated_temperature = true,
+    has_extras = true,
+    cold_start = true,
+    color_rate_behavior = true,
+    color_rate_min = true,
+    color_rate_max = true,
+    color_correlated_temperature_min = true,
+    color_correlated_temperature_max = true,
+  }
   for key, value in pairs(caps) do
-    if shown[key] ~= nil and not derived[key] then
+    if rewrites[key] and shown[key] ~= nil then
       local want = type(value) == "boolean" and (value and "True" or "False") or value
       same = same ~= false and (shown[key] == want or tonumber(shown[key]) == want)
     end
