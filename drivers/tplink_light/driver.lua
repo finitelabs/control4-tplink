@@ -32,8 +32,8 @@ local Legacy = require("tplink.legacy")
 local IotBulb = require("tplink.iotbulb")
 
 --- Color mode identifiers shared with tplink_outlet over the TPLINK_LIGHT
---- binding protocol. The internal proxy logic keys off these the same way
---- the donor implementation keyed off ESPHome color modes.
+--- binding protocol. The internal proxy logic keys off these in what a light
+--- reports and in each light command.
 local ColorMode = constants.LightColorMode
 
 ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ end)
 local transportName = nil
 
 ---------------------------------------------------------------------------
--- ESPHome color modes that include brightness control
+-- Color modes that include brightness control
 ---------------------------------------------------------------------------
 
 --- @type table<number, boolean>
@@ -204,9 +204,9 @@ local ledState = false
 local supportsDimming = false
 local supportsColor = false
 local supportsCCT = false
--- The bulb's supported_color_modes from ListEntitiesLightResponse. We pick
--- the most specific mode per cmd intent (CCT vs RGB) and set color_mode
--- explicitly so ESPHome doesn't have to infer from which fields we populate.
+-- The bulb's supported_color_modes, from the entity its backend reports. The
+-- most specific mode per cmd intent (CCT vs RGB) is set as the light command's
+-- color_mode, named rather than left to be inferred from the fields set.
 local supportedColorModes = {}
 local minMireds = 153 -- ~6500K (cool)
 local maxMireds = 500 -- ~2000K (warm)
@@ -215,11 +215,11 @@ local currentColorY = DEFAULT_COLOR_Y
 local currentColorMode = LIGHT_COLOR_MODE_CCT
 local dynamicCapsSent = false
 
--- The driver owns brightness/color state during a ramp. ESPHome echoes
--- intermediate brightness values during a transition (one echo per command
--- received - they confirm the target of each command). We delegate the
--- physical ramp to ESPHome's native transition_length and track ramp metadata
--- locally for STOP-mid-ramp interpolation via C4:GetTime() (ms precision).
+-- The driver owns brightness/color state during a ramp: a report then gives
+-- the level last sent, not where the fade has got to. The backend makes the
+-- physical ramp from the light command's transition_length; ramp metadata
+-- is tracked locally for STOP-mid-ramp interpolation via C4:GetTime() (ms
+-- precision).
 local rampingBrightness = false
 local rampingColor = false
 
@@ -605,7 +605,7 @@ local function rateCapabilities()
   }
   if supportsColor or supportsCCT then
     -- 0 is a rate that cannot be changed. 1 is one rate for brightness and
-    -- color: ESPHome's transition_length applies to all aspects equally.
+    -- color: a light command has one transition_length for all aspects.
     caps.color_rate_behavior = own and 0 or 1
     caps.color_rate_min = 0
     caps.color_rate_max = 65535
@@ -628,8 +628,8 @@ local function updateDynamicCapabilities(entity)
       supportedColorModes[m] = true
     end
   end
-  -- Some ESPHome entities report 0/0 for mireds. Keep our XML defaults in that case
-  -- so Composer's dialog doesn't get broken bounds.
+  -- A light that reports no color temperature range keeps the XML defaults, so
+  -- Composer's dialog doesn't get broken bounds.
   local entityMin = tonumber(Select(entity, "min_mireds"))
   local entityMax = tonumber(Select(entity, "max_mireds"))
   if entityMin and entityMin > 0 then
@@ -789,8 +789,8 @@ local function getDefaultRate()
   return persist:get(P_RATE_DEFAULT, DEFAULT_RATE)
 end
 
--- ESPHome's transition_length applies to all aspects of a light_command
--- (brightness, color, color temperature) at the same time, so we declare
+-- A light command's transition_length applies to all its aspects (brightness,
+-- color, color temperature) at the same time, so the driver declares
 -- color_rate_behavior=1 ("Device only supports one rate for brightness and
 -- color"). Composer in turn shows a single "Default Brightness and Color
 -- Rate" setting; the brightness and color defaults are the same value. If
@@ -967,7 +967,7 @@ function range.walk(ramp)
 end
 
 ---------------------------------------------------------------------------
--- Helpers: ESPHome light commands
+-- Helpers: light commands
 ---------------------------------------------------------------------------
 
 local function sendLightCommand(opts)
@@ -978,7 +978,7 @@ local function sendLightCommand(opts)
   backendSendCommand(opts)
 end
 
--- Pick the most specific ESPHome color mode the bulb supports for a given
+-- Pick the most specific color mode the bulb supports for a given
 -- intent ("cct" or "rgb"). Order matters: prefer single-purpose modes (RGB,
 -- COLD_WARM_WHITE) over combined modes (RGB_COLOR_TEMPERATURE,
 -- RGB_COLD_WARM_WHITE) because the bulb's behavior in single-purpose modes
@@ -1012,7 +1012,7 @@ end
 -- Map a target Kelvin to a (cold_white, warm_white) channel split based on
 -- the bulb's reported mireds range. Pure cold = (1, 0) at min_mireds; pure
 -- warm = (0, 1) at max_mireds; linear blend between. Returned values are 0-1
--- floats matching ESPHome's per-channel scale.
+-- floats, the light command's per-channel scale.
 local function kelvinToCoolWarmSplit(kelvin)
   local mireds = kelvinToMireds(kelvin)
   local span = maxMireds - minMireds
@@ -1023,7 +1023,7 @@ local function kelvinToCoolWarmSplit(kelvin)
   return 1 - ratio, ratio
 end
 
--- Convert an XY/mode color into the right ESPHome cmd fields. Returns the
+-- Convert an XY/mode color into the right light command fields. Returns the
 -- partial cmd table or nil if the bulb doesn't support color/CCT or the
 -- provided values can't be mapped.
 local function buildColorCmdFields(x, y, mode)
@@ -1039,17 +1039,15 @@ local function buildColorCmdFields(x, y, mode)
       has_color_temperature = true,
       color_temperature = kelvinToMireds(k),
     }
-    -- Set color_mode explicitly so ESPHome doesn't have to infer.
+    -- Set color_mode explicitly rather than leave it to be inferred.
     local pickedMode = pickColorMode("cct")
     if pickedMode then
       fields.has_color_mode = true
       fields.color_mode = pickedMode
     end
     -- For RGBCW / cold-warm-white capable bulbs, also drive the cold/warm
-    -- channels directly. ESPHome would compute these internally from
-    -- color_temperature, but sending them ourselves removes ambiguity in
-    -- min_mireds/max_mireds reading and keeps the channel split exactly
-    -- where we expect it.
+    -- channels directly, split over the bulb's min_mireds/max_mireds range,
+    -- so the command fixes the channel split along with color_temperature.
     local CM = ColorMode
     if supportedColorModes[CM.COLOR_MODE_COLD_WARM_WHITE] or supportedColorModes[CM.COLOR_MODE_RGB_COLD_WARM_WHITE] then
       local cw, ww = kelvinToCoolWarmSplit(k)
@@ -1335,16 +1333,11 @@ local leaveColorRamp -- defined with the color ramp helpers below
 -- walks: helpers below, in one table as this chunk is near Lua's 200 locals.
 local carry = {}
 
--- Two-phase fade-up workaround. ESPHome's light_call short-circuits on
--- state=false: brightness=0 in the same command is dropped, so the bulb's
--- stored brightness stays at whatever it was last set to (often 1.0).
--- When we then send state=true brightness=target with transition_length,
--- ESPHome sees no brightness diff and the LED snaps on instead of fading.
--- Pre-pushing a state=true brightness=ε with transition=0 sets the stored
--- brightness to ~0 so the real ramp has a real diff to interpolate across.
--- 0.0039 = 1/256, the smallest 8-bit PWM step, visually indistinguishable
--- from off. Using literal 0 risks ESPHome converting state=true brightness=0
--- back into state=false.
+-- Two-phase fade-up. A light that is off holds the level it was last set to.
+-- Ahead of a rated on from off, a light command at state=true brightness=ε
+-- with transition=0 goes first, so the real ramp starts near off rather than
+-- at that level. A backend that cannot set a level that low drops it.
+-- 0.0039 = 1/256, the smallest 8-bit PWM step: near off, but still an on.
 local function sendPreOn()
   sendLightCommand({
     has_state = true,
@@ -1360,7 +1353,7 @@ end
 -- rampToBrightness, scene apply, etc. all gate on it). On/off-only entities
 -- get a different code path that doesn't touch brightness.
 --- @param at number|nil Line position for a light held outside the range.
-local function setESPHomeBrightness(level, rateMs, keepColor, at)
+local function sendBrightness(level, rateMs, keepColor, at)
   local hasRate = rateMs and rateMs > 0
   local goingOn = level > 0 and currentBrightness == 0
 
@@ -1368,29 +1361,28 @@ local function setESPHomeBrightness(level, rateMs, keepColor, at)
     sendPreOn()
   end
 
-  -- Always include both state AND brightness in the command. The brightness
-  -- field is dropped by ESPHome when state=false (see workaround above), but
-  -- including it for state=true is essential for the transition.
+  -- Always include both state AND brightness in the command. The backends
+  -- drop the brightness of an off, but an on needs it: it is the level the
+  -- transition goes to.
   local cmd = {
     has_state = true,
     state = level > 0,
     has_brightness = true,
     brightness = range.endBrightness(level, at),
     has_transition_length = true,
-    -- A rate of 0 still gets sent so it cancels any in-flight transition on
-    -- the device rather than falling back to its default_transition_length.
+    -- A rate of 0 is set too; a backend with no use for it leaves it out.
     transition_length = hasRate and rateMs or 0,
   }
 
   -- Merge color into the brightness cmd so brightness+color animate as one
-  -- ESPHome transition. Two scenarios:
+  -- transition. Two scenarios:
   --   1. Dim-to-warm during any brightness change while fade mode is active:
   --      recompute via the formula every step, unless a color was picked since
   --      the light came on (colorPicked), which stays until it goes off.
   --   2. Off→on with any color on-mode (fade/previous/preset) — apply the
   --      configured on-color in the same cmd. The proxy will typically also
   --      send a SET_COLOR_TARGET right after this; mergedColorSent makes
-  --      the SET_COLOR_TARGET handler skip a redundant ESPHome cmd that
+  --      the SET_COLOR_TARGET handler skip a redundant light command that
   --      would otherwise cancel and restart the in-flight transition.
   local mergedColor = nil
   -- A stop after a color was set sends the level alone.
@@ -1460,16 +1452,12 @@ end
 ---------------------------------------------------------------------------
 -- Helpers: brightness ramping
 ---------------------------------------------------------------------------
--- ESPHome has native transition_length smoothing on the bulb itself. We send
--- a single light_command with the full rate, ESPHome handles the physical
--- ramp, and we track elapsed time locally so SET_BRIGHTNESS_STOP can
+-- A single light command carries the full rate and the backend makes the
+-- physical ramp. Elapsed time is tracked locally so SET_BRIGHTNESS_STOP can
 -- interpolate the device's current level mid-ramp using C4:GetTime() (ms).
 --
--- ESPHome echoes one UPDATE_STATE per command it receives confirming the
--- target. During a ramp we ignore those echoes (rampingBrightness=true).
--- After the ramp ends we ignore brightness echoes for an additional grace
--- window in case stale echoes from a prior cmd arrive late and would
--- otherwise re-mutate currentBrightness and bounce the UI.
+-- A report during a ramp gives the level last sent, not where the fade has
+-- got to, so it is ignored (rampingBrightness=true).
 
 local function cancelBrightnessRampTimers()
   CancelTimer("BrightnessRampFinish")
@@ -1534,7 +1522,7 @@ local function brightnessRampFinished(targetLevel)
   end
 end
 
--- Halt the in-flight ESPHome transition at our interpolated current level.
+-- Halt the in-flight transition at the interpolated current level.
 local function brightnessRampStopped()
   -- A light that fades by itself is on its way: it has no stop to be sent.
   if fades == "Light" then
@@ -1560,7 +1548,7 @@ local function brightnessRampStopped()
     -- light goes to the Min, or off under half way, the level alone.
     if ramp.sentBrightness and at and at < 1 and (ramp.startLevel == 0 or ramp.targetLevel == 0) then
       stoppedAt, at = range.placeLevel(ramp, at, range.offLevel())
-      setESPHomeBrightness(stoppedAt, 0, true, at)
+      sendBrightness(stoppedAt, 0, true, at)
     end
     -- Otherwise nothing to cancel: the light is where the last step put it, in
     -- the color that step carried unless another was set since.
@@ -1571,9 +1559,9 @@ local function brightnessRampStopped()
       notifyColorChanged(currentColorX, currentColorY, currentColorMode)
     end
   else
-    -- Cancel ESPHome's in-flight transition by sending a 0-transition cmd at
+    -- Cancel the in-flight transition by sending a 0-transition cmd at
     -- the interpolated level. The bulb halts here.
-    setESPHomeBrightness(stoppedAt, 0, keepColor, at)
+    sendBrightness(stoppedAt, 0, keepColor, at)
   end
   notifyBrightnessChanged(stoppedAt)
 end
@@ -1676,7 +1664,7 @@ local function rampToBrightness(level, rate, presetId, replaced)
     -- range with no width, or with Dim-To-Warm in a color set since: the
     -- level's own color goes with it.
     if replaced or range.outsideRange(lightBrightness or 0) or awayFromFadeColor(level) then
-      setESPHomeBrightness(level, 0)
+      sendBrightness(level, 0)
     end
     notifyBrightnessChanged(level)
     return
@@ -1684,7 +1672,7 @@ local function rampToBrightness(level, rate, presetId, replaced)
 
   rate = fadeTime(rate, startingLevel, level)
   if rate == 0 then
-    setESPHomeBrightness(level, 0)
+    sendBrightness(level, 0)
     notifyBrightnessChanged(level)
     return
   end
@@ -1699,8 +1687,8 @@ local function rampToBrightness(level, rate, presetId, replaced)
     to = range.toDevice(level),
     durationMs = rate,
   }
-  -- Single ESPHome command - the bulb handles the physical transition.
-  setESPHomeBrightness(level, rate)
+  -- Single light command: the backend makes the physical transition.
+  sendBrightness(level, rate)
   notifyBrightnessChanging(level, rate)
   -- Nothing is sent at the end: the light has held the level as its state
   -- since the command, and one sent again is one more request to answer.
@@ -1712,15 +1700,15 @@ end
 ---------------------------------------------------------------------------
 -- Helpers: color ramping
 ---------------------------------------------------------------------------
--- Same shape as brightness ramping: send a single ESPHome light_command with
--- transition_length = rateMs so the bulb interpolates the physical color, and
+-- Same shape as brightness ramping: send a single light command with
+-- transition_length = rateMs so the backend makes the physical color fade, and
 -- track the logical color locally via a startTime/duration ramp record.
 
 local function cancelColorRampTimers()
   CancelTimer("ColorRampFinish")
 end
 
--- Build and send an ESPHome light_command reflecting the given color state.
+-- Build and send a light command reflecting the given color state.
 --- @param on boolean? Whether the light is to be on, if not as it is now.
 local function sendColor(x, y, mode, rateMs, on)
   if not (supportsColor or supportsCCT) then
@@ -1843,8 +1831,8 @@ function carry.color(x, y, mode, ms, on)
   end, false)
 end
 
---- A command with no color moves a carried one on over its own time, as an
---- ESPHome light runs one transition for every channel.
+--- A command with no color moves a carried one on over its own time, as a
+--- light command carries one transition for every channel.
 --- @param on boolean Whether the command leaves the light on.
 function carry.retime(ms, on)
   local ramp = colorRamp
@@ -2014,8 +2002,8 @@ local function lightOn(rate)
     return
   end
   -- color_on_mode_previous/preset/fade are all handled by the merged-color
-  -- path inside setESPHomeBrightness (via resolveOnColor on goingOn) so the
-  -- color rides on the brightness transition as a single ESPHome cmd. Don't
+  -- path inside sendBrightness (via resolveOnColor on goingOn) so the
+  -- color rides on the brightness transition as a single light command. Don't
   -- pre-send a separate color cmd here; that would queue two commands and
   -- the second would cancel and restart the in-flight transition.
   rampToBrightness(level, rate or 0)
@@ -2180,13 +2168,13 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
     return
   end
 
-  -- Skip the ESPHome cmd if a SET_BRIGHTNESS_TARGET right before us already
-  -- merged this color into the brightness ramp cmd. Otherwise we'd send a
-  -- second cmd to ESPHome that cancels and restarts the in-flight transition,
-  -- making the brightness fade-up snap visually. The earlier merged-color
-  -- path already emitted notifyColorChanging, and brightnessRampFinished
-  -- will emit notifyColorChanged when the ramp completes - so there is
-  -- nothing to notify here, just suppress the redundant ESPHome cmd.
+  -- Skip the light command if a SET_BRIGHTNESS_TARGET just before already
+  -- merged this color into the brightness ramp cmd. Otherwise a second cmd
+  -- would cancel and restart the in-flight transition, making the brightness
+  -- fade-up snap visually. The earlier merged-color path already emitted
+  -- notifyColorChanging, and brightnessRampFinished will emit
+  -- notifyColorChanged when the ramp completes - so there is nothing to notify
+  -- here, just suppress the redundant light command.
   local now = C4:GetTime()
   local merged = rampingBrightness and brightnessRamp and brightnessRamp.mergedColor
   local window = mergedColorSent and now < mergedColorSent.untilMs
@@ -2387,8 +2375,8 @@ local function applySceneStep(step)
     return 0
   end
   local cmd = {}
-  -- ESPHome takes a single transition_length per cmd, so the bulb interpolates
-  -- both brightness and color over the longer of the two requested rates. Use
+  -- A light command takes a single transition_length, so brightness and
+  -- color both fade over the longer of the two requested rates. Use
   -- that unified rate for ramp metadata and notify payloads so the proxy's
   -- picker animation, the local STOP-mid-step interpolation, and the SCENE_
   -- TIMER all agree on when the transition actually completes.
@@ -2517,7 +2505,7 @@ local function applySceneStep(step)
     end
   end
   if next(cmd) ~= nil then
-    -- A rate of 0 is sent too, as setESPHomeBrightness sends it.
+    -- A rate of 0 is sent too, as sendBrightness sends it.
     cmd.has_transition_length = true
     cmd.transition_length = rate
     if goingOn and rate > 0 and supportsDimming then
@@ -3191,7 +3179,7 @@ function RFP.DO_RELEASE(idBinding, strCommand, tParams, args)
 end
 
 ---------------------------------------------------------------------------
--- RFP: ESPHome state updates
+-- RFP: light state updates
 ---------------------------------------------------------------------------
 
 local function handleDisconnect()
@@ -3285,7 +3273,7 @@ local function applyUpdate(entity, state, news)
     end
   end
 
-  -- Map ESPHome brightness (0.0-1.0) to C4 (0-100) through the on-level range
+  -- Map reported brightness (0.0-1.0) to C4 (0-100) through the on-level range
   local newBrightness
   local brightness = 0
   local isOn = Select(state, "state") or false
@@ -3300,13 +3288,12 @@ local function applyUpdate(entity, state, news)
   end
   lightBrightness = brightness
 
-  -- During a ramp, ESPHome's echo confirms the target value (not the
-  -- interpolated physical value), so we ignore it - rampingBrightness will
-  -- be cleared in brightnessRampFinished or brightnessRampStopped, both of
-  -- which set currentBrightness to the appropriate value before the snap
-  -- cmd's echo can arrive. Outside a ramp, the echo's target equals what
-  -- we last set, so processing it is a no-op (newBrightness already
-  -- matches currentBrightness).
+  -- During a ramp, a report gives the level last sent (not where the fade
+  -- has got to), so it is ignored - rampingBrightness will be cleared in
+  -- brightnessRampFinished or brightnessRampStopped, both of which set
+  -- currentBrightness to the appropriate value. Outside a ramp, a report of
+  -- the level last sent is a no-op (newBrightness already matches
+  -- currentBrightness).
   if rampingBrightness then
     log:trace("UPDATE_STATE brightness=%s ignored (ramping)", newBrightness)
   elseif not levelShown or levelNews or not range.sameLevel(newBrightness, currentBrightness) then
@@ -3703,10 +3690,10 @@ local function directPoll()
   end)
 end
 
---- Translate an internal light command (ESPHome light_command shape) to the
---- params of a SMART set_device_info request. A ramp rate the command carries
---- is not sent: the light takes no fade time from a command. A color for a
---- light that is off is held (smartPendingColor), and added to the next on.
+--- Translate an internal light command to the params of a SMART
+--- set_device_info request. A ramp rate the command carries is not sent: the
+--- light takes no fade time from a command. A color for a light that is off is
+--- held (smartPendingColor), and added to the next on.
 --- @param opts table
 --- @return table? params nil when the command names nothing to send.
 local function smartParams(opts)

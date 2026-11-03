@@ -191,12 +191,12 @@ function IotBulb:poll()
   end)
 end
 
---- Translates an internal light command (ESPHome light_command shape) to a
---- transition_light_state (bulb) or set_light_state (strip) request. A ramp
---- rate is forwarded as the device-side transition_period so the device fades
---- the change itself. A bare on/off leaves ignore_default unset so the device
---- restores its previous light state. On a strip, any command takes over from
---- a lighting effect started in the Kasa app.
+--- Translates an internal light command to a transition_light_state (bulb) or
+--- set_light_state (strip) request. A ramp rate is forwarded as the device-side
+--- transition_period so the device fades the change itself. A bare on/off
+--- leaves ignore_default unset so the device restores its previous light state.
+--- On a strip, any command takes over from a lighting effect started in the
+--- Kasa app.
 --- @param opts table
 --- @return Deferred<table, { error: string }>
 function IotBulb:execute(opts)
