@@ -30,9 +30,9 @@ The TP-Link Outlet driver provides local, cloud-free control of TP-Link Kasa and
 Tapo smart plugs and power strips directly from Control4.
 
 It works with Kasa devices on original firmware, with Kasa devices TP-Link has
-updated since late 2024, and with Tapo plugs and newer Kasa plugs such as the
-EP25 v2.6. The driver works out how the device connects, so the same driver
-keeps working when TP-Link updates the device's firmware.
+updated since late 2024, and with Tapo plugs and newer Kasa plugs. The driver
+works out how the device connects, so the same driver keeps working when TP-Link
+updates the device's firmware.
 
 Each output is exposed as a standard Control4 **relay binding**, along with
 per-output events, variables, and real-time power (wattage) readings for
@@ -124,11 +124,9 @@ programming.
 
 Other Kasa and Tapo plugs and power strips are expected to work:
 
-- Kasa plugs and strips such as the KP200, KP303, KP400, KP401 and HS103, on
-  original or newer firmware
-- Newer Kasa plugs such as the KP125M, and Tapo plugs such as the P110, which
-  need the TP-Link account credentials
-- Tapo power strips such as the P300, and the EP40M, with each outlet as its own
+- Kasa plugs and power strips, on original or newer firmware
+- Newer Kasa plugs and Tapo plugs, which need the TP-Link account credentials
+- Tapo power strips and newer Kasa power strips, with each outlet as its own
   output
 
 Single-outlet devices appear as output 1.
@@ -309,15 +307,14 @@ address is removed.
 
 ##### IP Address
 
-Sets the IP address of the plug or power strip (e.g. `192.168.1.50`).
+Sets the IP address of the plug or power strip.
 
 > **Note:** Give the device a DHCP reservation or a static IP address so its
 > address does not change.
 
 If the device does get a new address on the controller's network, the driver
 finds it by its MAC address and updates this property (OS 4.0 and later).
-Entering an address by hand points the driver at whichever device answers there,
-such as a replacement plug.
+Entering an address by hand points the driver at whichever device answers there.
 
 ##### Protocol \[ **_Auto_** | KLAP | Legacy \]
 
@@ -390,9 +387,6 @@ around one level doesn't fire over and over. With one level at 0 the other is
 used both ways; with both at 0 (the default) the events are off. Shown once the
 output has reported its power.
 
-For example, a TV that draws 1 W on standby and 90 W when on: set `In Use Above`
-to 30 and `Idle Below` to 5.
-
 ##### Output N Hold (s) \[ 0 - 3600, default: **_0_** \]
 
 Sets how long, in seconds, the output's power must stay past a level before
@@ -400,10 +394,6 @@ Sets how long, in seconds, the output's power must stay past a level before
 again. The power is read at the `Energy Poll Rate`, so the event comes with the
 first reading after the hold has passed. At 0 (the default) the first reading
 past a level fires it.
-
-For example, a washer that pauses for a few minutes during a cycle: set
-`Idle Below` to 5 and the hold to 300, so `Idle` fires only once the washer has
-stayed under 5 W for five minutes.
 
 ### Driver Actions
 
@@ -534,10 +524,10 @@ or timeouts**: Verify the IP address, that the device is on a network reachable
 from the controller, and that no firewall or network rule stops the controller
 reaching the device.
 
-**A newer Kasa plug (e.g. EP25 v2.6) or Tapo plug won't connect on any
-protocol**: Some newer Kasa plugs and Tapo plugs on early firmware use a
-connection method this driver does not support (on the EP25 v2.6, firmware 1.0.2
-and older). Update the device's firmware in the Kasa or Tapo app, then run the
+**A newer Kasa plug or Tapo plug won't connect on any protocol**: Some newer
+Kasa plugs and Tapo plugs on early firmware use a connection method this driver
+does not support (on the EP25 v2.6, firmware 1.0.2 and older). Update the
+device's firmware in the Kasa or Tapo app, then run the
 [`Reconnect`](#reconnect) action. These devices always need the TP-Link account
 credentials.
 

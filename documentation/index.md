@@ -29,9 +29,8 @@ ______________________________________________________________________
 This suite gives Control4 local control of TP-Link Kasa and Tapo smart plugs,
 power strips and lights, with no TP-Link cloud. It works with Kasa devices on
 original firmware, with Kasa devices TP-Link has updated since late 2024, and
-with Tapo devices and newer Kasa models such as the EP25 v2.6. The drivers work
-out how each device connects, so a device keeps working when TP-Link updates its
-firmware.
+with Tapo devices and newer Kasa models. The drivers work out how each device
+connects, so a device keeps working when TP-Link updates its firmware.
 
 # <span style="color:#4ACBD6">Index</span>
 
@@ -70,9 +69,9 @@ firmware.
 
 ## TP-Link Outlet
 
-Control Kasa and Tapo smart plugs and power strips (e.g. HS300, KP303, EP25).
-Every output is exposed as a standard Control4 relay binding with per-output
-events, variables, and real-time power readings.
+Control Kasa and Tapo smart plugs and power strips. Every output is exposed as a
+standard Control4 relay binding with per-output events, variables, and real-time
+power readings.
 
 **Key features:**
 
