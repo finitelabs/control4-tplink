@@ -140,6 +140,7 @@
         <items>
           <item>Auto</item>
           <item>KLAP</item>
+          <item>TPAP</item>
           <item>Legacy</item>
         </items>
         <default>Auto</default>

@@ -86,10 +86,9 @@ command and fades by itself.
 - Direct mode: a TP-Link light on a network reachable from the controller. Tapo
   lights and Kasa lights updated since late 2024 also need the credentials of
   the TP-Link account they are set up with; Kasa KL/LB-series bulbs on original
-  firmware need none. Lights on newer firmware must also have **Third-Party
-  Compatibility** turned on in the Tapo app (under **Me**, then **Tapo Lab**) or
-  the Kasa app (under **Settings**). If a light refuses to connect while it is
-  already on, turn it off and back on (see [Troubleshooting](#troubleshooting))
+  firmware need none. Lights on newer firmware work with **Third-Party
+  Compatibility** on or off in the Tapo or Kasa app. With it off they need
+  Control4 OS 3.4.1 or later
 - Proxy mode: a configured TP-Link Outlet driver instance
 
 # <span style="color:#4ACBD6">Features</span>
@@ -297,16 +296,18 @@ the driver at whichever light answers there.
 Displays the MAC address of the light, learned when the driver first connects to
 it.
 
-#### Protocol \[ **_Auto_** | KLAP | Legacy \]
+#### Protocol \[ **_Auto_** | KLAP | TPAP | Legacy \]
 
 Selects the local protocol for direct mode. `KLAP` is the encrypted protocol of
 Tapo lights, and of Kasa KL/LB-series bulbs and light strips on firmware updated
-since late 2024. `Legacy` is the protocol of Kasa KL/LB-series bulbs and light
-strips on original firmware.
+since late 2024. `TPAP` is the protocol the same lights use when Third-Party
+Compatibility is off in the Tapo or Kasa app. `Legacy` is the protocol of Kasa
+KL/LB-series bulbs and light strips on original firmware.
 
-`Auto` (default) tries KLAP first when credentials are set and falls back to the
-legacy protocol; without credentials it connects over the legacy protocol
-directly. Pin it to `KLAP` or `Legacy` only if you need to skip detection.
+`Auto` (default) tries KLAP first when credentials are set, then TPAP when the
+light refuses KLAP, and falls back to the legacy protocol; without credentials
+it connects over the legacy protocol directly. Pin it to one only if you need to
+skip detection.
 
 #### TP-Link Username / TP-Link Password
 
@@ -434,8 +435,28 @@ lights updated since late 2024, check that the credentials match the account the
 light is set up with in the Tapo or Kasa app. A wrong account shows in the Lua
 output with `Log Mode` set to `Print`.
 
+**`Disconnected: ... the TP-Link account password was refused ...`**: The light
+has Third-Party Compatibility off and refused the password. Enter the password
+of the TP-Link account the light is set up with in the Tapo or Kasa app. The
+driver does not try again until `TP-Link Username` or `TP-Link Password`
+changes, because every refused password counts toward the device locking itself.
+
+**`Disconnected: ... the device is locked for ... minutes after failed logins`**:
+Too many wrong passwords were tried, by this driver or another app. The driver
+waits out the time shown, then tries once more.
+
+**`Disconnected: ... TPAP needs Control4 OS 3.4.1 or later ...`**: The device
+has Third-Party Compatibility off, and this controller's OS is too old for the
+login that needs. Update the controller, or turn **Third-Party Compatibility**
+on in the Tapo app (under **Me**, then **Tapo Lab**) or the Kasa app (under
+**Settings**).
+
+**`Disconnected: ... asks for a login this driver does not support yet ...`**:
+Turn **Third-Party Compatibility** on in the Tapo or Kasa app.
+
 **`Disconnected: ... device refused the handshake (HTTP 403) ...`**: The device
-is refusing connections from other apps. Work through these in order:
+is refusing connections from other apps, and did not offer the login it uses
+with Third-Party Compatibility off. Work through these in order:
 
 1. Make sure **Third-Party Compatibility** is on in the Tapo app (under **Me**,
    then **Tapo Lab**) or the Kasa app (under **Settings**). Firmware updates are

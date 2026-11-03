@@ -29,6 +29,7 @@ local values = require("lib.values")
 local Klap = require("tplink.klap")
 local Legacy = require("tplink.legacy")
 local Smart = require("tplink.smart")
+local Tpap = require("tplink.tpap")
 local Discovery = require("tplink.discovery")
 
 ---------------------------------------------------------------------------
@@ -55,8 +56,16 @@ local smart = Smart:new(klap)
 --- @type Legacy
 local legacy = Legacy:new()
 
+--- TPAP transport, for a device whose account has Third-Party Compatibility off.
+--- @type Tpap
+local tpap = Tpap:new()
+
+--- SMART-schema adapter over the TPAP transport.
+--- @type Smart
+local smartTpap = Smart:new(tpap)
+
 --- The active transport, set by connect-time detection.
---- @type Klap|Legacy|Smart|nil
+--- @type Klap|Legacy|Smart|Tpap|nil
 local transport = nil
 
 --- Human-readable name of the active transport, for Driver Status.
@@ -705,38 +714,41 @@ local function tryLegacy(generation, onFail)
   )
 end
 
---- Probe an established KLAP session with an IOT-schema get_sysinfo.
---- @param t Klap
+--- Probe an established KLAP or TPAP session with an IOT-schema get_sysinfo.
+--- @param t Klap|Tpap
+--- @param name string Transport name for Driver Status.
 --- @param generation integer The connect attempt the probe is for.
 --- @param onFail fun(reason: string)
-local function tryKlapIot(t, generation, onFail)
+local function tryIot(t, name, generation, onFail)
   t:request({ system = { get_sysinfo = {} } }):next(
     live(generation, function(response)
       local sysinfo = Select(response, "system", "get_sysinfo")
       if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
-        adoptTransport(t, "KLAP", sysinfo)
+        adoptTransport(t, name, sysinfo)
       else
-        onFail("device rejected get_sysinfo over KLAP")
+        onFail("device rejected get_sysinfo over " .. name)
       end
     end),
     live(generation, function(err)
-      onFail(Select(err, "error") or "KLAP request failed")
+      onFail(Select(err, "error") or (name .. " request failed"))
     end)
   )
 end
 
---- Probe an established KLAP v2 session with a SMART-schema get_device_info
---- (the smart adapter translates it to/from the IOT shapes the driver reads).
+--- Probe an established session with a SMART-schema get_device_info (the
+--- smart adapter translates it to/from the IOT shapes the driver reads).
+--- @param adapter Smart
+--- @param name string Transport name for Driver Status.
 --- @param generation integer The connect attempt the probe is for.
 --- @param onFail fun(reason: string)
-local function trySmart(generation, onFail)
-  smart:request({ system = { get_sysinfo = {} } }):next(
+local function trySmart(adapter, name, generation, onFail)
+  adapter:request({ system = { get_sysinfo = {} } }):next(
     live(generation, function(response)
       local sysinfo = Select(response, "system", "get_sysinfo")
       if type(sysinfo) == "table" and tointeger(sysinfo.err_code) == 0 then
-        adoptTransport(smart, "SMART", sysinfo)
+        adoptTransport(adapter, name, sysinfo)
       else
-        onFail("device rejected get_device_info over KLAP")
+        onFail("device rejected get_device_info over " .. name)
       end
     end),
     live(generation, function(err)
@@ -755,9 +767,9 @@ end
 local function tryKlap(generation, onFail)
   klap:connect():next(
     live(generation, function()
-      trySmart(generation, function(smartReason)
+      trySmart(smart, "SMART", generation, function(smartReason)
         log:info("SMART probe failed (%s); trying legacy IOT schema over KLAP", smartReason)
-        tryKlapIot(klap, generation, onFail)
+        tryIot(klap, "KLAP", generation, onFail)
       end)
     end),
     live(generation, function(err)
@@ -769,12 +781,53 @@ local function tryKlap(generation, onFail)
       log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
       klapV1:connect():next(
         live(generation, function()
-          tryKlapIot(klapV1, generation, onFail)
+          tryIot(klapV1, "KLAP", generation, onFail)
         end),
         live(generation, function(v1Err)
           onFail(Select(v1Err, "error") or "KLAP connection failed", Select(v1Err, "code"))
         end)
       )
+    end)
+  )
+end
+
+--- Probe TPAP: ask the device whether it uses it, log in, then the SMART
+--- schema and the IOT schema over the session.
+--- @param ip string
+--- @param generation integer The connect attempt the probe is for.
+--- @param onFail fun(reason: string, final: boolean?) final is set when TPAP
+---   answered for the device and its reason is the one to show.
+local function tryTpap(ip, generation, onFail)
+  Tpap.discover(ip):next(
+    live(generation, function(info)
+      if info == nil then
+        onFail("the device does not use TPAP")
+        return
+      end
+      if not Tpap.supports(info) then
+        onFail(
+          "the device asks for a login this driver does not support yet; turn on Third-Party Compatibility in the Tapo or Kasa app",
+          true
+        )
+        return
+      end
+      tpap:configure({ port = info.port })
+      tpap:connect():next(
+        live(generation, function()
+          trySmart(smartTpap, "TPAP", generation, function(smartReason)
+            log:info("SMART probe failed (%s); trying legacy IOT schema over TPAP", smartReason)
+            tryIot(tpap, "TPAP", generation, function(reason)
+              onFail(reason, true)
+            end)
+          end)
+        end),
+        live(generation, function(err)
+          onFail(Select(err, "error") or "TPAP login failed", true)
+        end)
+      )
+    end),
+    live(generation, function(err)
+      onFail(Select(err, "error") or "no answer to TPAP discover", Select(err, "locked") ~= nil)
     end)
   )
 end
@@ -855,6 +908,8 @@ function reconnect(retry)
   klap:configure(config)
   klapV1:configure(config)
   smart:reset()
+  tpap:configure(config)
+  smartTpap:reset()
   legacy:configure({ ip = ip })
   -- A probe the last attempt left on the legacy port would hold this one's.
   legacy:reset()
@@ -876,7 +931,15 @@ function reconnect(retry)
     end
   end
 
-  if mode == "KLAP" or (mode == "Auto" and hasCredentials) then
+  if mode == "TPAP" then
+    if not hasCredentials then
+      updateDriverStatus("Set the TP-Link Username and Password properties (required for TPAP)")
+      return
+    end
+    detecting = true
+    connecting("TPAP")
+    tryTpap(ip, generation, detectionFailed)
+  elseif mode == "KLAP" or (mode == "Auto" and hasCredentials) then
     if not hasCredentials then
       updateDriverStatus("Set the TP-Link Username and Password properties (required for KLAP)")
       return
@@ -888,19 +951,37 @@ function reconnect(retry)
         detectionFailed(klapReason)
         return
       end
-      -- Always fall back to legacy, even on an auth mismatch: transitional
-      -- Kasa firmware (e.g. KP115 1.1.1) answers KLAP with credentials that
-      -- match no known scheme while still serving the legacy protocol. If
-      -- legacy also fails, the combined reason still surfaces the mismatch.
-      log:info("KLAP probe failed (%s); trying legacy protocol", klapReason)
-      connecting("Legacy")
-      tryLegacy(generation, function(legacyReason)
-        if klapCode == 403 then
-          log:info("Legacy probe failed: %s", legacyReason)
-          detectionFailed(klapReason)
-          return
+      --- Always fall back to legacy, even on an auth mismatch: transitional
+      --- Kasa firmware (e.g. KP115 1.1.1) answers KLAP with credentials that
+      --- match no known scheme while still serving the legacy protocol. If
+      --- legacy also fails, the combined reason still surfaces the mismatch.
+      local function fallBack()
+        log:info("KLAP probe failed (%s); trying legacy protocol", klapReason)
+        connecting("Legacy")
+        tryLegacy(generation, function(legacyReason)
+          if klapCode == 403 then
+            log:info("Legacy probe failed: %s", legacyReason)
+            detectionFailed(klapReason)
+            return
+          end
+          detectionFailed("KLAP: " .. klapReason .. " / Legacy: " .. legacyReason)
+        end)
+      end
+      -- A device whose account has Third-Party Compatibility off refuses KLAP
+      -- (403, or 500 on some light strips) and takes TPAP instead.
+      if klapCode ~= 403 and klapCode ~= 500 then
+        fallBack()
+        return
+      end
+      log:info("KLAP refused (%s); trying TPAP", klapReason)
+      connecting("TPAP")
+      tryTpap(ip, generation, function(tpapReason, final)
+        if final then
+          detectionFailed(tpapReason)
+        else
+          log:info("TPAP probe failed: %s", tpapReason)
+          fallBack()
         end
-        detectionFailed("KLAP: " .. klapReason .. " / Legacy: " .. legacyReason)
       end)
     end)
   else
