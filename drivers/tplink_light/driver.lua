@@ -1370,8 +1370,7 @@ local function sendBrightness(level, rateMs, keepColor, at)
     has_brightness = true,
     brightness = range.endBrightness(level, at),
     has_transition_length = true,
-    -- A rate of 0 still gets sent so it cancels any in-flight transition on
-    -- the device rather than falling back to its default_transition_length.
+    -- A rate of 0 is set too; a backend with no use for it leaves it out.
     transition_length = hasRate and rateMs or 0,
   }
 
