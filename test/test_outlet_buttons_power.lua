@@ -291,4 +291,25 @@ do
   C4.GetTime = getTime
 end
 
+T.section("an update from a build that kept State without labels fires no On or Off")
+do
+  local persist = require("lib.persist")
+  local stored = persist:get("Values")
+  stored["Output 1 State"].labels = nil
+  persist:set("Values", stored)
+  ShimUpdateDriver()
+  dofile(HERE .. "/../drivers/tplink_outlet/driver.lua")
+  fired = {}
+  ShimLateInit()
+  EC.RefreshNow()
+  local switched = {}
+  for _, id in ipairs(fired) do
+    if id <= 6 or (id > 50 and id <= 56) then
+      switched[#switched + 1] = id
+    end
+  end
+  T.eq("no On or Off event", switched, {})
+  T.eq("the State property has its label again", Properties["Output 1 State"], plug.relay == 1 and "On" or "Off")
+end
+
 T.finish()
