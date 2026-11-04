@@ -14,8 +14,8 @@
 ---   emeter.get_realtime    -> get_energy_usage  (power_mw <- current_power)
 ---
 --- Requests carrying an IOT child context (`context.child_ids`) are routed
---- through `control_child` with a nested multipleRequest, matching how the
---- python-kasa reference talks to strip outlets.
+--- through `control_child` with a nested multipleRequest, as strip outlets
+--- take them.
 ---
 --- SMART errors surface as `err_code` in the translated response, matching
 --- how IOT devices report failures.
@@ -74,9 +74,9 @@ local function errorCode(response)
 end
 
 --- Executes one SMART method against the device or one of its children.
---- Child calls are wrapped in control_child + multipleRequest, per the
---- python-kasa reference; empty params are omitted there because the nested
---- request shape is stricter than the top-level one.
+--- Child calls are wrapped in control_child + multipleRequest; empty params
+--- are omitted there because the nested request shape is stricter than the
+--- top-level one.
 --- @private
 --- @param childId string? The child device_id, or nil for the device itself.
 --- @param method string

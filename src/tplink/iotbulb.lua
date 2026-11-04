@@ -3,10 +3,10 @@
 ---
 --- Kasa's original bulbs speak the legacy IOT JSON schema: capabilities and
 --- the current `light_state` come from `system.get_sysinfo`, and light changes
---- go through `smartlife.iot.smartbulb.lightingservice.transition_light_state`
---- (per the python-kasa reference). Light strips (KL400/KL420/KL430) take the
---- same parameters through `smartlife.iot.lightStrip.set_light_state`; a
---- `length` field in sysinfo marks a strip. The schema is transport-agnostic
+--- go through `smartlife.iot.smartbulb.lightingservice.transition_light_state`.
+--- Light strips (KL400/KL420/KL430) take the same parameters through
+--- `smartlife.iot.lightStrip.set_light_state`; a `length` field in sysinfo
+--- marks a strip. The schema is transport-agnostic
 --- (devices on original firmware answer over the legacy port 9999 transport,
 --- devices on post-2024 firmware answer over KLAP), so this adapter takes any
 --- transport exposing `request(payload)` and maps the schema to the entity/
@@ -37,8 +37,8 @@ local STRIP_SET_METHOD = "set_light_state"
 --- Firmware caps device-side transitions at 60 seconds.
 local MAX_TRANSITION_MS = 60000
 
---- Kelvin ranges by model (sysinfo does not report them); per the python-kasa
---- reference, with its 2700-5000 fallback for unlisted models.
+--- Kelvin ranges by model (sysinfo does not report them), with 2700-5000 for
+--- unlisted models.
 local KELVIN_RANGES = {
   { pattern = "LB130", min = 2500, max = 9000 },
   { pattern = "LB230", min = 2500, max = 9000 },
@@ -180,7 +180,7 @@ function IotBulb:poll()
     end
     self._kelvinMin, self._kelvinMax = kelvinRangeForModel(sysinfo.model)
     -- A length field marks a light strip, which takes commands through a
-    -- different module (per the python-kasa device factory).
+    -- different module.
     self._isStrip = sysinfo.length ~= nil
     return {
       entity = synthesizeEntity(sysinfo, self._kelvinMin, self._kelvinMax),
