@@ -3471,6 +3471,63 @@ do
   )
 end
 
+T.section("with Fades on Light and no fade of the strip's own, a click sends only where it goes")
+do
+  local BOTTOM, TOGGLE, CLICK = 1, 2, 2
+  --- A click 110 ms after its press, and the commands the strip is sent.
+  local function click(button)
+    mark()
+    proxy("BUTTON_ACTION", { BUTTON_ID = button, ACTION = PRESS })
+    run(110)
+    proxy("BUTTON_ACTION", { BUTTON_ID = button, ACTION = CLICK })
+    return serve(1000, 250)
+  end
+  walked({ device_on = false }, NO_POLLS)
+  own = { enable = true }
+  proxy("UPDATE_BRIGHTNESS_ON_MODE", { BRIGHTNESS_PRESET_ID = 3, BRIGHTNESS_PRESET_LEVEL = 50 })
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  T.eq("Top clicked from off: the on level alone", { each(click(TOP), "brightness"), levels() }, { { 50 }, { 50 } })
+  T.eq("Top clicked at the on level: nothing", { click(TOP), levels() }, { {}, { 50 } })
+  T.eq("Toggle clicked from on: the off alone", { each(click(TOGGLE), "device_on"), levels() }, { { false }, { 0 } })
+  T.eq(
+    "Toggle clicked from off: the on level alone",
+    { each(click(TOGGLE), "brightness"), levels() },
+    { { 50 }, { 50 } }
+  )
+  T.eq("Bottom clicked: the off alone", { each(click(BOTTOM), "device_on"), levels() }, { { false }, { 0 } })
+  mark()
+  RFP.DO_PUSH(300, "DO_PUSH", {})
+  run(200)
+  RFP.DO_CLICK(300, "DO_CLICK", {})
+  T.eq(
+    "a keypad's On button clicked from off, held 200 ms: the on level alone",
+    { each(serve(1000, 250), "brightness"), levels() },
+    { { 50 }, { 50 } }
+  )
+
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(249)
+  T.eq("Top held: nothing is sent for 250 ms", flying(), {})
+  run(1)
+  T.eq("then full", flying(), { { device_on = true, brightness = 100 } })
+  T.eq("and the proxy told it then", { levels(), told("LIGHT_BRIGHTNESS_CHANGED", "at") }, { { 100 }, { 250 } })
+  serve(300, 250)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE })
+  T.eq("its release sends nothing", flying(), {})
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(150)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE })
+  T.eq(
+    "Bottom held and let go within 250 ms: it goes to its end",
+    { each(serve(1000, 250), "device_on"), levels() },
+    { { false }, { 0 } }
+  )
+  forgetSetup()
+end
+
 T.section("the strip's own fades are read at each connect while Fades is Light, and not while it is Driver")
 do
   walked({}, { ["Fades"] = "Light" })

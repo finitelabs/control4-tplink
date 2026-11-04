@@ -266,6 +266,11 @@ local lightBrightness = nil
 -- the click outcome.
 local prePressBrightness = nil
 
+-- A press whose hold ramp would be a jump waits this long, so a click within
+-- it is the only change the light sees. pressGated: one is waiting.
+local PRESS_GATE_MS = 250
+local pressGated = false
+
 -- LIGHT_BRIGHTNESS_TARGET_PRESET_ID from the proxy (Daylight Agent integration,
 -- spec _2.1). Echoed back as LIGHT_BRIGHTNESS_CURRENT_PRESET_ID on subsequent
 -- LIGHT_BRIGHTNESS_CHANGED so the proxy knows the active preset still owns the
@@ -1495,8 +1500,14 @@ end
 -- A report during a ramp gives the level last sent, not where the fade has
 -- got to, so it is ignored (rampingBrightness=true).
 
+local function cancelPressGate()
+  CancelTimer("PressGate")
+  pressGated = false
+end
+
 local function cancelBrightnessRampTimers()
   CancelTimer("BrightnessRampFinish")
+  cancelPressGate()
 end
 
 --- Level a ramp has the light at, and its line position if outside the range.
@@ -1540,7 +1551,8 @@ local function fadeTime(rate, from, to)
 end
 
 local function brightnessRampFinished(targetLevel)
-  cancelBrightnessRampTimers()
+  -- A press at its gate is not this ramp's to end.
+  CancelTimer("BrightnessRampFinish")
   if fades == "Driver" and rampingBrightness then
     -- The last step. The ramp is at its end from here, whenever this is.
     brightnessRamp.startTime = C4:GetTime() - brightnessRamp.durationMs
@@ -3070,6 +3082,11 @@ local function rewindToPrePress()
   if snapshot == nil then
     return (interpolatedBrightness(true))
   end
+  -- A press at its gate sent nothing: a ramp in flight is the click's to leave.
+  if pressGated then
+    cancelPressGate()
+    return snapshot
+  end
   local hold = rampingBrightness and brightnessRamp or nil
   cancelBrightnessRampTimers()
   rampingBrightness = false
@@ -3100,17 +3117,31 @@ local function handleButtonAction(buttonId, action)
       return
     end
     -- A hold ramps to full or off until released; a click, to the on level.
+    local level, rate
     if buttonId == constants.ButtonIds.TOP then
-      rampToBrightness(100, getHoldRateUp())
+      level, rate = 100, getHoldRateUp()
     elseif buttonId == constants.ButtonIds.BOTTOM then
-      rampToBrightness(0, getHoldRateDown())
+      level, rate = 0, getHoldRateDown()
     elseif buttonId == constants.ButtonIds.TOGGLE then
       if prePressBrightness > 0 then
-        rampToBrightness(0, getHoldRateDown())
+        level, rate = 0, getHoldRateDown()
       else
-        rampToBrightness(100, getHoldRateUp())
+        level, rate = 100, getHoldRateUp()
       end
+    else
+      return
     end
+    if fadeTime(rate, prePressBrightness, level) > 0 then
+      rampToBrightness(level, rate)
+      return
+    end
+    -- As its ramp would; a scene's next step would also end the wait.
+    stopSceneSteps()
+    pressGated = true
+    SetTimer("PressGate", PRESS_GATE_MS, function()
+      pressGated = false
+      rampToBrightness(level, rate)
+    end, false)
   elseif action == constants.ButtonActions.RELEASE_HOLD then
     prePressBrightness = nil
     brightnessRampStopped()
