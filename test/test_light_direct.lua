@@ -1249,7 +1249,7 @@ local SETUP_KEYS = {
 
 --- Forget what the driver stores of the proxy's on modes, presets and rates.
 local function forgetSetup()
-  for _, key in ipairs({ "brightness_presets", "previous_color" }) do
+  for _, key in ipairs({ "brightness_presets", "previous_color", "fades_told" }) do
     persist:delete(key)
   end
   for _, key in ipairs(SETUP_KEYS) do
@@ -3337,6 +3337,64 @@ do
   mark()
   proxy("ON")
   T.eq("and an on over its 5 s", told("LIGHT_BRIGHTNESS_CHANGING", "RATE"), { 5000 })
+end
+
+T.section("Fades set from Light to Driver while the light is away: the driver's rates are told when it is back")
+do
+  -- A dimmable white light: a change of Fades moves nothing the proxy lists in 6661.
+  local white = { device_on = true, brightness = 100 }
+  local function whiteRates(fixed)
+    return {
+      has_fixed_ramp_rate = fixed ~= nil,
+      fixed_ramp_rate = fixed or 0,
+      brightness_rate_min = fixed or 0,
+      brightness_rate_max = fixed or 65535,
+      supports_brightness_stop = fixed == nil,
+      supports_color_stop = false,
+    }
+  end
+  own = {
+    on_state = { enable = true, duration = 1, max_duration = 60 },
+    off_state = { enable = true, duration = 1, max_duration = 60 },
+    change_state = { enable = true },
+  }
+  startDriver({ ["Fades"] = "Light", ["Poll Rate (Seconds)"] = "300" })
+  shakeHands()
+  reply(white)
+  serve(2000, 250)
+  T.eq("on Light the proxy is told the light's own second", rates(), whiteRates(1000))
+
+  EC.Reconnect()
+  run(1000)
+  mark()
+  setProperty("Fades", "Driver")
+  T.eq("chosen while the light is away: nothing is told yet", rates(), {})
+  shakeHands()
+  reply(white)
+  serve(2000, 250)
+  T.eq("found again: the proxy is told the driver's rates", rates(), whiteRates())
+
+  EC.Reconnect()
+  run(1000)
+  mark()
+  shakeHands()
+  reply(white)
+  serve(2000, 250)
+  T.eq("away and back again with no change: nothing is told of rates", rates(), {})
+
+  setProperty("Fades", "Light")
+  serve(2000, 250)
+  EC.Reconnect()
+  run(1000)
+  setProperty("Fades", "Driver")
+  -- The driver is updated before the light is back, and the proxy keeps what it was told.
+  local kept = shows
+  startDriver({ ["Fades"] = "Driver", ["Poll Rate (Seconds)"] = "300" })
+  shows = kept
+  shakeHands()
+  reply(white)
+  serve(2000, 250)
+  T.eq("the same with a driver update before it is back: the driver's rates are told", rates(), whiteRates())
 end
 
 T.section("with Fades on Light a stop sends nothing, and a held button goes to its end")
