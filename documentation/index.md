@@ -19,12 +19,8 @@ ______________________________________________________________________
 
 # <span style="color:#4ACBD6">Overview</span>
 
-<!-- #ifndef DRIVERCENTRAL -->
-
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4 or TP-Link.
-
-<!-- #endif -->
 
 This suite gives Control4 local control of TP-Link Kasa and Tapo smart plugs,
 power strips and lights, with no TP-Link cloud. It works with Kasa devices on
