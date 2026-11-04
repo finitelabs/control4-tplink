@@ -19,12 +19,8 @@ ______________________________________________________________________
 
 # <span style="color:#4ACBD6">Overview</span>
 
-<!-- #ifndef DRIVERCENTRAL -->
-
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4 or TP-Link.
-
-<!-- #endif -->
 
 The TP-Link Outlet driver provides local, cloud-free control of TP-Link Kasa and
 Tapo smart plugs and power strips directly from Control4.

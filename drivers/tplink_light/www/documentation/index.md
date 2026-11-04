@@ -19,12 +19,8 @@ ______________________________________________________________________
 
 # <span style="color:#4ACBD6">Overview</span>
 
-<!-- #ifndef DRIVERCENTRAL -->
-
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4 or TP-Link.
-
-<!-- #endif -->
 
 The TP-Link Light driver adds a Control4 light backed by a TP-Link device. It
 works in one of two modes:
