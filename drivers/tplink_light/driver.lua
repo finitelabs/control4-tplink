@@ -27,8 +27,6 @@ require("lib.diagnostics")
 --#endif
 local persist = require("lib.persist")
 local constants = require("constants")
-local Klap = require("tplink.klap")
-local Legacy = require("tplink.legacy")
 local IotBulb = require("tplink.iotbulb")
 
 --- Color mode identifiers shared with tplink_outlet over the TPLINK_LIGHT
@@ -56,23 +54,25 @@ local function isOutletBound()
   return provider ~= nil and provider ~= 0
 end
 
---- KLAP transport for direct mode (v2 hashing: SMART-firmware devices and
---- KL-series bulbs on newer KLAP firmware).
---- @type Klap
-local klap = Klap:new()
-
---- KLAP transport with v1 hashing (KL-series bulbs whose KLAP firmware uses
---- the MD5-based hashes).
---- @type Klap
-local klapV1 = Klap:new({ authVersion = 1 })
-
---- Legacy (port 9999) transport for KL-series bulbs on original firmware.
---- @type Legacy
-local legacy = Legacy:new()
+--- The direct-mode transports, in one table: the main chunk is at Lua's 200 locals.
+--- @class LightLink
+--- @field klap Klap KLAP v2 hashing: SMART-firmware devices and KL-series bulbs on newer KLAP firmware.
+--- @field klapV1 Klap KLAP v1 hashing: KL-series bulbs whose KLAP firmware uses the MD5-based hashes.
+--- @field legacy Legacy Port 9999: KL-series bulbs on original firmware.
+--- @field tpap Tpap TPAP: a light whose account has Third-Party Compatibility off.
+--- @field smart Klap|Tpap The session SMART-schema requests go through.
+local link = {
+  klap = require("tplink.klap"):new(),
+  klapV1 = require("tplink.klap"):new({ authVersion = 1 }),
+  legacy = require("tplink.legacy"):new(),
+  tpap = require("tplink.tpap"):new(),
+}
+link.smart = link.klap
 
 --- The direct-mode command schema, set by connect-time detection:
 --- "smart" (Tapo-class get_device_info/set_device_info over KLAP) or "iot"
---- (KL-series sysinfo/transition_light_state via the iotBulb adapter).
+--- (KL-series sysinfo/transition_light_state via the iotBulb adapter). SMART
+--- requests go through link.smart.
 --- @type string?
 local directSchema = nil
 
@@ -3674,7 +3674,7 @@ local function directPoll()
     return
   end
 
-  directFlight(klap:request({ method = "get_device_info", params = {} }), function(response)
+  directFlight(link.smart:request({ method = "get_device_info", params = {} }), function(response)
     if tointeger(Select(response, "error_code")) ~= 0 then
       log:warn("get_device_info failed: %s", response)
       follow.missed()
@@ -3783,7 +3783,7 @@ local function directSend(opts)
   for field, value in pairs(params) do
     smartHeld[field] = value
   end
-  directFlight(klap:request({ method = "set_device_info", params = params }), function(response)
+  directFlight(link.smart:request({ method = "set_device_info", params = params }), function(response)
     local code = tointeger(Select(response, "error_code")) or -1
     if code ~= 0 then
       log:error("set_device_info failed: %s", response)
@@ -3818,7 +3818,7 @@ local function readOwnFades()
   local function length(state, ms)
     return type(state) == "table" and toboolean(state.enable) and (ms or (tointeger(state.duration) or 0) * 1000) or 0
   end
-  directFlight(klap:request({ method = "get_on_off_gradually_info", params = {} }), function(response)
+  directFlight(link.smart:request({ method = "get_on_off_gradually_info", params = {} }), function(response)
     local info = Select(response, "result")
     if tointeger(Select(response, "error_code")) ~= 0 or type(info) ~= "table" then
       failed(response)
@@ -3850,7 +3850,7 @@ local function readOwnFades()
         switchOn(i + 1)
       else
         local params = one and { enable = true } or { [name] = { enable = true, duration = state.duration } }
-        directFlight(klap:request({ method = "set_on_off_gradually_info", params = params }), function(answer)
+        directFlight(link.smart:request({ method = "set_on_off_gradually_info", params = params }), function(answer)
           state.enable = tointeger(Select(answer, "error_code")) == 0
           if not state.enable then
             failed(answer)
@@ -4090,11 +4090,12 @@ backendStart = function(retry)
     username = Properties["TP-Link Username"] or "",
     password = Properties["TP-Link Password"] or "",
   }
-  klap:configure(config)
-  klapV1:configure(config)
-  legacy:configure({ ip = ip })
+  link.klap:configure(config)
+  link.klapV1:configure(config)
+  link.tpap:configure(config)
+  link.legacy:configure({ ip = ip })
   -- A probe the last attempt left on the legacy port would hold this one's.
-  legacy:reset()
+  link.legacy:reset()
 
   local mode = Properties["Protocol"] or "Auto"
   local hasCredentials = not IsEmpty(Properties["TP-Link Username"]) and not IsEmpty(Properties["TP-Link Password"])
@@ -4163,7 +4164,7 @@ backendStart = function(retry)
   end
 
   --- Probe a transport with the IOT bulb schema.
-  --- @param transport Legacy|Klap
+  --- @param transport Legacy|Klap|Tpap
   --- @param name string
   --- @param onFail fun(reason: string)
   local function tryIotBulb(transport, name, onFail)
@@ -4178,16 +4179,19 @@ backendStart = function(retry)
     )
   end
 
-  --- Probe the established KLAP v2 session with the SMART schema.
+  --- Probe an established KLAP v2 or TPAP session with the SMART schema.
+  --- @param transport Klap|Tpap
+  --- @param name string Transport name for Driver Status.
   --- @param onFail fun(reason: string)
-  local function trySmart(onFail)
-    klap:request({ method = "get_device_info", params = {} }):next(
+  local function trySmart(transport, name, onFail)
+    transport:request({ method = "get_device_info", params = {} }):next(
       live(function(response)
         if tointeger(Select(response, "error_code")) == 0 then
           local info = Select(response, "result") or {}
-          adopt("smart", nil, "SMART", synthesizeEntity(info), synthesizeState(info), info.mac)
+          link.smart = transport
+          adopt("smart", nil, name, synthesizeEntity(info), synthesizeState(info), info.mac)
         else
-          onFail("device rejected get_device_info over KLAP")
+          onFail("device rejected get_device_info over " .. name)
         end
       end),
       live(function(err)
@@ -4201,7 +4205,7 @@ backendStart = function(retry)
   --- @param klapCode number? HTTP status of a refused KLAP handshake, if any.
   local function tryLegacy(klapReason, klapCode)
     connecting("Legacy")
-    tryIotBulb(legacy, "Legacy", function(legacyReason)
+    tryIotBulb(link.legacy, "Legacy", function(legacyReason)
       if klapCode == 403 then
         log:info("Legacy probe failed: %s", legacyReason)
         failed(klapReason)
@@ -4214,12 +4218,65 @@ backendStart = function(retry)
     end)
   end
 
-  --- Route a KLAP-side failure to legacy fallback or a final status.
+  --- Probe TPAP: ask the light whether it uses it, log in, then the SMART
+  --- schema and the IOT bulb schema over the session.
+  --- @param onFail fun(reason: string, final: boolean?) final is set when TPAP
+  ---   answered for the light and its reason is the one to show.
+  local function tryTpap(onFail)
+    local Tpap = require("tplink.tpap")
+    connecting("TPAP")
+    Tpap.discover(ip):next(
+      live(function(info)
+        if info == nil then
+          onFail("the light does not use TPAP")
+          return
+        end
+        if not Tpap.supports(info) then
+          onFail(
+            "the light asks for a login this driver does not support yet; turn on Third-Party Compatibility in the Tapo or Kasa app",
+            true
+          )
+          return
+        end
+        link.tpap:configure({ port = info.port })
+        link.tpap:connect():next(
+          live(function()
+            trySmart(link.tpap, "TPAP", function(smartReason)
+              log:info("SMART probe failed (%s); trying IOT bulb schema over TPAP", smartReason)
+              tryIotBulb(link.tpap, "TPAP", function(reason)
+                onFail(reason, true)
+              end)
+            end)
+          end),
+          live(function(err)
+            onFail(Select(err, "error") or "TPAP login failed", true)
+          end)
+        )
+      end),
+      live(function(err)
+        onFail(Select(err, "error") or "no answer to TPAP discover", Select(err, "locked") ~= nil)
+      end)
+    )
+  end
+
+  --- Route a KLAP-side failure to TPAP, legacy fallback or a final status. A
+  --- light whose account has Third-Party Compatibility off refuses KLAP (403,
+  --- or 500 on some light strips) and takes TPAP instead.
   --- @param reason string
   --- @param code number? HTTP status of a refused handshake, if any.
   local function onKlapFail(reason, code)
     if mode == "KLAP" then
       failed(reason)
+    elseif code == 403 or code == 500 then
+      log:info("KLAP refused (%s); trying TPAP", reason)
+      tryTpap(function(tpapReason, final)
+        if final then
+          failed(tpapReason)
+        else
+          log:info("TPAP probe failed (%s); trying legacy protocol", tpapReason)
+          tryLegacy(reason, code)
+        end
+      end)
     else
       log:info("KLAP probe failed (%s); trying legacy protocol", reason)
       tryLegacy(reason, code)
@@ -4232,11 +4289,11 @@ backendStart = function(retry)
   --- hashing before falling back.
   local function tryKlap()
     connecting("KLAP")
-    klap:connect():next(
+    link.klap:connect():next(
       live(function()
-        trySmart(function(smartReason)
+        trySmart(link.klap, "SMART", function(smartReason)
           log:info("SMART probe failed (%s); trying IOT bulb schema over KLAP", smartReason)
-          tryIotBulb(klap, "KLAP", onKlapFail)
+          tryIotBulb(link.klap, "KLAP", onKlapFail)
         end)
       end),
       live(function(err)
@@ -4246,9 +4303,9 @@ backendStart = function(retry)
           return
         end
         log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
-        klapV1:connect():next(
+        link.klapV1:connect():next(
           live(function()
-            tryIotBulb(klapV1, "KLAP", onKlapFail)
+            tryIotBulb(link.klapV1, "KLAP", onKlapFail)
           end),
           live(function(v1Err)
             onKlapFail(Select(v1Err, "error") or "KLAP connection failed", Select(v1Err, "code"))
@@ -4258,7 +4315,14 @@ backendStart = function(retry)
     )
   end
 
-  if mode == "KLAP" or (mode == "Auto" and hasCredentials) then
+  if mode == "TPAP" then
+    if not hasCredentials then
+      noLight("Set the TP-Link Username and Password properties (required for TPAP)")
+      return
+    end
+    directDetecting = true
+    tryTpap(failed)
+  elseif mode == "KLAP" or (mode == "Auto" and hasCredentials) then
     if not hasCredentials then
       noLight("Set the TP-Link Username and Password properties (required for KLAP)")
       return
@@ -4309,9 +4373,10 @@ end
 --- Reconnect action: discard any established sessions and re-detect.
 function EC.Reconnect()
   log:info("Action: Reconnect")
-  klap:reset()
-  klapV1:reset()
-  legacy:reset()
+  link.klap:reset()
+  link.klapV1:reset()
+  link.tpap:reset()
+  link.legacy:reset()
   backendStart()
 end
 

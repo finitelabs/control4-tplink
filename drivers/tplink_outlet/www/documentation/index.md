@@ -77,10 +77,8 @@ programming.
 - For Tapo devices and for Kasa devices updated since late 2024, the credentials
   of the TP-Link (Kasa or Tapo) account the device is set up with. Kasa devices
   on original firmware need none.
-- Devices on newer firmware must have **Third-Party Compatibility** turned on in
-  the Tapo app (under **Me**, then **Tapo Lab**) or the Kasa app (under
-  **Settings**). If a device refuses to connect while it is already on, turn it
-  off and back on (see [Troubleshooting](#troubleshooting))
+- Devices on newer firmware work with **Third-Party Compatibility** on or off in
+  the Tapo or Kasa app. With it off they need Control4 OS 3.4.1 or later
 
 # <span style="color:#4ACBD6">Features</span>
 
@@ -316,17 +314,20 @@ If the device does get a new address on the controller's network, the driver
 finds it by its MAC address and updates this property (OS 4.0 and later).
 Entering an address by hand points the driver at whichever device answers there.
 
-##### Protocol \[ **_Auto_** | KLAP | Legacy \]
+##### Protocol \[ **_Auto_** | KLAP | TPAP | Legacy \]
 
 Selects the local protocol. `Auto` (default) works it out: with the TP-Link
-credentials set it tries the newer protocol first and then the original one;
-without them it uses the original one. `KLAP` is the protocol of Tapo devices
-and of Kasa firmware since late 2024. `Legacy` is the protocol of Kasa devices
-on original firmware. Choose `KLAP` or `Legacy` only to skip the detection.
+credentials set it tries `KLAP` first, then `TPAP` when the device refuses
+`KLAP`, then the original protocol; without them it uses the original one.
+`KLAP` is the protocol of Tapo devices and of Kasa firmware since late 2024.
+`TPAP` is the protocol the same devices use when Third-Party Compatibility is
+off in the Tapo or Kasa app. `Legacy` is the protocol of Kasa devices on
+original firmware. Choose one only to skip the detection.
 
 `Driver Status` shows what was found: `Connected (SMART)` for Tapo plugs and
 newer Kasa plugs, `Connected (KLAP)` for older Kasa devices on newer firmware,
-and `Connected (Legacy)` for Kasa devices on original firmware.
+`Connected (TPAP)` for a device with Third-Party Compatibility off, and
+`Connected (Legacy)` for Kasa devices on original firmware.
 
 ##### TP-Link Username
 
@@ -505,8 +506,28 @@ registered (the email is case sensitive). In `Auto`, the driver also tries the
 original protocol, which some Kasa firmware still answers, so this shows only
 when that fails too.
 
+**`Disconnected: ... the TP-Link account password was refused ...`**: The device
+has Third-Party Compatibility off and refused the password. Enter the password
+of the TP-Link account the device is set up with in the Tapo or Kasa app. The
+driver does not try again until `TP-Link Username` or `TP-Link Password`
+changes, because every refused password counts toward the device locking itself.
+
+**`Disconnected: ... the device is locked for ... minutes after failed logins`**:
+Too many wrong passwords were tried, by this driver or another app. The driver
+waits out the time shown, then tries once more.
+
+**`Disconnected: ... TPAP needs Control4 OS 3.4.1 or later ...`**: The device
+has Third-Party Compatibility off, and this controller's OS is too old for the
+login that needs. Update the controller, or turn **Third-Party Compatibility**
+on in the Tapo app (under **Me**, then **Tapo Lab**) or the Kasa app (under
+**Settings**).
+
+**`Disconnected: ... asks for a login this driver does not support yet ...`**:
+Turn **Third-Party Compatibility** on in the Tapo or Kasa app.
+
 **`Disconnected: ... device refused the handshake (HTTP 403) ...`**: The device
-is refusing connections from other apps. Work through these in order:
+is refusing connections from other apps, and did not offer the login it uses
+with Third-Party Compatibility off. Work through these in order:
 
 1. Make sure **Third-Party Compatibility** is on in the Tapo app (under **Me**,
    then **Tapo Lab**) or the Kasa app (under **Settings**). Firmware updates are

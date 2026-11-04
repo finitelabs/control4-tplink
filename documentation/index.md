@@ -58,12 +58,8 @@ connects, so a device keeps working when TP-Link updates its firmware.
 - Control4 OS 3.3+
 - TP-Link (Kasa or Tapo) account credentials for Tapo devices and for Kasa
   devices updated since late 2024; Kasa devices on original firmware need none
-- **Third-Party Compatibility** turned on for devices on newer firmware, in the
-  Tapo app (under **Me**, then **Tapo Lab**) or the Kasa app (under
-  **Settings**). Firmware updates can turn this setting off, in which case the
-  device refuses local connections until it is turned back on. A device added
-  after the setting was turned on may also refuse them until the setting is
-  turned off and back on
+- Devices on newer firmware work with **Third-Party Compatibility** on or off in
+  the Tapo or Kasa app. With it off they need Control4 OS 3.4.1 or later
 
 # <span style="color:#4ACBD6">Included Drivers</span>
 

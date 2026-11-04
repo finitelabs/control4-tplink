@@ -22,6 +22,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
+- The TP-Link Outlet and TP-Link Light drivers now connect to Tapo and Kasa
+  devices with Third-Party Compatibility off in the Tapo or Kasa app, on
+  Control4 OS 3.4.1 or later. `Protocol` has a `TPAP` choice for them, and
+  `Auto` finds it. A refused password is not tried again until
+  `TP-Link Username` or `TP-Link Password` changes, so the driver never locks a
+  device out.
+
 - Added a `Fades` property to the TP-Link Light driver, for a light that takes
   no fade time from a command. A Tapo light is one: a ramp, a held button or a
   scene's fade was over in a fraction of a second while the light was shown as
