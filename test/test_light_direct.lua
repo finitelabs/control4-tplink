@@ -3482,6 +3482,15 @@ do
     proxy("BUTTON_ACTION", { BUTTON_ID = button, ACTION = CLICK })
     return serve(1000, 250)
   end
+  --- Whether a press is still waiting at its gate.
+  local function waiting()
+    for _, name in ipairs(liveTimers()) do
+      if name == "PressGate" then
+        return true
+      end
+    end
+    return false
+  end
   walked({ device_on = false }, NO_POLLS)
   own = { enable = true }
   proxy("UPDATE_BRIGHTNESS_ON_MODE", { BRIGHTNESS_PRESET_ID = 3, BRIGHTNESS_PRESET_LEVEL = 50 })
@@ -3525,6 +3534,62 @@ do
     { each(serve(1000, 250), "device_on"), levels() },
     { { false }, { 0 } }
   )
+
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(100)
+  proxy("SET_LEVEL", { LEVEL = 30 })
+  T.eq(
+    "a level command during the wait: its level alone",
+    { each(serve(1000, 250), "brightness"), levels(), waiting() },
+    { { 30 }, { 30 }, false }
+  )
+
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(100)
+  setProperty("Poll Rate (Seconds)", "300")
+  run(200)
+  T.eq(
+    "a restart during the wait: the proxy is told nothing",
+    { told("LIGHT_BRIGHTNESS_CHANGING"), levels(), waiting() },
+    { {}, {}, false }
+  )
+  forgetSetup()
+
+  walked({ device_on = false }, NO_POLLS)
+  own = {
+    on_state = { enable = true, duration = 1, max_duration = 60 },
+    off_state = { enable = true, duration = 0, max_duration = 60 },
+    change_state = { enable = true },
+  }
+  proxy("UPDATE_BRIGHTNESS_ON_MODE", { BRIGHTNESS_PRESET_ID = 3, BRIGHTNESS_PRESET_LEVEL = 50 })
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  serve(900, 250)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
+  local commands = serve(1500, 250)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = RELEASE })
+  T.eq(
+    "on a strip with an on fade and no off fade, Toggle held as the on fade ends: off 250 ms in",
+    { each(commands, "device_on"), each(commands, "at"), levels() },
+    { { false }, { 250 }, { 50, 0 } }
+  )
+
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  serve(500, 250)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
+  run(110)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = CLICK })
+  T.eq("Toggle clicked half way through the on fade: off from where the fade got to", {
+    each(serve(1000, 250), "device_on"),
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"),
+    levels(),
+  }, { { false }, { 31 }, { 0 }, { 0 } })
   forgetSetup()
 end
 

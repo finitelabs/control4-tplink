@@ -4102,6 +4102,8 @@ backendStart = function(retry)
     leaveColorRamp()
     stopSceneSteps()
   end
+  -- A press at its gate was for the light as it was.
+  cancelPressGate()
   backendGeneration = backendGeneration + 1
   local generation = backendGeneration
   directDetecting = false
