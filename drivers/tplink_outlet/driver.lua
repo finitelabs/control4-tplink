@@ -3,11 +3,7 @@
 -- show as a light. The driver finds which protocol the device speaks (KLAP,
 -- TPAP or the original Kasa one) and polls it.
 
---#ifdef DRIVERCENTRAL
-DC_PID = 976
-DC_X = nil
-DC_FILENAME = "tplink_outlet.c4z"
---#else
+--#ifndef DRIVERCENTRAL
 DRIVER_GITHUB_REPO = "finitelabs/control4-tplink"
 --#endif
 
@@ -25,6 +21,7 @@ local driverFilenames = require("lib.driver-filenames")
 --#endif
 local updateSettings = require("lib.update-settings")
 --#ifdef DRIVERCENTRAL
+local drivercentral = require("lib.drivercentral")
 local supportCode = require("lib.support-code")
 local diagnostics = require("lib.diagnostics")
 --#endif
@@ -522,6 +519,11 @@ local function pollSysinfo()
   if transport == nil then
     return
   end
+  --#ifdef DRIVERCENTRAL
+  if not drivercentral:licensed() then
+    return
+  end
+  --#endif
   if sysinfoInFlight then
     log:debug("Skipping sysinfo poll; previous poll still in flight")
     return
@@ -624,6 +626,11 @@ local function pollEnergy()
   if transport == nil or energyInFlight or outputCount == 0 or not deviceOnline then
     return
   end
+  --#ifdef DRIVERCENTRAL
+  if not drivercentral:licensed() then
+    return
+  end
+  --#endif
   energyInFlight = true
   local generation = connectGeneration
 
@@ -925,6 +932,12 @@ end)
 --- Reconfigure the transports from properties, detect the right one, and poll.
 --- @param retry boolean? The poll timer trying again after no device was found.
 function reconnect(retry)
+  --#ifdef DRIVERCENTRAL
+  if not drivercentral:licensed() then
+    updateDriverStatus(drivercentral.UNLICENSED_STATUS)
+    return
+  end
+  --#endif
   connectGeneration = connectGeneration + 1
   local generation = connectGeneration
   detecting = false
@@ -1048,6 +1061,12 @@ function setOutput(n, state)
     log:warn("setOutput: output %s does not exist on this device", n)
     return
   end
+  --#ifdef DRIVERCENTRAL
+  if not drivercentral:licensed() then
+    log:warn("setOutput: no active license")
+    return
+  end
+  --#endif
   if transport == nil then
     log:warn("setOutput: not connected")
     return
@@ -1083,6 +1102,11 @@ end
 
 function TC.DEVICE_CONNECTED()
   log:trace("TC.DEVICE_CONNECTED()")
+  --#ifdef DRIVERCENTRAL
+  if not drivercentral:licensed() then
+    return false
+  end
+  --#endif
   return deviceOnline
 end
 
@@ -1340,8 +1364,7 @@ end
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
-  require("cloud-client-byte")
-  C4:AllowExecute(false)
+  drivercentral:startClient()
   --#else
   C4:AllowExecute(true)
   --#endif
@@ -1374,6 +1397,30 @@ function OnDriverInit()
   restoreRelayHandlers()
 end
 
+--#ifdef DRIVERCENTRAL
+--- DriverCentral's license gate. Without a license the driver lets go of the
+--- device and stops polling, and its outputs and lights keep the state they
+--- showed; with one it connects again, as a load does. Neither fires an event.
+--- @param licensed boolean
+local function licenseChanged(licensed)
+  if licensed then
+    log:info("License active; connecting to the device")
+    reconnect()
+    restartPollTimers()
+    return
+  end
+  log:warn("No active license; disconnecting from the device")
+  connectGeneration = connectGeneration + 1
+  transport, transportName = nil, nil
+  detecting, configured = false, false
+  sysinfoInFlight, energyInFlight = false, false
+  CancelTimer("SysinfoPoll")
+  CancelTimer("EnergyPoll")
+  follower:stop()
+  updateDriverStatus(drivercentral.UNLICENSED_STATUS)
+end
+--#endif
+
 function OnDriverLateInit()
   log:trace("OnDriverLateInit()")
   if not CheckMinimumVersion("Driver Status") then
@@ -1404,6 +1451,9 @@ function OnDriverLateInit()
 
   reconnect()
   restartPollTimers()
+  --#ifdef DRIVERCENTRAL
+  drivercentral:startGate(licenseChanged)
+  --#endif
 end
 
 --#ifdef DRIVERCENTRAL

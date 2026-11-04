@@ -284,6 +284,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Changed
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+- The TP-Link Outlet and TP-Link Light drivers stop reaching their device after
+  five minutes without an active license and show `No active license` in Driver
+  Status. Outputs keep the state they showed and lights show offline at their
+  level, with no event and no Light Off. A license starts them again at once.
+
+<!-- #endif -->
+
 - With Dim-To-Warm, a color an Advanced Lighting scene sets on a TP-Link light
   that is on now stays when the light is dimmed or brightened, until it turns
   off, as a color set from a Navigator or programming does.
