@@ -6,6 +6,7 @@ Marketing images for the TP-Link Kasa and Tapo listing (DriverCentral product 97
 | --- | --- | --- |
 | `banners/spotlight-4096x848` | 4096x848 | DriverCentral homepage spotlight banner (emailed to DriverCentral, not uploaded) |
 | `banners/launch-post-2400x1200` | 2400x1200 | Launch posts (c4forums, Reddit, Discord) |
+| `banners/facts-strip-2400x200` | 2400x200 | The first image in the listing's description: four facts in a row |
 | `photos/1-...` to `photos/5-...` | 2000x2000 | Listing photos, uploaded in number order |
 
 `assets/` holds what the pages share: the Finite Labs logo and the TP-Link mark.
