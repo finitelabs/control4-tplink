@@ -100,10 +100,14 @@ local function sameBytes(a, b)
   return diff == 0
 end
 
---- Decodes a JSON body, or nil when it is not JSON.
---- @param body string?
+--- Decodes a JSON body, or nil when it is not JSON. The URL library hands over
+--- a device's JSON answer already decoded.
+--- @param body string|table?
 --- @return table?
 local function decodeJson(body)
+  if type(body) == "table" then
+    return body
+  end
   if IsEmpty(body) then
     return nil
   end
@@ -525,7 +529,7 @@ function Tpap:_send(payload)
       local body = response.body or ""
       -- Decrypted first: a sequence number can start with "{", so a body that
       -- looks like JSON is read as an error only when it is not this answer.
-      if #body >= 20 and unpackUint32BE(body) == seq then
+      if type(body) == "string" and #body >= 20 and unpackUint32BE(body) == seq then
         local plaintext = crypto.aes_ccm.decrypt(key, nonce, string.sub(body, 5), "", 16)
         local decoded = plaintext and decodeJson(plaintext)
         if decoded then

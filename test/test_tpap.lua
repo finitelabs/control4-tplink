@@ -81,12 +81,17 @@ local function settle(d)
   return outcome
 end
 
---- Installs a device as the global urlDo.
+--- Installs a device as the global urlDo. A JSON answer reaches the callback
+--- decoded, as the URL library hands over a device's application/json answers.
 local function install(device)
   function urlDo(_, url, data, _, callback)
     device.posts = (device.posts or 0) + 1
     local code, body = device:serve(url, data or "")
     if code >= 200 and code < 300 then
+      local ok, decoded = pcall(JSON.decode, JSON, body)
+      if ok and type(decoded) == "table" then
+        body = decoded
+      end
       callback(nil, code, {}, body, nil, url)
     else
       callback("HTTP " .. code, code, {}, body, nil, url)
