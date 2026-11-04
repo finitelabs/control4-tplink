@@ -288,9 +288,11 @@ function C4:GetDeviceVariable(id, variable)
     return shows[variable]
   end
 end
--- Its Navigator Dynamic Capabilities (6661) as dev's proxies list them: driver.xml's and what it was told since, or
--- driver.xml's alone after a controller start. It lists supports_color_stop False for a light without CCT. Without
--- dimming it keeps its brightness stop, lists its rate ranges 0 and has no 1110 (ESPHome on/off light 638, 2026-10-24).
+-- Its Navigator Dynamic Capabilities (6661) as dev's proxies list them: the proxy holds driver.xml's capabilities and
+-- what it was told since, or driver.xml's alone after a controller start. It takes a notify's capabilities in a fixed
+-- order and writes all it holds to 6661 at each that changes one of the keys that rewrite it, so one taken after the
+-- last such change lags in 6661 (2026-11-03). Those it holds apart from 6661 are `shows.lags`. Without dimming it lists
+-- its rate ranges 0 and has no 1110 (2026-10-24).
 local CAPABILITY_KEYS = {
   "dimmer",
   "supports_target",
@@ -318,38 +320,75 @@ local CAPABILITY_KEYS = {
   "hide_proxy_events",
   "hide_proxy_conditionals_loops",
 }
---- Put the modeled proxy on driver.xml's capabilities, then those it is `told`.
+--- The order the proxy takes a notify's capabilities in, each with whether a change to it rewrites 6661. Measured on
+--- dev (2026-11-03): supports_target, dimmer, supports_color, supports_color_correlated_temperature, has_extras and
+--- cold_start come before the stop flags, the brightness rates after supports_target, and the color rates and CCT range
+--- after the stop flags. The rest of the order is inferred.
+local TAKEN = {
+  { "dimmer", true },
+  { "supports_target", true },
+  { "supports_color", true },
+  { "supports_color_correlated_temperature", true },
+  { "brightness_rate_min", false },
+  { "brightness_rate_max", false },
+  { "has_extras", true },
+  { "cold_start", true },
+  { "supports_brightness_stop", false },
+  { "supports_color_stop", false },
+  { "color_rate_behavior", true },
+  { "color_rate_min", true },
+  { "color_rate_max", true },
+  { "color_correlated_temperature_min", true },
+  { "color_correlated_temperature_max", true },
+}
+--- What 6661 lists of the modeled proxy's capabilities.
+local function listed(key)
+  return (shows[6661] or ""):match("<" .. key .. ">([^<]*)</" .. key .. ">")
+end
+--- Put the modeled proxy on driver.xml's capabilities where it shows none, then take those it is `told`.
 local function showCapabilities(told)
-  local caps = {}
+  local caps, lags = {}, shows[6661] and shows.lags or {}
   local f = assert(io.open(HERE .. "/../drivers/tplink_light/driver.xml", "rb"))
   local static = f:read("*a"):match("<capabilities>(.-)</capabilities>")
   f:close()
   for _, key in ipairs(CAPABILITY_KEYS) do
-    caps[key] = (shows[6661] or ""):match("<" .. key .. ">([^<]*)</" .. key .. ">")
-      or static:match("<" .. key .. ">([^<]*)</" .. key .. ">")
-      or "False"
+    caps[key] = lags[key] or listed(key) or static:match("<" .. key .. ">([^<]*)</" .. key .. ">") or "False"
   end
-  local stop = caps.supports_brightness_stop
-  for key, value in pairs(told or {}) do
-    if caps[key] ~= nil then
-      caps[key] = type(value) == "boolean" and (value and "True" or "False") or tostring(value)
+  local function rewrite()
+    local xml = {}
+    for _, key in ipairs(CAPABILITY_KEYS) do
+      local value = caps[key]
+      if caps.dimmer ~= "True" and key:match("^%l+_rate_m%l%l$") and not key:match("^color") then
+        value = "0"
+      end
+      xml[#xml + 1] = ("<%s>%s</%s>"):format(key, value, key)
+    end
+    shows[6661] = "<DynamicCapabilities>" .. table.concat(xml) .. "</DynamicCapabilities>"
+  end
+  if not shows[6661] then
+    rewrite()
+  end
+  for _, taken in ipairs(TAKEN) do
+    local key, value = taken[1], (told or {})[taken[1]]
+    if value ~= nil then
+      value = type(value) == "boolean" and (value and "True" or "False") or tostring(value)
+      if value ~= caps[key] then
+        caps[key] = value
+        if taken[2] then
+          rewrite()
+        end
+      end
     end
   end
-  if caps.supports_color_correlated_temperature ~= "True" then
-    caps.supports_color_stop = "False"
+  shows.lags = {}
+  for _, key in ipairs(CAPABILITY_KEYS) do
+    if caps[key] ~= listed(key) then
+      shows.lags[key] = caps[key]
+    end
   end
   if caps.dimmer ~= "True" then
-    caps.supports_brightness_stop = stop
-    for _, rate in ipairs({ "brightness", "click", "hold" }) do
-      caps[rate .. "_rate_min"], caps[rate .. "_rate_max"] = "0", "0"
-    end
     shows[1110] = nil
   end
-  local xml = {}
-  for _, key in ipairs(CAPABILITY_KEYS) do
-    xml[#xml + 1] = ("<%s>%s</%s>"):format(key, caps[key], key)
-  end
-  shows[6661] = "<DynamicCapabilities>" .. table.concat(xml) .. "</DynamicCapabilities>"
 end
 --- Keep what a notify tells the proxy in `shows`. One without dimming asks for the level at ONLINE_CHANGED true, before
 --- the notify returns (637 and 638 on dev, 2026-10-24).
@@ -3363,7 +3402,7 @@ do
   mark()
   reply(info())
   T.eq("and when the backend is started again", flying(), { "fades" })
-  T.eq("with no fixed rate told until they are", rates().has_fixed_ramp_rate, false)
+  T.eq("with no rate told until they are: the proxy lists the light's capabilities", rates(), {})
   serve(1000, 250)
   -- The strip is away when Driver is chosen.
   run(9000)
@@ -4727,17 +4766,72 @@ do
       T.eq(name .. ": and is told no level or color", { levels(), colorsTold() }, { {}, {} })
     end
   end
+  local kept
+  for _, key in ipairs({ "color_correlated_temperature_min", "color_correlated_temperature_max" }) do
+    forgetSetup()
+    light()
+    kept = shows
+    local shown = kept[6661]
+    kept[6661] = shown:gsub("<" .. key .. ">%d+<", "<" .. key .. ">6000<")
+    startDriver()
+    shows = kept
+    shakeHands()
+    reply(info())
+    T.eq(
+      ("a proxy that lists %s 6000 is told the light's capabilities once"):format(key),
+      #told("DYNAMIC_CAPABILITIES_CHANGED"),
+      1
+    )
+    T.eq(("and with %s 6000: lists them"):format(key), shows[6661], shown)
+  end
+  -- A capability whose change alone leaves 6661 as it is can lag there after a correct tell, and no later tell puts it
+  -- right: the proxy holds a dimmer's brightness stop and lists it False (dev, 2026-11-03).
   forgetSetup()
-  light()
-  local kept = shows
-  local shown = kept[6661]
-  kept[6661] = shown:gsub("<color_correlated_temperature_max>%d+<", "<color_correlated_temperature_max>6000<")
   startDriver()
-  shows = kept
   shakeHands()
-  reply(info())
-  T.eq("a proxy that lists other capabilities is told the light's once", #told("DYNAMIC_CAPABILITIES_CHANGED"), 1)
-  T.eq("and lists them", shows[6661], shown)
+  reply({ device_on = true, brightness = 100 })
+  local listing = shows[6661]
+  --- Keep the proxy as it is, with its brightness stop held and listed False.
+  local function lagging()
+    kept = shows
+    kept[6661] = listing:gsub("<supports_brightness_stop>True<", "<supports_brightness_stop>False<")
+    kept.lags = { supports_brightness_stop = "True" }
+  end
+  lagging()
+  for i = 1, 2 do
+    startDriver()
+    shows = kept
+    shakeHands()
+    reply({ device_on = true, brightness = 100 })
+    T.eq(
+      ("a dimmer whose proxy lists its brightness stop False, start %d: it is told no capabilities"):format(i),
+      #told("DYNAMIC_CAPABILITIES_CHANGED"),
+      0
+    )
+    kept = shows
+  end
+  for _, key in ipairs({
+    "dimmer",
+    "supports_target",
+    "supports_color",
+    "supports_color_correlated_temperature",
+    "has_extras",
+    "cold_start",
+  }) do
+    local other = listing:match("<" .. key .. ">True<") and "False" or "True"
+    lagging()
+    kept[6661] = kept[6661]:gsub("<" .. key .. ">%a+<", "<" .. key .. ">" .. other .. "<")
+    startDriver()
+    shows = kept
+    shakeHands()
+    reply({ device_on = true, brightness = 100 })
+    T.eq(
+      ("and one whose proxy also lists %s %s: it is told them once"):format(key, other),
+      #told("DYNAMIC_CAPABILITIES_CHANGED"),
+      1
+    )
+    T.eq(("and with %s %s: lists them all"):format(key, other), shows[6661], listing)
+  end
   -- A light changed while the controller was down is told as it is.
   forgetSetup()
   light()
