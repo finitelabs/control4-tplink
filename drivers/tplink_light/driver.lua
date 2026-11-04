@@ -228,7 +228,8 @@ local rampingColor = false
 local fades = nil
 
 -- A light's own fades, in milliseconds, once they are read: on from off, off,
--- and change, between two states while on. 0 for one it has not.
+-- and change, between two states while on. 0 for one it has not. `told`: whether
+-- the proxy was last told the light makes its fades, nil before it is told any.
 local ownFades = {}
 
 -- Ramp metadata: { startTime, startLevel, targetLevel, durationMs } and, for
@@ -704,8 +705,14 @@ local function updateDynamicCapabilities(entity)
   end
   if same then
     log:debug("The proxy shows the light's capabilities")
+    -- The proxy holds its rates apart from 6661: one last told the light's own fades is told them as they are now.
+    if ownFades.told and fades ~= "Light" then
+      SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", rateCapabilities(), "NOTIFY", true)
+      ownFades.told = false
+    end
   else
     SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
+    ownFades.told = fades == "Light"
   end
 
   -- Tell the proxy we have three virtual buttons (top/bottom/toggle). Sent as
@@ -3797,6 +3804,7 @@ local OWN_CHANGE_MS = 1000
 local function readOwnFades()
   local function tell()
     SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", rateCapabilities(), "NOTIFY", true)
+    ownFades.told = fades == "Light"
   end
   local function failed(err)
     log:warn("The light's own fades could not be read or switched on: %s", Select(err, "error") or err)
@@ -4028,7 +4036,8 @@ backendStart = function(retry)
   directPollWaiting = false
   smartPendingColor = nil
   fades = nil
-  ownFades = {}
+  -- The proxy keeps what it was told across a reconnect.
+  ownFades = { told = ownFades.told }
   C4:SetPropertyAttribs("Fades", constants.HIDE_PROPERTY)
 
   -- Force a fresh capability discovery on every (re)connect. The light_v2
@@ -4358,6 +4367,7 @@ function OPC.Fades(propertyValue)
   -- For Light the proxy is told once the light's own fades are read.
   if fades == "Driver" and dynamicCapsSent then
     SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", rateCapabilities(), "NOTIFY", true)
+    ownFades.told = false
   end
   ownFades.due = true
   directNext()

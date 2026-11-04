@@ -3339,6 +3339,50 @@ do
   T.eq("and an on over its 5 s", told("LIGHT_BRIGHTNESS_CHANGING", "RATE"), { 5000 })
 end
 
+T.section("Fades set from Light to Driver while the light is away: the driver's rates are told when it is back")
+do
+  -- A dimmable white light: a change of Fades moves nothing the proxy lists in 6661.
+  local white = { device_on = true, brightness = 100 }
+  local function whiteRates(fixed)
+    return {
+      has_fixed_ramp_rate = fixed ~= nil,
+      fixed_ramp_rate = fixed or 0,
+      brightness_rate_min = fixed or 0,
+      brightness_rate_max = fixed or 65535,
+      supports_brightness_stop = fixed == nil,
+      supports_color_stop = false,
+    }
+  end
+  own = {
+    on_state = { enable = true, duration = 1, max_duration = 60 },
+    off_state = { enable = true, duration = 1, max_duration = 60 },
+    change_state = { enable = true },
+  }
+  startDriver({ ["Fades"] = "Light", ["Poll Rate (Seconds)"] = "300" })
+  shakeHands()
+  reply(white)
+  serve(2000, 250)
+  T.eq("on Light the proxy is told the light's own second", rates(), whiteRates(1000))
+
+  EC.Reconnect()
+  run(1000)
+  mark()
+  setProperty("Fades", "Driver")
+  T.eq("chosen while the light is away: nothing is told yet", rates(), {})
+  shakeHands()
+  reply(white)
+  serve(2000, 250)
+  T.eq("found again: the proxy is told the driver's rates", rates(), whiteRates())
+
+  EC.Reconnect()
+  run(1000)
+  mark()
+  shakeHands()
+  reply(white)
+  serve(2000, 250)
+  T.eq("away and back again with no change: nothing is told of rates", rates(), {})
+end
+
 T.section("with Fades on Light a stop sends nothing, and a held button goes to its end")
 do
   walked({ brightness = 30 }, NO_POLLS)
