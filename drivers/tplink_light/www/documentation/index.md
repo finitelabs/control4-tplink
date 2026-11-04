@@ -365,7 +365,8 @@ light bound to an outlet only switches, so neither has the choice.
     its next step.
   - A stop does nothing, and a held button takes the light all the way up or
     down. A click first starts the light toward full or off, then sets the
-    click's level.
+    click's level. Where the light has no fade for the change, the click goes
+    straight to its level.
   - The fades the driver switched on stay on when `Driver` is chosen again.
 
 ## Driver Actions
