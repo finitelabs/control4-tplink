@@ -180,9 +180,10 @@ for setting it up.
 
 1. `Driver Status` shows the connection: `Connected (SMART)` for a Tapo light,
    `Connected (KLAP)` for a Kasa light on newer firmware, `Connected (Legacy)`
-   for a Kasa light on original firmware, or `Connected (Outlet)` in proxy mode.
-   If the driver fails to connect, set `Log Mode` to `Print`, run the
-   `Reconnect` action, and check the Lua output window.
+   for a Kasa light on original firmware, `Connected (TPAP)` for a light with
+   Third-Party Compatibility off, or `Connected (Outlet)` in proxy mode. If the
+   driver fails to connect, set `Log Mode` to `Print`, run the `Reconnect`
+   action, and check the Lua output window.
 
 <!-- #else -->
 
@@ -203,9 +204,10 @@ for setting it up.
 
 1. `Driver Status` shows the connection: `Connected (SMART)` for a Tapo light,
    `Connected (KLAP)` for a Kasa light on newer firmware, `Connected (Legacy)`
-   for a Kasa light on original firmware, or `Connected (Outlet)` in proxy mode.
-   If the driver fails to connect, set `Log Mode` to `Print`, run the
-   `Reconnect` action, and check the Lua output window.
+   for a Kasa light on original firmware, `Connected (TPAP)` for a light with
+   Third-Party Compatibility off, or `Connected (Outlet)` in proxy mode. If the
+   driver fails to connect, set `Log Mode` to `Print`, run the `Reconnect`
+   action, and check the Lua output window.
 
 <!-- #endif -->
 
@@ -334,16 +336,12 @@ light bound to an outlet only switches, so neither has the choice.
   or color as fast as the light answers, a few times a second, until the fade
   ends. Ramp rates, stops, held buttons and scene fades work as they do on other
   lights. What it costs:
-  - A fade sends the light a new level or color a few times a second. A slow
-    fade moves level by level; a quick one is a few visible steps (an on over
-    three quarters of a second is three or four), each taken over the light's
-    own fade between states where that is on in the Tapo app, and at once where
-    it is off.
+  - A slow fade moves level by level; a quick one is a few visible steps (an on
+    over three quarters of a second is three or four), each taken over the
+    light's own fade between states where that is on in the Tapo app, and at
+    once where it is off.
   - A level or an off set from the Tapo app or another controller during a fade
-    is mostly overridden by the fade's next step. The driver ends the fade and
-    leaves the light as it was set only if it polls the light first, which is
-    seldom in a quick fade and common in one so slow that the level moves less
-    often than the light is polled.
+    is usually overridden by the fade's next step.
   - A fade ends where it is if the light stops answering part way, or if the
     driver reconnects to it: Control4 shows where the light is when it next
     answers.

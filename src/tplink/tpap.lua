@@ -1,4 +1,4 @@
---- TPAP transport for TP-Link Kasa/Tapo devices with Third-Party Compatibility off.
+--- TPAP transport: Kasa and Tapo devices with Third-Party Compatibility off.
 ---
 --- From the 1.4.0 firmware line, a device whose account has Third-Party
 --- Compatibility off refuses the KLAP handshake (HTTP 403) and takes this login
@@ -17,9 +17,11 @@ local log = require("lib.logging")
 local http = require("lib.http")
 
 require("drivers-common-public.global.lib")
+require("drivers-common-public.global.timer")
 require("lib.utils")
 
--- DriverWorks has lua-openssl from OS 3.4.1; the curve math is too slow without it.
+-- DriverWorks has lua-openssl from OS 3.4.1; the curve math is too slow
+-- without it.
 crypto.use_openssl(true)
 
 --- @class TpapInfo
@@ -47,20 +49,21 @@ local Tpap = {}
 Tpap.__index = Tpap
 
 --- HTTP timeout for device requests, in seconds.
-local REQUEST_TIMEOUT = 10
+local REQUEST_TIMEOUT_S = 10
 
 --- The user name every login sends: MD5("admin").
 local USERNAME_HASH = "21232f297a57a5a743894a0e4a801fc3"
 
---- The most PBKDF2 iterations a device may ask for, so a hostile answer cannot stall the controller.
+--- The most PBKDF2 iterations a device may ask for, so a hostile
+--- answer cannot stall the controller.
 local MAX_ITERATIONS = 100000
 
---- Logging in again this long before the device's session ends, in ms.
-local RENEW_EARLY = 60 * 1000
+--- Logging in again this long before the device's session ends.
+local RENEW_EARLY_MS = ONE_MINUTE
 
 --- A device can refuse a login straight after a session ends, so a new login
---- after a lost session waits this long, in ms.
-local RELOGIN_DELAY = 2000
+--- after a lost session waits this long.
+local RELOGIN_DELAY_MS = 2 * ONE_SECOND
 
 --- Error codes the device answers with.
 local LOCKED = -2101
@@ -119,20 +122,23 @@ local function decodeJson(body)
 end
 
 --- Runs fn in a coroutine, resuming it on a timer each time it yields, so no
---- slice holds the driver for longer than one scalar multiplication.
---- @param fn fun(): any
+--- slice holds the driver for longer than one scalar multiplication. fn
+--- returns its result, or nil plus why it failed.
+--- @param fn fun(): any?, string?
 --- @return Deferred<any, { error: string }>
 local function sliced(fn)
   local d = deferred.new()
   local co = coroutine.create(fn)
   local function resume()
-    local ok, result = coroutine.resume(co)
+    local ok, result, reason = coroutine.resume(co)
     if not ok then
       d:reject({ error = "TPAP: " .. tostring(result) })
-    elseif coroutine.status(co) == "dead" then
-      d:resolve(result)
+    elseif coroutine.status(co) ~= "dead" then
+      delay(1):next(resume)
+    elseif result == nil then
+      d:reject({ error = "TPAP: " .. tostring(reason) })
     else
-      C4:SetTimer(1, resume)
+      d:resolve(result)
     end
   end
   resume()
@@ -172,7 +178,7 @@ local function sessionKdf(secret, label, length)
 end
 
 --- Creates a new Tpap transport.
---- @return Tpap
+--- @return Tpap tpap A new transport.
 function Tpap:new()
   log:trace("Tpap:new()")
   local instance = setmetatable({}, self)
@@ -199,15 +205,15 @@ end
 --- or firmware from before TPAP). Rejects when the device does not answer,
 --- and with `locked` set when it is locked after failed logins.
 --- @param ip string
---- @param port integer? Defaults to 80.
---- @return Deferred<TpapInfo?, { error: string, locked: integer? }>
+--- @param port? integer Defaults to 80.
+--- @return Deferred<TpapInfo?, { error: string, code: integer?, locked: integer? }> info
 function Tpap.discover(ip, port)
   log:trace("Tpap.discover(%s)", ip)
   local d = deferred.new()
   local url = string.format("http://%s:%d/", ip, port or 80)
   local body = JSON:encode({ method = "login", params = { sub_method = "discover" } })
   http
-    :post(url, body, { ["Content-Type"] = "application/json" }, { timeout = REQUEST_TIMEOUT, cookies_enable = false })
+    :post(url, body, { ["Content-Type"] = "application/json" }, { timeout = REQUEST_TIMEOUT_S, cookies_enable = false })
     :next(function(response)
       local answer = decodeJson(response.body)
       local code = tointeger(Select(answer, "error_code"))
@@ -235,7 +241,7 @@ end
 --- Whether this transport can log in the way a device's `tpap` object asks:
 --- plain HTTP, with the account password among its passcode types.
 --- @param info TpapInfo
---- @return boolean
+--- @return boolean supported
 function Tpap.supports(info)
   if info.tls ~= 0 then
     return false
@@ -284,7 +290,7 @@ function Tpap:configure(config)
 end
 
 --- Whether the transport currently has an established session.
---- @return boolean
+--- @return boolean connected
 function Tpap:isConnected()
   return self._connected == true
 end
@@ -315,7 +321,7 @@ function Tpap:_login(params)
   local body = JSON:encode({ method = "login", params = params })
   return http
     :post(self:_url("/"), body, { ["Content-Type"] = "application/json" }, {
-      timeout = REQUEST_TIMEOUT,
+      timeout = REQUEST_TIMEOUT_S,
       cookies_enable = false,
     })
     :next(function(response)
@@ -342,7 +348,7 @@ function Tpap:_loginError(answer, step)
     if minutes == nil or minutes <= 0 then
       minutes = 30
     end
-    self._lockedUntil = C4:GetTime() + minutes * 60 * 1000
+    self._lockedUntil = C4:GetTime() + minutes * ONE_MINUTE
     return {
       error = string.format("TPAP: the device is locked for %d minutes after failed logins", minutes),
       locked = minutes,
@@ -359,7 +365,7 @@ function Tpap:_loginError(answer, step)
 end
 
 --- Logs in. Concurrent callers share the same login in flight.
---- @return Deferred<Tpap, { error: string, refused: boolean?, locked: integer? }>
+--- @return Deferred<Tpap, { error: string, refused: boolean?, locked: integer? }> session
 function Tpap:connect()
   log:trace("Tpap:connect()")
   if self._connecting then
@@ -376,7 +382,7 @@ function Tpap:connect()
     return d:reject({ error = self._refused, refused = true })
   end
   if self._lockedUntil and C4:GetTime() < self._lockedUntil then
-    local minutes = math.ceil((self._lockedUntil - C4:GetTime()) / 60000)
+    local minutes = math.ceil((self._lockedUntil - C4:GetTime()) / ONE_MINUTE)
     return d:reject({
       error = string.format("TPAP: the device is locked for %d more minutes", minutes),
       locked = minutes,
@@ -441,7 +447,7 @@ function Tpap:connect()
         local share = spake2plus.prover_share(w0, x, step)
         local keys, keysErr = spake2plus.prover_finish(w0, w1, x, share, devShare, context, "", "", step)
         if not keys then
-          error(keysErr or "SPAKE2+ failed")
+          return nil, keysErr or "SPAKE2+ failed"
         end
         keys.share = share
         return keys
@@ -479,7 +485,7 @@ function Tpap:connect()
           self._nonce = string.sub(sessionKdf(keys.shared_key, "iv", 12), 1, 8)
           self._seq = startSeq % 4294967296
           local expired = tointeger(result.expired)
-          self._expiresAt = (expired and expired > 0) and (C4:GetTime() + expired * 1000 - RENEW_EARLY) or nil
+          self._expiresAt = (expired and expired > 0) and (C4:GetTime() + expired * ONE_SECOND - RENEW_EARLY_MS) or nil
           self._connected = true
           log:info("Tpap: session established with %s", self._ip)
           return self
@@ -523,7 +529,7 @@ function Tpap:_send(payload)
       self:_url("/stok=" .. self._stok .. "/ds"),
       seqBytes .. sealed,
       { ["Content-Type"] = "application/octet-stream" },
-      { timeout = REQUEST_TIMEOUT, cookies_enable = false }
+      { timeout = REQUEST_TIMEOUT_S, cookies_enable = false }
     )
     :next(function(response)
       local body = response.body or ""
@@ -549,9 +555,11 @@ function Tpap:_send(payload)
       end
       d:reject({ error = "TPAP: the answer could not be read", session = true })
     end, function(err)
-      local status = Select(err, "code")
+      -- The URL carries the session token, so the HTTP error text is not kept.
+      local status = tointeger(Select(err, "code"))
       d:reject({
-        error = Select(err, "error") or "TPAP: request failed",
+        error = (status and status > 0) and ("TPAP: the request failed (HTTP " .. status .. ")")
+          or "TPAP: the device did not answer the request",
         code = status,
         session = status == 401 or status == 403,
       })
@@ -580,15 +588,9 @@ function Tpap:_run(payload)
     end
     log:debug("Tpap: session lost (%s); logging in again", Select(err, "error"))
     self:reset()
-    local retry = deferred.new()
-    C4:SetTimer(RELOGIN_DELAY, function()
-      self:connect():next(send):next(function(response)
-        retry:resolve(response)
-      end, function(retryErr)
-        retry:reject(retryErr)
-      end)
+    return delay(RELOGIN_DELAY_MS):next(function()
+      return self:connect():next(send)
     end)
-    return retry
   end)
 end
 
@@ -614,7 +616,7 @@ end
 --- Sends a request. The device takes only the next sequence number, so
 --- requests go out one at a time, in order.
 --- @param payload table The JSON-encodable request payload (SMART or IOT schema).
---- @return Deferred<table, { error: string, code: integer?, refused: boolean?, locked: integer? }>
+--- @return Deferred<table, { error: string, code: integer?, refused: boolean?, locked: integer? }> answer
 function Tpap:request(payload)
   log:trace("Tpap:request(%s)", payload)
   local done = deferred.new()

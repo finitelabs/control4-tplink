@@ -1,3 +1,8 @@
+-- TP-Link Outlet: a Kasa or Tapo smart plug or power strip. Each output is a
+-- relay with keypad links, power readings and a link a TP-Link Light item can
+-- show as a light. The driver finds which protocol the device speaks (KLAP,
+-- TPAP or the original Kasa one) and polls it.
+
 --#ifdef DRIVERCENTRAL
 DC_PID = 976
 DC_X = nil
@@ -75,6 +80,10 @@ local transportName = nil
 --- @class Output
 --- @field childId string? The device-side child id (nil for single-outlet devices).
 --- @field state boolean? Last known relay state.
+--- @field writes integer? Relay writes sent, so a poll sent before one is not applied over it.
+--- @field inUse boolean? Whether the output is above its In Use level; nil until the first reading after a start, reconnect or level change.
+--- @field heldSince number? C4:GetTime() when a crossing began, for the Hold time.
+--- @field levelsShown boolean? Whether the output's power-level properties are shown.
 
 --- Last known state per output, keyed 1..MAX_OUTPUTS.
 --- @type table<number, Output>
@@ -105,6 +114,14 @@ local connectGeneration = 0
 --- for it: a start would replace it before it had found or failed to find.
 --- @type boolean
 local detecting = false
+
+--- Whether the properties let reconnect() start detection. The poll timer
+--- retries only then: a missing setting waits for its property to change.
+--- @type boolean
+local configured = false
+
+--- Dynamic binding namespaces; the values are the keys lib.bindings keeps.
+local NS_RELAY, NS_LIGHT, NS_BUTTON = "relay", "light", "button"
 
 --- Properties that stay hidden until the device reports data for them.
 --- @type string[]
@@ -171,7 +188,7 @@ local function setDeviceOnline(online, reason)
     for _, output in pairs(outputs) do
       output.inUse, output.heldSince = nil, nil
     end
-    for _, binding in pairs(bindings:getDynamicBindings("light")) do
+    for _, binding in pairs(bindings:getDynamicBindings(NS_LIGHT)) do
       SendToProxy(binding.bindingId, "UPDATE_DISCONNECT", {}, "NOTIFY")
     end
   end
@@ -196,7 +213,7 @@ end
 --- @return integer|nil bindingId
 local function ensureRelayBinding(n)
   local binding =
-    bindings:getOrAddDynamicBinding("relay", "output_" .. n, "CONTROL", true, "Output " .. n .. " Relay", "RELAY")
+    bindings:getOrAddDynamicBinding(NS_RELAY, "output_" .. n, "CONTROL", true, "Output " .. n .. " Relay", "RELAY")
   if binding == nil then
     return nil
   end
@@ -237,7 +254,7 @@ end
 --- synthesizes for real light devices.
 --- @param n number Output number (1-based).
 local function pushLightState(n)
-  local binding = bindings:getDynamicBinding("light", "output_" .. n)
+  local binding = bindings:getDynamicBinding(NS_LIGHT, "output_" .. n)
   if binding == nil or outputs[n] == nil or outputs[n].state == nil then
     return
   end
@@ -251,7 +268,7 @@ end
 --- @param n number Output number (1-based).
 local function ensureLightBinding(n)
   local binding = bindings:getOrAddDynamicBinding(
-    "light",
+    NS_LIGHT,
     "output_" .. n,
     "CONTROL",
     true,
@@ -265,7 +282,11 @@ local function ensureLightBinding(n)
   RFP[binding.bindingId] = function(_, strCommand, tParams)
     log:trace("RFP light output=%s strCommand=%s", n, strCommand)
     if strCommand == "REFRESH_STATE" then
-      pushLightState(n)
+      -- An offline plug's last state is not live; the light keeps the offline
+      -- state it was told.
+      if deviceOnline then
+        pushLightState(n)
+      end
     elseif strCommand == "ENTITY_COMMAND" then
       local opts = DeserializeSafe(Select(tParams, "body"))
       if type(opts) == "table" and opts.has_state then
@@ -275,7 +296,7 @@ local function ensureLightBinding(n)
   end
 
   OBC[binding.bindingId] = function(_, _, bIsBound)
-    if bIsBound then
+    if bIsBound and deviceOnline then
       pushLightState(n)
     end
   end
@@ -313,7 +334,7 @@ end
 --- @param n number Output number (1-based).
 local function reportButtonLeds(n)
   for _, link in ipairs(BUTTON_LINKS) do
-    local binding = bindings:getDynamicBinding("button", "output_" .. n .. "_" .. link.key)
+    local binding = bindings:getDynamicBinding(NS_BUTTON, "output_" .. n .. "_" .. link.key)
     if binding ~= nil then
       reportButtonLed(binding.bindingId, n, link.key)
     end
@@ -325,7 +346,7 @@ end
 local function ensureButtonLinks(n)
   for _, link in ipairs(BUTTON_LINKS) do
     local binding = bindings:getOrAddDynamicBinding(
-      "button",
+      NS_BUTTON,
       "output_" .. n .. "_" .. link.key,
       "CONTROL",
       true,
@@ -364,21 +385,21 @@ end
 
 --- Re-wire RFP/OBC handlers for relay and light bindings restored from persistence.
 local function restoreRelayHandlers()
-  for key, _ in pairs(bindings:getDynamicBindings("relay")) do
+  for key, _ in pairs(bindings:getDynamicBindings(NS_RELAY)) do
     local n = tointeger(string.match(key, "^output_(%d+)$"))
     if n then
       ensureRelayBinding(n)
       outputs[n] = outputs[n] or {}
     end
   end
-  for key, _ in pairs(bindings:getDynamicBindings("light")) do
+  for key, _ in pairs(bindings:getDynamicBindings(NS_LIGHT)) do
     local n = tointeger(string.match(key, "^output_(%d+)$"))
     if n then
       ensureLightBinding(n)
       outputs[n] = outputs[n] or {}
     end
   end
-  for key, _ in pairs(bindings:getDynamicBindings("button")) do
+  for key, _ in pairs(bindings:getDynamicBindings(NS_BUTTON)) do
     local n = tointeger(string.match(key, "^output_(%d+)_"))
     if n then
       ensureButtonLinks(n)
@@ -396,7 +417,7 @@ local function applyOutputState(n, state)
   outputs[n].state = state
 
   if changed then
-    local binding = bindings:getDynamicBinding("relay", "output_" .. n)
+    local binding = bindings:getDynamicBinding(NS_RELAY, "output_" .. n)
     if binding then
       SendToProxy(binding.bindingId, state and "CLOSED" or "OPENED", {}, "NOTIFY")
     end
@@ -414,7 +435,12 @@ end
 
 --- Parse a get_sysinfo response body and update all output/device state.
 --- @param sysinfo table The `system.get_sysinfo` result.
-local function applySysinfo(sysinfo)
+--- @param writes? table<number, integer> Each output's write count when the
+---   poll went out. An output written since keeps the state its write sets.
+local function applySysinfo(sysinfo, writes)
+  local function current(n)
+    return writes == nil or (outputs[n].writes or 0) == (writes[n] or 0)
+  end
   for _, property in ipairs(DEVICE_PROPERTIES) do
     C4:SetPropertyAttribs(property, constants.SHOW_PROPERTY)
   end
@@ -445,7 +471,9 @@ local function applySysinfo(sysinfo)
       ensureLightBinding(n)
       ensureButtonLinks(n)
       values:update("Output " .. n .. " Name", tostring(child.alias or ("Output " .. n)), "STRING")
-      applyOutputState(n, tointeger(child.state) == 1)
+      if current(n) then
+        applyOutputState(n, tointeger(child.state) == 1)
+      end
     end
   else
     -- Single-outlet device (HS103/HS110/KP115/...): no children, top-level relay_state.
@@ -456,7 +484,9 @@ local function applySysinfo(sysinfo)
     ensureLightBinding(1)
     ensureButtonLinks(1)
     values:update("Output 1 Name", tostring(sysinfo.alias or "Output 1"), "STRING")
-    applyOutputState(1, tointeger(sysinfo.relay_state) == 1)
+    if current(1) then
+      applyOutputState(1, tointeger(sysinfo.relay_state) == 1)
+    end
   end
 end
 
@@ -498,6 +528,10 @@ local function pollSysinfo()
   end
   sysinfoInFlight = true
   local generation = connectGeneration
+  local writes = {}
+  for n, output in pairs(outputs) do
+    writes[n] = output.writes or 0
+  end
   transport:request({ system = { get_sysinfo = {} } }):next(
     live(generation, function(response)
       sysinfoInFlight = false
@@ -512,7 +546,7 @@ local function pollSysinfo()
         return
       end
       missedPolls = 0
-      applySysinfo(sysinfo)
+      applySysinfo(sysinfo, writes)
       setDeviceOnline(true)
     end),
     live(generation, function(err)
@@ -665,7 +699,7 @@ local function restartPollTimers()
   SetTimer("SysinfoPoll", pollSeconds * ONE_SECOND, function()
     if transport ~= nil then
       pollSysinfo()
-    elseif not detecting then
+    elseif not detecting and configured then
       -- Detection found no device; keep retrying until it answers.
       reconnect(true)
     end
@@ -678,7 +712,7 @@ local function restartPollTimers()
 end
 
 --- Select a transport and mark the device online from a successful probe.
---- @param t Klap|Legacy
+--- @param t Klap|Legacy|Smart|Tpap
 --- @param name string
 --- @param sysinfo table The probe's get_sysinfo result.
 local function adoptTransport(t, name, sysinfo)
@@ -894,6 +928,7 @@ function reconnect(retry)
   connectGeneration = connectGeneration + 1
   local generation = connectGeneration
   detecting = false
+  configured = false
   transport = nil
   transportName = nil
   sysinfoInFlight = false
@@ -937,6 +972,7 @@ function reconnect(retry)
       return
     end
     detecting = true
+    configured = true
     connecting("TPAP")
     tryTpap(ip, generation, detectionFailed)
   elseif mode == "KLAP" or (mode == "Auto" and hasCredentials) then
@@ -945,6 +981,7 @@ function reconnect(retry)
       return
     end
     detecting = true
+    configured = true
     connecting("KLAP")
     tryKlap(generation, function(klapReason, klapCode)
       if mode == "KLAP" then
@@ -987,6 +1024,7 @@ function reconnect(retry)
   else
     -- Legacy mode, or Auto without credentials.
     detecting = true
+    configured = true
     connecting("Legacy")
     tryLegacy(generation, function(legacyReason)
       if mode == "Auto" then
@@ -1015,6 +1053,7 @@ function setOutput(n, state)
     return
   end
   outputs[n] = outputs[n] or {}
+  outputs[n].writes = (outputs[n].writes or 0) + 1
   local generation = connectGeneration
   transport:request(forOutput(n, { system = { set_relay_state = { state = state and 1 or 0 } } })):next(
     live(generation, function(response)
@@ -1373,6 +1412,8 @@ OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
 
 function OnDriverDestroyed()
   log:info("TP-Link Outlet driver shutting down")
+  -- Ends the connect attempt: a probe answered after this does nothing.
+  connectGeneration = connectGeneration + 1
   CancelTimer("SysinfoPoll")
   CancelTimer("EnergyPoll")
   follower:stop()

@@ -1,3 +1,8 @@
+-- TP-Link Light: a Kasa or Tapo bulb or light strip as a Control4 light, or a
+-- lamp on a TP-Link Outlet output. Direct, it finds which protocol the light
+-- speaks (KLAP, TPAP or the original Kasa one) and polls it; bound to an
+-- outlet, the outlet reports its state and sends its commands.
+
 --#ifdef DRIVERCENTRAL
 DC_PID = 976
 DC_X = nil
@@ -22,8 +27,7 @@ local driverFilenames = require("lib.driver-filenames")
 local updateSettings = require("lib.update-settings")
 --#ifdef DRIVERCENTRAL
 local supportCode = require("lib.support-code")
--- No local: the tests load this file unpreprocessed, where one more passes Lua's 200-local limit.
-require("lib.diagnostics")
+local diagnostics = require("lib.diagnostics")
 --#endif
 local persist = require("lib.persist")
 local constants = require("constants")
@@ -54,7 +58,8 @@ local function isOutletBound()
   return provider ~= nil and provider ~= 0
 end
 
---- The direct-mode transports, in one table: the main chunk is at Lua's 200 locals.
+--- The direct-mode transports, in one table: the main chunk is near Lua's
+--- 200 locals.
 --- @class LightLink
 --- @field klap Klap KLAP v2 hashing: SMART-firmware devices and KL-series bulbs on newer KLAP firmware.
 --- @field klapV1 Klap KLAP v1 hashing: KL-series bulbs whose KLAP firmware uses the MD5-based hashes.
@@ -169,9 +174,12 @@ local P = {
   COLOR_ON_MODE = "color_on_mode",
   PREVIOUS_COLOR = "previous_color",
   BRIGHTNESS_ON_MODE_PRESET = "brightness_on_mode_preset",
-  -- Whether the proxy was last told the light makes its fades. It holds the rates apart from 6661 across a driver
-  -- update too. Not stored before it is told any.
+  -- Whether the proxy was last told the light makes its fades. It holds the
+  -- rates apart from 6661 across a driver update too. Not stored before it
+  -- is told any.
   FADES_TOLD = "fades_told",
+  -- The color a SMART light was given while off, owed to its next on.
+  PENDING_COLOR = "pending_color",
 }
 
 -- Color on-mode kinds. The proxy assigns presets with these origins/IDs to
@@ -205,7 +213,9 @@ local DEFAULT_COLOR_Y = 0.3290
 local ENTITY
 local STATE
 local currentBrightness = 0
-local ledState = false
+--- The LED state last told, nil until the first after a start or bind.
+--- @type boolean?
+local ledState = nil
 local supportsDimming = false
 local supportsColor = false
 local supportsCCT = false
@@ -346,12 +356,12 @@ end
 --- Turns Cloud Monitoring on or off.
 --- @param propertyValue string
 function OPC.Cloud_Monitoring(propertyValue)
-  require("lib.diagnostics"):setEnabled(propertyValue == "Enabled")
+  diagnostics:setEnabled(propertyValue == "Enabled")
 end
 
 --- Prints a diagnostics report, and sends it while Cloud Monitoring is on.
 function EC.DiagnosticsSnapshot()
-  require("lib.diagnostics"):dumpSnapshot()
+  diagnostics:dumpSnapshot()
 end
 --#endif
 
@@ -491,13 +501,12 @@ function OnDriverLateInit()
 end
 
 --#ifdef DRIVERCENTRAL
-OnDriverLateInit = require("lib.diagnostics"):wrapLateInit(OnDriverLateInit)
+OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
 --#endif
 
 function OnDriverDestroyed()
   log:trace("OnDriverDestroyed()")
-  -- A search for the light holds a listener open.
-  follow.device:stop()
+  follow.shutdown()
 end
 
 ---------------------------------------------------------------------------
@@ -606,16 +615,15 @@ local function rateCapabilities()
     fixed_ramp_rate = fixed or 0,
     brightness_rate_min = fixed or 0,
     brightness_rate_max = fixed or 65535,
-    supports_color_stop = false,
-  }
-  if supportsColor or supportsCCT then
     -- 0 is a rate that cannot be changed. 1 is one rate for brightness and
-    -- color: a light command has one transition_length for all aspects.
-    caps.color_rate_behavior = own and 0 or 1
-    caps.color_rate_min = 0
-    caps.color_rate_max = 65535
-    caps.supports_color_stop = not own
-  end
+    -- color: a light command has one transition_length for all aspects. The
+    -- bounds go with every send: Composer checks the default color rate
+    -- against them at bind, color or not.
+    color_rate_behavior = own and 0 or 1,
+    color_rate_min = 0,
+    color_rate_max = 65535,
+    supports_color_stop = (supportsColor or supportsCCT) and not own,
+  }
   return caps
 end
 
@@ -681,13 +689,15 @@ local function updateDynamicCapabilities(entity)
   for capability, value in pairs(rateCapabilities()) do
     caps[capability] = value
   end
-  -- Told only where the proxy's Navigator Dynamic Capabilities (6661) list another: after a controller start it fires
-  -- its color variables' events for any it is told.
+  -- Told only where the proxy's Navigator Dynamic Capabilities (6661) list
+  -- another: after a controller start it fires its color variables' events
+  -- for any it is told.
   local ok, xml = pcall(function()
     return ParseXml(C4:GetDeviceVariable(C4:GetProxyDevices(), 6661))
   end)
   local shown, same = ok and Select(xml, "DynamicCapabilities") or {}, nil
-  -- The proxy rewrites 6661 only when one of these changes, so the others can lag what it holds.
+  -- The proxy rewrites 6661 only when one of these changes, so the others can
+  -- lag what it holds.
   local rewrites = {
     dimmer = true,
     supports_target = true,
@@ -709,7 +719,8 @@ local function updateDynamicCapabilities(entity)
   end
   if same then
     log:debug("The proxy shows the light's capabilities")
-    -- The proxy holds its rates apart from 6661: one last told the light's own fades is told them as they are now.
+    -- The proxy holds its rates apart from 6661: one last told the light's
+    -- own fades is told them as they are now.
     if persist:get(P.FADES_TOLD) and fades ~= "Light" then
       SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", rateCapabilities(), "NOTIFY", true)
       persist:set(P.FADES_TOLD, false)
@@ -718,6 +729,9 @@ local function updateDynamicCapabilities(entity)
     SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
     persist:set(P.FADES_TOLD, fades == "Light")
   end
+  -- A new light's setup lists no colors until the proxy hears it has color,
+  -- so its color on mode is read again now.
+  readProxySetup()
 
   -- Tell the proxy we have three virtual buttons (top/bottom/toggle). Sent as
   -- a string per the LIGHT_V2 NUMBER_BUTTONS notify format. Then emit a
@@ -3016,7 +3030,7 @@ function RFP.REQUEST_BUTTON_COLORS(idBinding, strCommand, tParams, args)
   end
   -- MATCH_LED_STATE per button binding, with bottom inverted (its LED lights
   -- when the light is off so the keypad shows the toggle state correctly).
-  local isOn = ledState
+  local isOn = ledState == true
   SendToProxy(ON_BINDING, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
   SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = not isOn }, "NOTIFY", true)
   SendToProxy(TOGGLE_BINDING, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
@@ -3218,7 +3232,6 @@ local function handleDisconnect()
   supportsCCT = false
   supportedColorModes = {}
   currentBrightness = 0
-  ledState = false
   prePressBrightness = nil
   mergedColorSent = nil
   currentBrightnessPresetId = nil
@@ -3398,7 +3411,7 @@ OBC[OUTLET_BINDING] = function(_, _, bIsBound)
   supportsCCT = false
   supportedColorModes = {}
   currentBrightness = 0
-  ledState = false
+  ledState = nil
   rampingBrightness = false
   rampingColor = false
   brightnessRamp = nil
@@ -3421,6 +3434,7 @@ OBC[OUTLET_BINDING] = function(_, _, bIsBound)
     SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   end
   if gInitialized then
+    persist:delete(P.PENDING_COLOR)
     backendStart()
   end
 end
@@ -3524,7 +3538,8 @@ local directPollWaiting = false
 local directCommands = 0
 
 --- The color a SMART light was given while off, which it would ignore. It is
---- held here and goes out with the next command that turns the light on.
+--- held here, and stored, and goes out with the next command that turns the
+--- light on.
 --- @type table?
 local smartPendingColor = nil
 
@@ -3691,9 +3706,10 @@ local function directPoll()
     directConnected = true
     if asked == directCommands then
       local moved = smartRead(info)
-      if toboolean(info.device_on) then
+      if toboolean(info.device_on) and smartPendingColor then
         -- Turned on by another hand, in the color it had.
         smartPendingColor = nil
+        persist:delete(P.PENDING_COLOR)
       end
       -- The color held for a light that is off is the one it will come on in.
       for field, value in pairs(smartPendingColor or {}) do
@@ -3744,14 +3760,16 @@ local function smartParams(opts)
   -- No on with it: the light is off, or is being turned off.
   if color and not params.device_on then
     smartPendingColor = { hue = params.hue, saturation = params.saturation, color_temp = params.color_temp }
+    persist:set(P.PENDING_COLOR, smartPendingColor)
     params.hue, params.saturation, params.color_temp = nil, nil, nil
-  elseif color then
-    smartPendingColor = nil
-  elseif params.device_on then
-    for field, value in pairs(smartPendingColor or {}) do
-      params[field] = value
+  elseif smartPendingColor and (color or params.device_on) then
+    if not color then
+      for field, value in pairs(smartPendingColor) do
+        params[field] = value
+      end
     end
     smartPendingColor = nil
+    persist:delete(P.PENDING_COLOR)
   end
   if IsEmpty(params) then
     return nil
@@ -3998,7 +4016,7 @@ backendSendCommand = function(opts)
   if isOutletBound() then
     SendToProxy(OUTLET_BINDING, "ENTITY_COMMAND", {
       body = SerializeSafe(opts),
-    })
+    }, "NOTIFY")
   elseif not IsEmpty(Properties["IP Address"]) then
     directExecute(opts)
   else
@@ -4038,7 +4056,7 @@ backendStart = function(retry)
   directBusy = false
   directWaiting = nil
   directPollWaiting = false
-  smartPendingColor = nil
+  smartPendingColor = persist:get(P.PENDING_COLOR)
   fades = nil
   ownFades = {}
   C4:SetPropertyAttribs("Fades", constants.HIDE_PROPERTY)
@@ -4347,6 +4365,15 @@ backendStart = function(retry)
   end, true)
 end
 
+--- Stops the driver at its destroy: no timer fires after it, and a probe or
+--- poll answered after it does nothing.
+follow.shutdown = function()
+  backendGeneration = backendGeneration + 1
+  KillAllTimers()
+  -- A search for the light holds a listener open.
+  follow.device:stop()
+end
+
 ---------------------------------------------------------------------------
 -- Property handlers: direct mode
 ---------------------------------------------------------------------------
@@ -4358,6 +4385,7 @@ function OPC.IP_Address(propertyValue)
   -- follower's own write never reaches here; late init replays every property.
   if gInitialized then
     follow.device:forget()
+    persist:delete(P.PENDING_COLOR)
     backendStart()
   end
 end
@@ -4394,7 +4422,7 @@ local function credentialChanged()
   if not ok then
     log:error("The backend did not start: %s", err)
     --#ifdef DRIVERCENTRAL
-    require("lib.diagnostics"):captureError(tostring(err), nil, "TPLinkLight.CredentialChanged")
+    diagnostics:captureError(tostring(err), nil, "TPLinkLight.CredentialChanged")
     --#endif
   end
 end

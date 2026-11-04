@@ -303,6 +303,16 @@ T.check(
 )
 T.eq("handshake1 403 preserves the status code", Select(outcome.rejected, "code"), 403)
 
+-- Some light strips with Third-Party Compatibility off answer 500 instead.
+function urlDo(method, url, data, headers, callback, context, options)
+  callback("HTTP 500", 500, {}, "", nil, url)
+end
+
+local klapServerError = Klap:new()
+klapServerError:configure({ ip = "127.0.0.1", username = USERNAME, password = PASSWORD })
+outcome = settle(klapServerError:connect())
+T.eq("handshake1 500 preserves the status code", Select(outcome.rejected, "code"), 500)
+
 T.section("SMART schema over a real KLAP session (fake EP25)")
 
 local relayState = true

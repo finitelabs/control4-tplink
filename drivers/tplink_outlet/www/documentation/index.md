@@ -89,8 +89,7 @@ programming.
   outlet as its own output
 - **Original Kasa firmware**: works with no credentials, and keeps working after
   TP-Link updates the device (add your account credentials)
-- Standard Control4 **relay bindings** for every output (bind relay-controlled
-  devices, use in scenes, dashboards, etc.)
+- Standard Control4 **relay bindings** for every output
 - **Events**: `Output N Turned On` / `Output N Turned Off`, `Connected`,
   `Disconnected`
 - **Variables** per output (`Output N Name`, `Output N State`, `Output N Power`,
@@ -256,11 +255,12 @@ of them.
 
 Displays the current status of the driver:
 
-- `Connected (SMART)`, `Connected (KLAP)` or `Connected (Legacy)`: the driver is
-  connected and the device is answering. The word in parentheses is the protocol
-  it found (see [Protocol](#protocol--auto--klap--legacy-)).
-- `Connecting (KLAP)...` or `Connecting (Legacy)...`: the driver is connecting
-  to the device.
+- `Connected (SMART)`, `Connected (KLAP)`, `Connected (TPAP)` or
+  `Connected (Legacy)`: the driver is connected and the device is answering. The
+  word in parentheses is the protocol it found (see
+  [Protocol](#protocol--auto--klap--tpap--legacy-)).
+- `Connecting (KLAP)...`, `Connecting (TPAP)...` or `Connecting (Legacy)...`:
+  the driver is connecting to the device.
 - `Disconnected: <reason>`: the device can't be reached or refused the
   connection. See [Troubleshooting](#troubleshooting) for the common reasons.
 - `Looking for the device on the network...`: the device stopped answering at
@@ -381,20 +381,20 @@ connects; only the outputs the device actually reports are shown.
 
 ##### Output N In Use Above (W) / Output N Idle Below (W) \[ 0 - 4000, default: **_0_** \]
 
-Sets the power levels for the output's `In Use` and `Idle` events. The output is
-in use once its power rises above `In Use Above`, and idle once it falls below
-`Idle Below`. Between the two it stays as it was, so a reading that wobbles
-around one level doesn't fire over and over. With one level at 0 the other is
-used both ways; with both at 0 (the default) the events are off. Shown once the
-output has reported its power.
+Shown once the output has reported its power. Sets the power levels for the
+output's `In Use` and `Idle` events. The output is in use once its power rises
+above `In Use Above`, and idle once it falls below `Idle Below`. Between the two
+it stays as it was, so a reading that wobbles around one level doesn't fire over
+and over. With one level at 0 the other is used both ways; with both at 0 (the
+default) the events are off.
 
 ##### Output N Hold (s) \[ 0 - 3600, default: **_0_** \]
 
-Sets how long, in seconds, the output's power must stay past a level before
-`In Use` or `Idle` fires. A reading back between the levels starts the wait
-again. The power is read at the `Energy Poll Rate`, so the event comes with the
-first reading after the hold has passed. At 0 (the default) the first reading
-past a level fires it.
+Shown once the output has reported its power. Sets how long, in seconds, the
+output's power must stay past a level before `In Use` or `Idle` fires. A reading
+back between the levels starts the wait again. The power is read at the
+`Energy Poll Rate`, so the event comes with the first reading after the hold has
+passed. At 0 (the default) the first reading past a level fires it.
 
 ### Driver Actions
 
@@ -540,10 +540,10 @@ with Third-Party Compatibility off. Work through these in order:
 1. If it still fails, unplug the device for a few seconds, then run
    [`Reconnect`](#reconnect) again.
 
-**`Driver Status` stuck at `Connecting (KLAP)...` or `Connecting (Legacy)...`,
-or timeouts**: Verify the IP address, that the device is on a network reachable
-from the controller, and that no firewall or network rule stops the controller
-reaching the device.
+**`Driver Status` stuck at `Connecting (KLAP)...`, `Connecting (TPAP)...` or
+`Connecting (Legacy)...`, or timeouts**: Verify the IP address, that the device
+is on a network reachable from the controller, and that no firewall or network
+rule stops the controller reaching the device.
 
 **A newer Kasa plug or Tapo plug won't connect on any protocol**: Some newer
 Kasa plugs and Tapo plugs on early firmware use a connection method this driver
