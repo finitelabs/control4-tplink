@@ -139,23 +139,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
-- The TP-Link Outlet and TP-Link Light drivers now connect to Tapo and Kasa
-  devices with Third-Party Compatibility off in the Tapo or Kasa app, on
+- Added support for Tapo and Kasa devices with Third-Party Compatibility off in
+  the Tapo or Kasa app to the TP-Link Outlet and TP-Link Light drivers, on
   Control4 OS 3.4.1 or later. `Protocol` has a `TPAP` choice for them, and
-  `Auto` finds it. A refused password is not tried again until
-  `TP-Link Username` or `TP-Link Password` changes, so the driver never locks a
-  device out.
+  `Auto` finds it.
 
-- Added a `Fades` property to the TP-Link Light driver, for a light that takes
-  no fade time from a command. A Tapo light is one: a ramp, a held button or a
-  scene's fade was over in a fraction of a second while the light was shown as
-  still ramping, and a stop or a button's release pulled the light back from the
-  level it had already reached. With `Driver`, the default, the driver makes the
-  fade itself, sending the light a new level or color as fast as it answers
-  until the fade ends, so ramp rates, stops, held buttons and scene fades work.
-  With `Light` the light fades by itself over the fades set in the Tapo app,
-  which the driver switches on, and Control4 shows those: ramp rates and stops
-  then do nothing. The property is shown only while such a light is connected.
+- Added a `Fades` property to the TP-Link Light driver for Tapo lights, which
+  take no fade time from a command. On `Driver`, the default, the driver makes
+  the fades, so ramp rates, stops, held buttons and scene fades work; on
+  `Light`, the light uses its own fades from the Tapo app.
 
 - Added On, Off and Toggle keypad button links to each TP-Link Outlet output. A
   keypad button bound to one switches the output, and its LED follows it.
@@ -352,10 +344,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a TP-Link light turned on over a ramp time, and stopped or turned off
   part way, having its Previous On level set to 1%. Previous On now keeps its
   level, or takes the one the light had reached.
-- Fixed a Tapo light with Dim-To-Warm and `Fades` on `Driver` taking its
-  Dim-To-Warm color at once when a ramp began from a color set on it, while it
-  was shown fading there, and changing color on its way to off. Its color now
-  fades as it is shown to.
 - Fixed Max On Level and Min On Level, set on a TP-Link light in Composer,
   having no effect: a light with a Max On Level of 80 still went to 100%. The
   light's levels 1 to 100 now run between the two, as on a Control4 dimmer, for
@@ -376,14 +364,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   light on. Control4 asks such a light for its level as it connects, before the
   light has answered, and was told it was off. The light's level is now told
   once the light answers, and only if it differs from the one shown.
-- Fixed a Tapo light with `Fades` on `Driver` that was fading to a color, with
-  Dim-To-Warm or in a ramped On's On color, stopping short of it when an Off or
-  a level change took over, and Control4 not being told the color it was left
-  in. The color now goes on there over the command that took over, and is told
-  when it arrives.
-- Fixed a Tapo light with `Fades` on `Driver` turned off while its color was
-  still fading coming back on, with Color On Mode set to Previous, in the color
-  the fade began in.
 - Fixed a TP-Link light's color in Navigator and in its variables staying on the
   old color after a color preset was picked, one of the Color Agent's or one of
   the light's own, or after the Control4 app turned the light on in its Color On
@@ -392,6 +372,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   programming for the relay closing or opening when it was connected, though the
   output had not changed. A relay driver that asks for the output's state is now
   told it.
+- Fixed a TP-Link Outlet output switched while a poll was under way being shown
+  in its old state for a moment, which ran its On or Off programming, and that
+  of a relay or TP-Link Light bound to it, a second time.
+- Fixed a TP-Link Light bound to a TP-Link Outlet output being shown online, in
+  its last state, when it reconnected or was bound while the plug was offline,
+  which could run its Light On programming.
+- Fixed the LEDs of keypad buttons bound to a TP-Link light staying lit when the
+  light went offline. They now show it off.
 - Fixed changing `Automatic Updates` or `Update Channel` on a TP-Link Outlet or
   TP-Link Light driver briefly holding up every other one, longer in a project
   with many, while the change was copied to them.

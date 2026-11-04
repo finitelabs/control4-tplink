@@ -158,6 +158,24 @@ package.loaded["tplink.legacy"] = {
   end,
 }
 
+-- The TPAP transport, and each discover asked, held until the test answers it.
+local tpap
+local discovers = {}
+package.loaded["tplink.tpap"] = {
+  new = function()
+    tpap = setmetatable({ handshakes = {}, resets = 0 }, Transport)
+    return tpap
+  end,
+  discover = function()
+    local d = deferred.new()
+    discovers[#discovers + 1] = d
+    return d
+  end,
+  supports = function(info)
+    return info.tls == 0 and info.pake[1] == 2
+  end,
+}
+
 local BULB_SERVICE = "smartlife.iot.smartbulb.lightingservice"
 
 --- What a held request asks: "poll", "fades" for a read of the light's own
@@ -274,7 +292,7 @@ function C4:GetDriverConfigInfo(section)
 end
 
 -- The light's proxy and its answer to GET_SETUP: an empty one unless a case
--- gives one, or false for none.
+-- gives one, false for none, or a function that gives it.
 local proxySetup = ""
 function C4:GetProxyDevices()
   return 727
@@ -420,6 +438,9 @@ end
 local uiRequest = C4.SendUIRequest
 function C4:SendUIRequest(id, request, params)
   if request == "GET_SETUP" then
+    if type(proxySetup) == "function" then
+      return proxySetup()
+    end
     return proxySetup or nil
   end
   return uiRequest(self, id, request, params)
@@ -1082,7 +1103,11 @@ do
   shakeHands()
   reply(info({ device_on = false }))
   proxy("ON")
-  T.eq("a color kept is let go at a restart", flying(), { { device_on = true, brightness = 100 } })
+  T.eq(
+    "a color kept is carried through a restart",
+    flying(),
+    { { device_on = true, brightness = 100, hue = 120, saturation = 50, color_temp = 0 } }
+  )
   reply()
 
   -- A scene step that turns the light on in a color of its own.
@@ -3351,6 +3376,9 @@ do
       brightness_rate_max = fixed or 65535,
       supports_brightness_stop = fixed == nil,
       supports_color_stop = false,
+      color_rate_behavior = fixed and 0 or 1,
+      color_rate_min = 0,
+      color_rate_max = 65535,
     }
   end
   own = {
@@ -3389,6 +3417,7 @@ do
   setProperty("Fades", "Driver")
   -- The driver is updated before the light is back, and the proxy keeps what it was told.
   local kept = shows
+  ShimUpdateDriver()
   startDriver({ ["Fades"] = "Driver", ["Poll Rate (Seconds)"] = "300" })
   shows = kept
   shakeHands()
@@ -4960,6 +4989,7 @@ do
   proxy("ON")
   T.eq("a command is sent to nothing", flying(), {})
 
+  ShimRestartDirector()
   startDriver({ ["MAC Address"] = "" })
   shakeHands()
   reply(info({ mac = "02-00-00-00-00-0D" }))
@@ -5005,6 +5035,161 @@ do
   run(10 * 60 * 1000)
   T.eq("and none follows it", opened, 2)
   require("lib.persist"):delete("discovery_mac")
+end
+
+---------------------------------------------------------------------------
+-- TPAP, the keypad LEDs, the proxy's setup and the driver's removal
+---------------------------------------------------------------------------
+
+local OFFERED = { port = 80, tls = 0, pake = { 2 } }
+
+--- Refuse the KLAP login asked for last, as a light with Third-Party
+--- Compatibility off does.
+--- @param code? integer The HTTP status, 403 unless given.
+local function refuseKlap(code)
+  code = code or 403
+  klap.handshakes[#klap.handshakes]:reject({
+    error = "Klap: device refused the handshake (HTTP " .. code .. ")",
+    code = code,
+  })
+end
+
+--- Whether `status` was written as Driver Status since the mark.
+local function wrote(status)
+  for _, written in ipairs(statuses) do
+    if written == status then
+      return true
+    end
+  end
+  return false
+end
+
+T.section("a KLAP login refused with 403 or 500 goes on to TPAP, and connects over it")
+do
+  for _, code in ipairs({ 403, 500 }) do
+    startDriver()
+    refuseKlap(code)
+    T.eq("HTTP " .. code .. ": TPAP is tried", status(), "Connecting (TPAP)...")
+    discovers[#discovers]:resolve(OFFERED)
+    tpap.handshakes[#tpap.handshakes]:resolve(tpap)
+    T.truthy("HTTP " .. code .. ": the light is asked over it", held[1] and held[1].transport == tpap)
+    reply(info())
+    T.eq("HTTP " .. code .. ": connected over it", status(), "Connected (TPAP)")
+  end
+end
+
+T.section("a light that does not use TPAP is tried on the legacy protocol")
+do
+  startDriver()
+  refuseKlap()
+  discovers[#discovers]:resolve(nil)
+  T.eq("the legacy protocol is tried", status(), "Connecting (Legacy)...")
+  T.truthy("over the legacy port", held[1] and held[1].transport == legacy)
+end
+
+T.section("a login TPAP cannot make, a refused password or a lock ends the attempt with TPAP's reason")
+do
+  local refused = "TPAP: the TP-Link account password was refused; change TP-Link Password to try again"
+  local cases = {
+    {
+      "a login it does not support",
+      function()
+        discovers[#discovers]:resolve({ port = 443, tls = 1, pake = { 2 } })
+      end,
+      "Disconnected: the light asks for a login this driver does not support yet;"
+        .. " turn on Third-Party Compatibility in the Tapo or Kasa app",
+    },
+    {
+      "a refused password",
+      function()
+        discovers[#discovers]:resolve(OFFERED)
+        tpap.handshakes[#tpap.handshakes]:reject({ error = refused, refused = true })
+      end,
+      "Disconnected: " .. refused,
+    },
+    {
+      "a lock",
+      function()
+        discovers[#discovers]:reject({ error = "TPAP: the device is locked after failed logins", locked = 30 })
+      end,
+      "Disconnected: TPAP: the device is locked after failed logins",
+    },
+  }
+  for _, case in ipairs(cases) do
+    startDriver()
+    refuseKlap()
+    case[2]()
+    T.truthy(case[1] .. ": its reason is shown", wrote(case[3]))
+    T.eq(case[1] .. ": and no legacy probe goes out", flying(), {})
+  end
+end
+
+T.section("TPAP without the account says so")
+do
+  local asked = #discovers
+  startDriver({ ["Protocol"] = "TPAP", ["TP-Link Password"] = "" })
+  T.eq("it says what to set", status(), "Set the TP-Link Username and Password properties (required for TPAP)")
+  T.eq("and asks nothing", #discovers, asked)
+end
+
+T.section("a TPAP probe replaced by another does nothing when it is answered")
+do
+  startDriver()
+  refuseKlap()
+  local discover = discovers[#discovers]
+  EC.Reconnect()
+  local logins = #tpap.handshakes
+  discover:resolve(OFFERED)
+  T.eq("no login follows", #tpap.handshakes, logins)
+  T.eq("the new attempt is the one shown", status(), "Connecting (KLAP)...")
+end
+
+T.section("the keypad LEDs show the light off when it goes offline")
+do
+  light()
+  run(5000)
+  fail()
+  local leds = {}
+  for _, s in ipairs(sent) do
+    if s.binding == 300 and s.command == "MATCH_LED_STATE" then
+      leds[#leds + 1] = s.params.STATE
+    end
+  end
+  T.eq("the On button's LED goes off", leds, { false })
+end
+
+T.section("a new light reads its color on mode again once the proxy knows it has color")
+do
+  -- Until the proxy hears the light has color its setup lists no colors, so
+  -- the color on mode's presets are not there to read.
+  forgetSetup()
+  local full = setupFile("setup-607.xml")
+  local bare = full:gsub("<colors[^>]*>.-</colors>", "")
+  proxySetup = function()
+    return shows[6661] and full or bare
+  end
+  startDriver()
+  T.eq("at start there is no color on mode to read", persist:get("color_on_mode"), nil)
+  shakeHands()
+  reply(info({ device_on = false }))
+  T.truthy("once the light's capabilities are told it is read", persist:get("color_on_mode") ~= nil)
+  proxySetup = ""
+end
+
+T.section("a removed driver's timers do not fire, and a probe answered after it does nothing")
+do
+  light()
+  OnDriverDestroyed()
+  T.eq("no timer is left", liveTimers(), {})
+  local before = flying()
+  run(20000)
+  T.eq("and no poll goes out", flying(), before)
+  startDriver()
+  local handshake = klap.handshakes[#klap.handshakes]
+  OnDriverDestroyed()
+  mark()
+  handshake:reject({ error = "Klap: connection reset" })
+  T.eq("a probe failing after it writes no status", statuses, {})
 end
 
 T.eq("no timer or reply handler raised", errors, {})

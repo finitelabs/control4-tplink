@@ -172,4 +172,18 @@ do
   T.eq("and its next answer tells the state", select(2, drain()), { update(true) })
 end
 
+T.section("while the plug is offline a bind or REFRESH_STATE tells the light nothing")
+do
+  plug.reachable = false
+  EC.RefreshNow()
+  drain()
+  command("REFRESH_STATE")
+  T.eq("REFRESH_STATE", select(2, drain()), {})
+  OnBindingChanged(LIGHT, "TPLINK_LIGHT", true, 900, 1)
+  T.eq("a bind", select(2, drain()), {})
+  plug.reachable = true
+  EC.RefreshNow()
+  T.eq("the next answer still tells the state", select(2, drain()), { update(true) })
+end
+
 T.finish()

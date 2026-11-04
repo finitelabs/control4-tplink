@@ -211,6 +211,8 @@ local function standIn(opts)
     sessions = 0,
     loseSession = false,
     badConfirm = opts.badConfirm,
+    badShare = opts.badShare,
+    dsStatus = nil,
   }
 
   local function credential()
@@ -250,7 +252,7 @@ local function standIn(opts)
           result = {
             dev_random = b64(self.devRandom),
             dev_salt = b64(self.salt),
-            dev_share = b64(self.Y),
+            dev_share = b64(self.badShare and (string.char(4) .. string.rep("\0", 64)) or self.Y),
             cipher_suites = 1,
             iterations = self.iterations,
             encryption = "aes_128_ccm",
@@ -287,6 +289,9 @@ local function standIn(opts)
     end
     local stok = path:match("^/stok=([^/]+)/ds$")
     if stok then
+      if self.dsStatus then
+        return self.dsStatus, ""
+      end
       if stok ~= self.stok or self.loseSession then
         self.loseSession = false
         self.stok = nil
@@ -334,7 +339,8 @@ do
       return 200, JSON:encode({ error_code = 0, result = { sub_method = "discover", tpap_preferred = false } })
     end,
   })
-  T.eq("Third-Party Compatibility on: not TPAP", settle(Tpap.discover("192.0.2.20")).rejected, nil)
+  local on = settle(Tpap.discover("192.0.2.20"))
+  T.eq("Third-Party Compatibility on: not TPAP", { on.resolved, on.rejected }, {})
   install({
     serve = function()
       return 200, "<html><body><center>200 OK</center></body></html>"
@@ -375,6 +381,55 @@ do
   local outcome = settle(tpap:request({ method = "get_device_info" }))
   T.eq("answered after a new login", Select(outcome, "resolved", "error_code"), 0)
   T.eq("two sessions", device.sessions, 2)
+end
+
+---------------------------------------------------------------------------
+T.section("a login that fails after a lost session ends that request, not the queue")
+---------------------------------------------------------------------------
+
+do
+  local device = standIn()
+  local tpap = transport()
+  settle(tpap:request({ method = "get_device_info" }))
+  device.loseSession = true
+  tpap.connect = function()
+    error("login raised")
+  end
+  local outcome = settle(tpap:request({ method = "get_device_info" }))
+  T.truthy("the request is rejected", outcome.rejected ~= nil)
+  tpap.connect = nil
+  local next = settle(tpap:request({ method = "get_energy_usage" }))
+  T.eq("the next request is still sent", Select(next, "resolved", "result", "method"), "get_energy_usage")
+end
+
+---------------------------------------------------------------------------
+T.section("a failed request does not show the session token")
+---------------------------------------------------------------------------
+
+do
+  local device = standIn()
+  local tpap = transport()
+  settle(tpap:request({ method = "get_device_info" }))
+  device.dsStatus = 500
+  local failed = settle(tpap:request({ method = "get_device_info" }))
+  T.eq("an HTTP error", Select(failed, "rejected", "error"), "TPAP: the request failed (HTTP 500)")
+  T.eq("its status kept", Select(failed, "rejected", "code"), 500)
+  device.dsStatus = 0
+  local silent = settle(tpap:request({ method = "get_device_info" }))
+  T.eq("no answer", Select(silent, "rejected", "error"), "TPAP: the device did not answer the request")
+  T.falsy("neither names the token", tostring(Select(failed, "rejected", "error")):find("STOK", 1, true))
+end
+
+---------------------------------------------------------------------------
+T.section("a share that is not on the curve fails the login with its reason")
+---------------------------------------------------------------------------
+
+do
+  standIn({ badShare = true })
+  local outcome = settle(transport():connect())
+  local reason = tostring(Select(outcome, "rejected", "error"))
+  T.truthy("rejected with TPAP's reason", reason:find("^TPAP: ") ~= nil)
+  T.falsy("with no Lua location in it", reason:find("%.lua:%d+:") or reason:find(":%d+: "))
 end
 
 ---------------------------------------------------------------------------
