@@ -1249,7 +1249,7 @@ local SETUP_KEYS = {
 
 --- Forget what the driver stores of the proxy's on modes, presets and rates.
 local function forgetSetup()
-  for _, key in ipairs({ "brightness_presets", "previous_color" }) do
+  for _, key in ipairs({ "brightness_presets", "previous_color", "fades_told" }) do
     persist:delete(key)
   end
   for _, key in ipairs(SETUP_KEYS) do
@@ -3381,6 +3381,20 @@ do
   reply(white)
   serve(2000, 250)
   T.eq("away and back again with no change: nothing is told of rates", rates(), {})
+
+  setProperty("Fades", "Light")
+  serve(2000, 250)
+  EC.Reconnect()
+  run(1000)
+  setProperty("Fades", "Driver")
+  -- The driver is updated before the light is back, and the proxy keeps what it was told.
+  local kept = shows
+  startDriver({ ["Fades"] = "Driver", ["Poll Rate (Seconds)"] = "300" })
+  shows = kept
+  shakeHands()
+  reply(white)
+  serve(2000, 250)
+  T.eq("the same with a driver update before it is back: the driver's rates are told", rates(), whiteRates())
 end
 
 T.section("with Fades on Light a stop sends nothing, and a held button goes to its end")
