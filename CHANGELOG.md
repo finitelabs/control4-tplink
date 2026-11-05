@@ -59,8 +59,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed ramps and stops on TP-Link lights. A stop now holds the light where it
   is and lets a color fade finish, a light asked for the level it has just
   reached stops there, a ramped On no longer switches the light on at its old
-  level first, and Stop Scene Ramp and Ramp Scene Up and Down work on a light
-  that is already ramping.
+  level first, a color light with no color temperature no longer restarts a
+  moment into a ramp to on, and Stop Scene Ramp and Ramp Scene Up and Down work
+  on a light that is already ramping.
 - Fixed keypad buttons on TP-Link lights. Top, Bottom and Toggle links and the
   light's own button actions now work, a held Top or Toggle ramps toward full
   until released, and a press during a ramp acts on the level the light has
@@ -68,12 +69,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed Advanced Lighting scenes on TP-Link lights. A command or a stop now
   takes the light out of the scene, a scene that flashes with no delay or ramp
   time no longer hangs the driver, and each step fades from the level and color
-  the light is at, including during a ramp and on a light that only switches.
+  the light is at, including during a ramp. A light that only switches is shown
+  on or off as it does.
 - Fixed colors on TP-Link lights. Color On Mode set to a color preset now uses
   the preset, Previous turns the light on in the color it faded off in, a color
-  set during or right after a ramp is kept, a color picked for a Tapo light
-  while it is off goes on with the next On, and a color change with no ramp time
-  takes the light's default ramp rate.
+  set during or right after a ramp is kept, a color the light took while off is
+  picked up at once, a color picked for a Tapo light while it is off goes on
+  with the next On, and a color change with no ramp time takes the light's
+  default ramp rate.
 - Fixed Dim-To-Warm on TP-Link lights. A scene step that sets only a level takes
   the Dim-To-Warm color, a color set during a ramp or a scene step stays, and
   the light is no longer shown in two colors at each brightness change.
@@ -94,11 +97,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   color presets.
 - Fixed TP-Link lights running their Brightness Changed, Color Changed, Level
   Change, Light On or Light Off programming after a controller restart or a
-  driver update when nothing had changed.
+  driver update when nothing had changed. After a controller restart, Control4
+  still reports the color variables of a light with color or color temperature
+  as changed.
 - Fixed a TP-Link light that was offline, or bound to an outlet that was, being
   shown on or off, and running its programming, for a command it never got.
-- Fixed a TP-Link Light bound to a TP-Link Outlet output being shown online in
-  its last state while the plug was offline, or after it was unbound.
+- Fixed a TP-Link Light being shown online in its last state while its outlet
+  was offline, after it was unbound from its outlet, or when it found no light
+  after a connection property was changed or Reconnect was run.
 - Fixed the LEDs of keypad buttons bound to a TP-Link light showing the wrong
   state during a ramped On and after the light went offline.
 - Fixed the TP-Link Light driver sending a light its level or color again at the
