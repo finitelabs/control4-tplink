@@ -9,7 +9,9 @@ Marketing images for the TP-Link Kasa and Tapo listing (DriverCentral product 97
 | `banners/facts-strip-2400x200` | 2400x200 | The first image in the listing's description: four facts in a row |
 | `photos/1-...` to `photos/5-...` | 2000x2000 | Listing photos, uploaded in number order |
 
-`assets/` holds what the pages share: the Finite Labs logo and the TP-Link mark.
+`assets/` holds what the pages share: the Finite Labs logo, `scene.js`, which draws the banners' art, and TP-Link's logo as `brand-mark.svg`: the white version tp-link.com serves for dark backgrounds (https://static.tp-link.com/assets/images/icon/logo-white.svg), used as is. TP-Link publishes no brand kit and no mark on its own, so the banners and the photo frame show the whole logo.
+
+The banners' art is `mesh`: plugs, power strips, bulbs, light strips, switches and power readings linked to the logo, set on each banner's `<svg class="scene">`. The template's DriverCentral README lists the styles, and the headline, chips and subtitle shrink until they end clear of the art.
 
 ## Rendering
 
