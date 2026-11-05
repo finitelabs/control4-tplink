@@ -2,9 +2,9 @@
 --- told, and when.
 ---
 --- CLOSED and OPENED fire the bound driver's programming, so they go out only
---- when an output changes. A bind and GET_STATE get STATE_CLOSED or
---- STATE_OPENED, which set the same state without firing it, and nothing
---- while the state is unknown.
+--- when an output changes. A bind, GET_STATE and the first poll after a start
+--- get STATE_CLOSED or STATE_OPENED, which set the same state without firing
+--- it, and nothing while the state is unknown.
 ---
 --- The plug is a stand-in on the legacy port that keeps its own relay state
 --- and answers at once when it is reachable.
@@ -145,7 +145,13 @@ end
 
 plug.reachable = true
 ShimLateInit()
-drain()
+
+T.section("the first poll after a start tells a bound relay its state without firing programming")
+do
+  T.eq("the first poll, matching the stored state", select(2, drain()), { { RELAY, "STATE_OPENED", "NOTIFY" } })
+  EC.RefreshNow()
+  T.eq("the next poll tells nothing", select(2, drain()), {})
+end
 
 T.section("a bind and GET_STATE tell the known state without firing programming")
 do

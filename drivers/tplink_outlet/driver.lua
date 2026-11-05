@@ -411,10 +411,11 @@ end
 local function applyOutputState(n, state)
   local name = "Output " .. n .. " State"
   local changed = values:update(name, state, "BOOL", nil, { [true] = "On", [false] = "Off" })
+  local first = outputs[n].state == nil
   outputs[n].state = state
 
+  local binding = bindings:getDynamicBinding(NS_RELAY, "output_" .. n)
   if changed then
-    local binding = bindings:getDynamicBinding(NS_RELAY, "output_" .. n)
     if binding then
       SendToProxy(binding.bindingId, state and "CLOSED" or "OPENED", {}, "NOTIFY")
     end
@@ -422,6 +423,10 @@ local function applyOutputState(n, state)
     if gInitialized then
       C4:FireEventByID(state and n or (constants.EVENT_OFF_OFFSET + n))
     end
+  elseif first and binding then
+    -- A relay bound before this start's first poll was told nothing, and a
+    -- restarted controller shows its state unverified until it is told.
+    reportRelayState(binding.bindingId, n)
   end
 
   -- Always re-sync a bound light, not just on change: a light driver that
