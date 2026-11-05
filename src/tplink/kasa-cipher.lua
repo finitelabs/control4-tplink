@@ -1,8 +1,7 @@
 --- The rolling XOR autokey cipher of TP-Link's legacy Kasa protocol (initial
 --- key 171): each ciphertext byte becomes the key for the next byte.
 
---- LuaJIT bit library (available in the DriverWorks runtime).
-local bit = require("bit")
+local bxor = require("bitn").bit32.bxor
 
 local M = {}
 
@@ -13,7 +12,7 @@ function M.scramble(plaintext)
   local key = 171
   local out = {}
   for i = 1, #plaintext do
-    key = bit.bxor(key, plaintext:byte(i))
+    key = bxor(key, plaintext:byte(i))
     out[i] = string.char(key)
   end
   return table.concat(out)
@@ -27,7 +26,7 @@ function M.unscramble(data)
   local out = {}
   for i = 1, #data do
     local byte = data:byte(i)
-    out[i] = string.char(bit.bxor(key, byte))
+    out[i] = string.char(bxor(key, byte))
     key = byte
   end
   return table.concat(out)

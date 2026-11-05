@@ -963,7 +963,7 @@ do
   rising()
   proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 3000 })
   T.eq("Ramp Scene Up: from 50", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
-  T.eq("with no pre-on ahead of its ramp", commands(), 1)
+  T.eq("in one command", commands(), 1)
   rising()
   proxy("RAMP_SCENE_DOWN", { SCENE_ID = 7, RATE = 3000 })
   T.eq("Ramp Scene Down: from 50", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
@@ -1715,7 +1715,7 @@ do
       run(20)
       target(lineX, lineY, 4000)
       run(20000)
-      T.eq(name .. ": the proxy's send of the color puts nothing more out", commands(), 2)
+      T.eq(name .. ": the proxy's send of the color puts nothing more out", commands(), 1)
       T.check(
         name .. ": the proxy is told the color once, as the light takes it",
         toldOnce(pointX, pointY, CCT),
@@ -2074,7 +2074,7 @@ T.section("a scene step that turns the light on fades it up from nothing, in the
 do
   local onColor = offInBlue()
   activate(levelStep(60, 10000))
-  T.eq("it is sent a pre-on ahead of its fade", commands(), 2)
+  T.eq("it is sent one command, its fade", commands(), 1)
   T.eq("which carries the On color", colors(), { onColor })
   T.eq(
     "the proxy is told a color ramp from the blue",
@@ -2093,7 +2093,7 @@ do
   onColor = offInBlue()
   activate(levelStep(60))
   T.eq("a step from off at once: it is sent the On color", colors(), { onColor })
-  T.eq("with no pre-on", commands(), 1)
+  T.eq("in one command", commands(), 1)
   T.eq("and the proxy is told the color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
   proxy("CLEAR_ALL_SCENES")
   offInBlue()
@@ -2109,7 +2109,7 @@ do
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
   run(5000)
   activate(levelStep(80, 2000))
-  T.eq("a step half way up a ramp from off: it is sent its fade alone, with no pre-on", commands(), 1)
+  T.eq("a step half way up a ramp from off: it is sent its fade alone", commands(), 1)
   T.eq("and no On color", #colors(), 0)
   proxy("CLEAR_ALL_SCENES")
 end

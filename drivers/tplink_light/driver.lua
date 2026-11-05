@@ -1050,20 +1050,6 @@ local function pickColorMode(intent)
   return nil
 end
 
--- Map a target Kelvin to a (cold_white, warm_white) channel split based on
--- the bulb's reported mireds range. Pure cold = (1, 0) at min_mireds; pure
--- warm = (0, 1) at max_mireds; linear blend between. Returned values are 0-1
--- floats, the light command's per-channel scale.
-local function kelvinToCoolWarmSplit(kelvin)
-  local mireds = kelvinToMireds(kelvin)
-  local span = maxMireds - minMireds
-  if span <= 0 then
-    return 0.5, 0.5
-  end
-  local ratio = math.max(0, math.min(1, (mireds - minMireds) / span))
-  return 1 - ratio, ratio
-end
-
 -- Convert an XY/mode color into the right light command fields. Returns the
 -- partial cmd table or nil if the bulb doesn't support color/CCT or the
 -- provided values can't be mapped.
@@ -1085,17 +1071,6 @@ local function buildColorCmdFields(x, y, mode)
     if pickedMode then
       fields.has_color_mode = true
       fields.color_mode = pickedMode
-    end
-    -- For RGBCW / cold-warm-white capable bulbs, also drive the cold/warm
-    -- channels directly, split over the bulb's min_mireds/max_mireds range,
-    -- so the command fixes the channel split along with color_temperature.
-    local CM = ColorMode
-    if supportedColorModes[CM.COLOR_MODE_COLD_WARM_WHITE] or supportedColorModes[CM.COLOR_MODE_RGB_COLD_WARM_WHITE] then
-      local cw, ww = kelvinToCoolWarmSplit(k)
-      fields.has_cold_white = true
-      fields.cold_white = cw
-      fields.has_warm_white = true
-      fields.warm_white = ww
     end
     return fields
   end
@@ -1374,22 +1349,6 @@ local leaveColorRamp -- defined with the color ramp helpers below
 -- walks: helpers below, in one table as this chunk is near Lua's 200 locals.
 local carry = {}
 
--- Two-phase fade-up. A light that is off holds the level it was last set to.
--- Ahead of a rated on from off, a light command at state=true brightness=ε
--- with transition=0 goes first, so the real ramp starts near off rather than
--- at that level. A backend that cannot set a level that low drops it.
--- 0.0039 = 1/256, the smallest 8-bit PWM step: near off, but still an on.
-local function sendPreOn()
-  sendLightCommand({
-    has_state = true,
-    state = true,
-    has_brightness = true,
-    brightness = 0.0039,
-    has_transition_length = true,
-    transition_length = 0,
-  })
-end
-
 -- Caller contract: only invoked when supportsDimming is true (lightOn/Off,
 -- rampToBrightness, scene apply, etc. all gate on it). On/off-only entities
 -- get a different code path that doesn't touch brightness.
@@ -1397,10 +1356,6 @@ end
 local function sendBrightness(level, rateMs, keepColor, at)
   local hasRate = rateMs and rateMs > 0
   local goingOn = level > 0 and currentBrightness == 0
-
-  if goingOn and hasRate then
-    sendPreOn()
-  end
 
   -- Always include both state AND brightness in the command. The backends
   -- drop the brightness of an off, but an on needs it: it is the level the
@@ -2556,9 +2511,6 @@ local function applySceneStep(step)
     -- A rate of 0 is sent too, as sendBrightness sends it.
     cmd.has_transition_length = true
     cmd.transition_length = rate
-    if goingOn and rate > 0 and supportsDimming then
-      sendPreOn()
-    end
     sendLightCommand(cmd)
     carry.retime(fade, cmd.state ~= false)
     if goingOn then
@@ -3960,10 +3912,6 @@ local COLOR_FIELDS = {
   "color_temperature",
   "has_color_mode",
   "color_mode",
-  "has_cold_white",
-  "cold_white",
-  "has_warm_white",
-  "warm_white",
 }
 
 --- Send a light command to the direct-mode device, or hold it while a request
@@ -3972,8 +3920,8 @@ local COLOR_FIELDS = {
 --- @param opts table
 --- @param step boolean? A step of a fade the driver makes, not a new command.
 local function directExecute(opts, step)
-  -- A rated on's pre-on, an on at under 1 %, would go out as a bare on: the
-  -- light would come up at the level it was last at, ahead of its fade.
+  -- An on at under 1 % would go out as a bare on: the light would come up at
+  -- the level it was last at, ahead of its fade.
   local level = opts.has_brightness and opts.state and math.floor((tonumber(opts.brightness) or 0) * 100 + 0.5)
   if level and level < 1 and not (opts.has_rgb or opts.has_color_temperature) then
     return
