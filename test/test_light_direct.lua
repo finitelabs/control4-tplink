@@ -3471,6 +3471,128 @@ do
   )
 end
 
+T.section("with Fades on Light and no fade of the strip's own, a click sends only where it goes")
+do
+  local BOTTOM, TOGGLE, CLICK = 1, 2, 2
+  --- A click 110 ms after its press, and the commands the strip is sent.
+  local function click(button)
+    mark()
+    proxy("BUTTON_ACTION", { BUTTON_ID = button, ACTION = PRESS })
+    run(110)
+    proxy("BUTTON_ACTION", { BUTTON_ID = button, ACTION = CLICK })
+    return serve(1000, 250)
+  end
+  --- Whether a press is still waiting at its gate.
+  local function waiting()
+    for _, name in ipairs(liveTimers()) do
+      if name == "PressGate" then
+        return true
+      end
+    end
+    return false
+  end
+  walked({ device_on = false }, NO_POLLS)
+  own = { enable = true }
+  proxy("UPDATE_BRIGHTNESS_ON_MODE", { BRIGHTNESS_PRESET_ID = 3, BRIGHTNESS_PRESET_LEVEL = 50 })
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  T.eq("Top clicked from off: the on level alone", { each(click(TOP), "brightness"), levels() }, { { 50 }, { 50 } })
+  T.eq("Top clicked at the on level: nothing", { click(TOP), levels() }, { {}, { 50 } })
+  T.eq("Toggle clicked from on: the off alone", { each(click(TOGGLE), "device_on"), levels() }, { { false }, { 0 } })
+  T.eq(
+    "Toggle clicked from off: the on level alone",
+    { each(click(TOGGLE), "brightness"), levels() },
+    { { 50 }, { 50 } }
+  )
+  T.eq("Bottom clicked: the off alone", { each(click(BOTTOM), "device_on"), levels() }, { { false }, { 0 } })
+  mark()
+  RFP.DO_PUSH(300, "DO_PUSH", {})
+  run(200)
+  RFP.DO_CLICK(300, "DO_CLICK", {})
+  T.eq(
+    "a keypad's On button clicked from off, held 200 ms: the on level alone",
+    { each(serve(1000, 250), "brightness"), levels() },
+    { { 50 }, { 50 } }
+  )
+
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(249)
+  T.eq("Top held: nothing is sent for 250 ms", flying(), {})
+  run(1)
+  T.eq("then full", flying(), { { device_on = true, brightness = 100 } })
+  T.eq("and the proxy told it then", { levels(), told("LIGHT_BRIGHTNESS_CHANGED", "at") }, { { 100 }, { 250 } })
+  serve(300, 250)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE })
+  T.eq("its release sends nothing", flying(), {})
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = PRESS })
+  run(150)
+  proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = RELEASE })
+  T.eq(
+    "Bottom held and let go within 250 ms: it goes to its end",
+    { each(serve(1000, 250), "device_on"), levels() },
+    { { false }, { 0 } }
+  )
+
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(100)
+  proxy("SET_LEVEL", { LEVEL = 30 })
+  T.eq(
+    "a level command during the wait: its level alone",
+    { each(serve(1000, 250), "brightness"), levels(), waiting() },
+    { { 30 }, { 30 }, false }
+  )
+
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
+  run(100)
+  setProperty("Poll Rate (Seconds)", "300")
+  run(200)
+  T.eq(
+    "a restart during the wait: the proxy is told nothing",
+    { told("LIGHT_BRIGHTNESS_CHANGING"), levels(), waiting() },
+    { {}, {}, false }
+  )
+  forgetSetup()
+
+  walked({ device_on = false }, NO_POLLS)
+  own = {
+    on_state = { enable = true, duration = 1, max_duration = 60 },
+    off_state = { enable = true, duration = 0, max_duration = 60 },
+    change_state = { enable = true },
+  }
+  proxy("UPDATE_BRIGHTNESS_ON_MODE", { BRIGHTNESS_PRESET_ID = 3, BRIGHTNESS_PRESET_LEVEL = 50 })
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  serve(900, 250)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
+  local commands = serve(1500, 250)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = RELEASE })
+  T.eq(
+    "on a strip with an on fade and no off fade, Toggle held as the on fade ends: off 250 ms in",
+    { each(commands, "device_on"), each(commands, "at"), levels() },
+    { { false }, { 250 }, { 50, 0 } }
+  )
+
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  serve(500, 250)
+  mark()
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
+  run(110)
+  proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = CLICK })
+  T.eq("Toggle clicked half way through the on fade: off from where the fade got to", {
+    each(serve(1000, 250), "device_on"),
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
+    told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"),
+    levels(),
+  }, { { false }, { 31 }, { 0 }, { 0 } })
+  forgetSetup()
+end
+
 T.section("the strip's own fades are read at each connect while Fades is Light, and not while it is Driver")
 do
   walked({}, { ["Fades"] = "Light" })
