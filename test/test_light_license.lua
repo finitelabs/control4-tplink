@@ -203,6 +203,10 @@ do
   T.eq("the proxy is told it is offline", Select(told, #told, "command"), "ONLINE_CHANGED")
   T.eq("with no brightness change, so no Light Off", brightnessesSince(mark), {})
   T.eq("a proxy ON sends nothing", onSends(), false)
+  local commanded = #told
+  ReceivedFromProxy(PROXY, "ON", {})
+  ReceivedFromProxy(PROXY, "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 0 })
+  T.eq("and tells the proxy no level for it", brightnessesSince(commanded), {})
   local pushed = #told
   ReceivedFromProxy(1, "UPDATE_STATE", {
     entity = SerializeSafe({ supported_color_modes = { require("constants").LightColorMode.COLOR_MODE_BRIGHTNESS } }),
