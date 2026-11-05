@@ -242,4 +242,19 @@ do
   T.eq("a proxy ON reaches the bulb again", onSends(), true)
 end
 
+T.section("A fade under way when the license lapses tells the proxy nothing after it")
+do
+  cloud.answer = { AC = 0, AS = "Invalid License" }
+  cloud.say({ AC = 0, AS = "Invalid License" })
+  ReceivedFromProxy(PROXY, "SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 600000 })
+  -- The gate trips while the fade's end is still pending: the shim fires every
+  -- timer at once, so a tick would end the fade before the gate's read.
+  require("lib.drivercentral"):_set(false)
+  T.eq("the gate stops the light during the fade", Properties["Driver Status"], "No active license")
+  local stopped = #told
+  ShimFireTimers()
+  answerAll()
+  T.eq("the fade's end tells the proxy no level", brightnessesSince(stopped), {})
+end
+
 T.finish()
