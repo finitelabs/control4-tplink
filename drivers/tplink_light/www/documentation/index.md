@@ -245,6 +245,13 @@ of them.
 
 Displays the current status of the driver.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+Without an active DriverCentral license, Driver Status reads
+`No active license`. See [Troubleshooting](#troubleshooting).
+
+<!-- #endif -->
+
 #### Driver Version (read-only)
 
 Displays the current version of the driver.
@@ -419,6 +426,16 @@ again the next time it turns on, and from its first level change after a
 controller restart or a driver update.
 
 # <span style="color:#4ACBD6">Troubleshooting</span>
+
+<!-- #ifdef DRIVERCENTRAL -->
+
+**`Driver Status` reads `No active license`**: The driver has had no active
+DriverCentral license for five minutes, so it has stopped controlling the light
+and shows it offline at the level it had. Check its `Cloud Status`, and refresh
+the license with the **DriverCentral Cloud** driver's **Check Drivers** action.
+The driver checks every 10 seconds and starts again once a license is active.
+
+<!-- #endif -->
 
 **`Driver Status` shows `Bind to an outlet or set the IP Address property`**:
 the driver has neither an outlet binding nor a direct-mode configuration.
