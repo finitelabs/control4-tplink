@@ -1050,20 +1050,6 @@ local function pickColorMode(intent)
   return nil
 end
 
--- Map a target Kelvin to a (cold_white, warm_white) channel split based on
--- the bulb's reported mireds range. Pure cold = (1, 0) at min_mireds; pure
--- warm = (0, 1) at max_mireds; linear blend between. Returned values are 0-1
--- floats, the light command's per-channel scale.
-local function kelvinToCoolWarmSplit(kelvin)
-  local mireds = kelvinToMireds(kelvin)
-  local span = maxMireds - minMireds
-  if span <= 0 then
-    return 0.5, 0.5
-  end
-  local ratio = math.max(0, math.min(1, (mireds - minMireds) / span))
-  return 1 - ratio, ratio
-end
-
 -- Convert an XY/mode color into the right light command fields. Returns the
 -- partial cmd table or nil if the bulb doesn't support color/CCT or the
 -- provided values can't be mapped.
@@ -1085,17 +1071,6 @@ local function buildColorCmdFields(x, y, mode)
     if pickedMode then
       fields.has_color_mode = true
       fields.color_mode = pickedMode
-    end
-    -- For RGBCW / cold-warm-white capable bulbs, also drive the cold/warm
-    -- channels directly, split over the bulb's min_mireds/max_mireds range,
-    -- so the command fixes the channel split along with color_temperature.
-    local CM = ColorMode
-    if supportedColorModes[CM.COLOR_MODE_COLD_WARM_WHITE] or supportedColorModes[CM.COLOR_MODE_RGB_COLD_WARM_WHITE] then
-      local cw, ww = kelvinToCoolWarmSplit(k)
-      fields.has_cold_white = true
-      fields.cold_white = cw
-      fields.has_warm_white = true
-      fields.warm_white = ww
     end
     return fields
   end
@@ -3937,10 +3912,6 @@ local COLOR_FIELDS = {
   "color_temperature",
   "has_color_mode",
   "color_mode",
-  "has_cold_white",
-  "cold_white",
-  "has_warm_white",
-  "warm_white",
 }
 
 --- Send a light command to the direct-mode device, or hold it while a request
