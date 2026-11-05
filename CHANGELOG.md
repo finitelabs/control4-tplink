@@ -129,6 +129,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a relay driver connected to a TP-Link Outlet output running its
   programming when it was connected. A relay driver that asks for the output's
   state is now told it.
+- Fixed a relay driver connected to a TP-Link Outlet output reading the
+  output's state as unverified after a controller restart or a driver update,
+  until the output next changed.
 - Fixed the TP-Link Outlet and TP-Link Light drivers printing the TP-Link
   account to the Lua output and the log at high log levels. Neither the username
   nor the password is printed at any level now.
