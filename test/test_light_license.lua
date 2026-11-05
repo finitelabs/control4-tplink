@@ -203,6 +203,18 @@ do
   T.eq("the proxy is told it is offline", Select(told, #told, "command"), "ONLINE_CHANGED")
   T.eq("with no brightness change, so no Light Off", brightnessesSince(mark), {})
   T.eq("a proxy ON sends nothing", onSends(), false)
+  local pushed = #told
+  ReceivedFromProxy(1, "UPDATE_STATE", {
+    entity = SerializeSafe({ supported_color_modes = { require("constants").LightColorMode.COLOR_MODE_BRIGHTNESS } }),
+    state = SerializeSafe({ state = false }),
+  })
+  ReceivedFromProxy(1, "UPDATE_DISCONNECT", {})
+  ReceivedFromProxy(1, "UPDATE_STATE", {
+    entity = SerializeSafe({ supported_color_modes = { require("constants").LightColorMode.COLOR_MODE_BRIGHTNESS } }),
+    state = SerializeSafe({ state = true, brightness = 1 }),
+  })
+  T.eq("a bound outlet's pushes tell the proxy nothing", #told, pushed)
+  T.eq("and leave Driver Status", Properties["Driver Status"], "No active license")
   local asked = 0
   local request = Transport.request
   function Transport.request(...)

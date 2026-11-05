@@ -85,7 +85,7 @@ local iotBulb = nil
 -- Forward declarations; assigned in the Backends section near the end.
 local backendStart, backendSendCommand, backendFade
 --#ifdef DRIVERCENTRAL
-local licenseChanged -- defined with the backend below
+local licenseChanged
 --#endif
 
 -- Following the light to a new address or protocol: in one table, as this
@@ -3249,6 +3249,11 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand)
   if idBinding ~= OUTLET_BINDING then
     return
   end
+  --#ifdef DRIVERCENTRAL
+  if not drivercentral:licensed() then
+    return
+  end
+  --#endif
   handleDisconnect()
 end
 
@@ -3391,6 +3396,11 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams)
     log:error("RFP.UPDATE_STATE called with idBinding %s, expected %s", idBinding, OUTLET_BINDING)
     return
   end
+  --#ifdef DRIVERCENTRAL
+  if not drivercentral:licensed() then
+    return
+  end
+  --#endif
   local entity = DeserializeSafe(Select(tParams, "entity"))
   local state = DeserializeSafe(Select(tParams, "state"))
   if IsEmpty(entity) or IsEmpty(state) then
