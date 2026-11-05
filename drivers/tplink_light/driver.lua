@@ -3,11 +3,7 @@
 -- speaks (KLAP, TPAP or the original Kasa one) and polls it; bound to an
 -- outlet, the outlet reports its state and sends its commands.
 
---#ifdef DRIVERCENTRAL
-DC_PID = 976
-DC_X = nil
-DC_FILENAME = "tplink_light.c4z"
---#else
+--#ifndef DRIVERCENTRAL
 DRIVER_GITHUB_REPO = "finitelabs/control4-tplink"
 --#endif
 require("lib.utils")
@@ -26,6 +22,7 @@ local driverFilenames = require("lib.driver-filenames")
 --#endif
 local updateSettings = require("lib.update-settings")
 --#ifdef DRIVERCENTRAL
+local drivercentral = require("lib.drivercentral")
 local supportCode = require("lib.support-code")
 local diagnostics = require("lib.diagnostics")
 --#endif
@@ -87,6 +84,9 @@ local iotBulb = nil
 
 -- Forward declarations; assigned in the Backends section near the end.
 local backendStart, backendSendCommand, backendFade
+--#ifdef DRIVERCENTRAL
+local licenseChanged
+--#endif
 
 -- Following the light to a new address or protocol: in one table, as this
 -- chunk is near Lua's 200 locals.
@@ -453,8 +453,7 @@ end
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
-  require("cloud-client-byte")
-  C4:AllowExecute(false)
+  drivercentral:startClient()
   --#else
   C4:AllowExecute(true)
   --#endif
@@ -498,6 +497,9 @@ function OnDriverLateInit()
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   backendStart()
   readProxySetup()
+  --#ifdef DRIVERCENTRAL
+  drivercentral:startGate(licenseChanged)
+  --#endif
 end
 
 --#ifdef DRIVERCENTRAL
@@ -3247,6 +3249,11 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand)
   if idBinding ~= OUTLET_BINDING then
     return
   end
+  --#ifdef DRIVERCENTRAL
+  if not drivercentral:licensed() then
+    return
+  end
+  --#endif
   handleDisconnect()
 end
 
@@ -3389,6 +3396,11 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams)
     log:error("RFP.UPDATE_STATE called with idBinding %s, expected %s", idBinding, OUTLET_BINDING)
     return
   end
+  --#ifdef DRIVERCENTRAL
+  if not drivercentral:licensed() then
+    return
+  end
+  --#endif
   local entity = DeserializeSafe(Select(tParams, "entity"))
   local state = DeserializeSafe(Select(tParams, "state"))
   if IsEmpty(entity) or IsEmpty(state) then
@@ -4013,6 +4025,12 @@ end
 --- Dispatch an internal light command to the active backend.
 --- @param opts table
 backendSendCommand = function(opts)
+  --#ifdef DRIVERCENTRAL
+  if not drivercentral:licensed() then
+    log:warn("Light command dropped: no active license")
+    return
+  end
+  --#endif
   if isOutletBound() then
     SendToProxy(OUTLET_BINDING, "ENTITY_COMMAND", {
       body = SerializeSafe(opts),
@@ -4040,6 +4058,12 @@ end
 --- @param retry boolean? The poll timer trying again after no light was found.
 backendStart = function(retry)
   CancelTimer(DIRECT_POLL_TIMER)
+  --#ifdef DRIVERCENTRAL
+  if not drivercentral:licensed() then
+    UpdateProperty("Driver Status", drivercentral.UNLICENSED_STATUS)
+    return
+  end
+  --#endif
   -- A fade the driver makes ends where its last step left the light, and is not
   -- taken up again: the first read after this tells the proxy where that is.
   if fades == "Driver" and (rampingBrightness or rampingColor) then
@@ -4373,6 +4397,28 @@ follow.shutdown = function()
   -- A search for the light holds a listener open.
   follow.device:stop()
 end
+
+--#ifdef DRIVERCENTRAL
+--- DriverCentral's license gate. Without a license the driver stops reaching
+--- the light and its proxy shows it offline at the level it had, with no Light
+--- Off; with one it starts again, as a load does.
+--- @param licensed boolean
+licenseChanged = function(licensed)
+  if licensed then
+    log:info("License active; starting the light")
+    backendStart()
+    return
+  end
+  log:warn("No active license; stopping the light")
+  backendGeneration = backendGeneration + 1
+  CancelTimer(DIRECT_POLL_TIMER)
+  stopSceneSteps()
+  directDetecting, directConnected, directBusy = false, false, false
+  follow.device:stop()
+  UpdateProperty("Driver Status", drivercentral.UNLICENSED_STATUS)
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
+end
+--#endif
 
 ---------------------------------------------------------------------------
 -- Property handlers: direct mode

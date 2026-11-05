@@ -501,6 +501,8 @@ local function startDriver(properties)
   -- As OnDriverInit leaves it: no property's handler starts the backend.
   gInitialized = false
   ShimLateInit()
+  -- The license gate's 10 s read is not one of the light's timers, which this suite times.
+  require("lib.drivercentral")._timer:Cancel()
   mark()
 end
 
