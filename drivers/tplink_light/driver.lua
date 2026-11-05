@@ -4446,6 +4446,13 @@ licenseChanged = function(licensed)
   backendGeneration = backendGeneration + 1
   CancelTimer(DIRECT_POLL_TIMER)
   stopSceneSteps()
+  cancelBrightnessRampTimers()
+  cancelColorRampTimers()
+  rampingBrightness, rampingColor = false, false
+  brightnessRamp, colorRamp = nil, nil
+  -- With no state the proxy's commands are ignored, as an offline light's
+  -- are, so none is shown done; the level shown stays as it was.
+  STATE = nil
   directDetecting, directConnected, directBusy = false, false, false
   follow.device:stop()
   UpdateProperty("Driver Status", drivercentral.UNLICENSED_STATUS)
