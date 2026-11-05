@@ -55,9 +55,7 @@ local search = nil
 --- from OS 4.0.
 --- @return boolean supported
 function Discovery.supported()
-  local version = Select(C4:GetVersionInfo(), "version") or ""
-  local major = tointeger(string.match(version, "^(%d+)%."))
-  return major ~= nil and major >= 4
+  return VersionCheck("4.0.0")
 end
 
 --- A MAC address in one spelling, AA:BB:CC:DD:EE:FF, from any of the three a
