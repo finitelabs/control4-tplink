@@ -2114,6 +2114,108 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+--- The state each command since the mark went out with.
+local function commandStates()
+  local out = {}
+  for _, s in ipairs(sent) do
+    local cmd = s.binding == OUTLET and s.command == "ENTITY_COMMAND" and DeserializeSafe(s.params.body)
+    if cmd then
+      out[#out + 1] = cmd.state
+    end
+  end
+  return out
+end
+
+T.section("a scene step that sets a color alone does not turn on a light that is off or fading to off")
+do
+  local COLOR = { 0.3, 0.6 }
+  local RGB = { ColorMode.COLOR_MODE_RGB }
+  for _, rate in ipairs({ 0, 3000 }) do
+    local name = "at rate " .. rate .. ": "
+    offInBlue()
+    activate(colorStep(nil, COLOR, rate))
+    T.eq(name .. "a light that is off is sent the color as off", commandStates(), { false })
+    run(15000)
+    T.eq(name .. "and the proxy is told the color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { COLOR[1] })
+    T.eq(name .. "and no level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), {})
+    T.eq(name .. "and nothing more goes out", commandStates(), { false })
+    proxy("CLEAR_ALL_SCENES")
+
+    light(RGB, true)
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+    run(1000)
+    activate(colorStep(nil, COLOR, rate))
+    T.eq(name .. "a light fading to off is sent the color as off", commandStates(), { false })
+    run(15000)
+    T.eq(name .. "its fade is told at its own end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 3000 })
+    T.eq(name .. "at off", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
+    T.eq(name .. "and no on goes out", commandStates(), { false })
+    proxy("CLEAR_ALL_SCENES")
+  end
+
+  light(RGB, true)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  run(1000)
+  mark()
+  colorTarget(COLOR, 0)
+  T.eq("a color command in a fade to off goes out as off too", commandStates(), { false })
+  run(15000)
+
+  offInBlue()
+  activate(colorStep(nil, COLOR, 0))
+  mark()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 0 })
+  T.eq("the next on goes out as an on", commandStates(), { true })
+  run(1000)
+  proxy("CLEAR_ALL_SCENES")
+
+  light(RGB, true)
+  activate(colorStep(nil, COLOR, 0))
+  T.eq("a light that is on is sent the color as an on", commandStates(), { true })
+  proxy("CLEAR_ALL_SCENES")
+
+  offInBlue()
+  activate(colorStep(60, COLOR, 0))
+  T.eq("a step that sets a level too turns the light on", commandStates(), { true })
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A rated on from off is on its way on: a color alone in it is the light's own.
+  offInBlue()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  run(1000)
+  activate(colorStep(nil, COLOR, 0))
+  T.eq("a light fading up is sent the color as an on", commandStates(), { true })
+  run(15000)
+  proxy("CLEAR_ALL_SCENES")
+end
+
+T.section("a scene step's color the light cannot take sets none")
+do
+  local COLOR = { 0.3, 0.6 }
+  for _, case in ipairs({
+    { "a dimmer", ColorMode.COLOR_MODE_BRIGHTNESS },
+    { "a switch", ColorMode.COLOR_MODE_ON_OFF },
+  }) do
+    for _, on in ipairs({ true, false }) do
+      local name = case[1] .. (on and " that is on" or " that is off")
+      light({ case[2] }, on)
+      activate(colorStep(nil, COLOR, 2000))
+      run(5000)
+      T.eq(name .. ": a color alone sends nothing", commands(), 0)
+      T.eq(name .. ": and tells no color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), {})
+      T.eq(name .. ": at any time", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
+      proxy("CLEAR_ALL_SCENES")
+    end
+    light({ case[2] }, false)
+    activate(colorStep(60, COLOR, 2000))
+    run(5000)
+    T.eq(case[1] .. ": with a level, the level goes out alone", #colors(), 0)
+    T.eq(case[1] .. ": as an on", commandStates(), { true })
+    T.eq(case[1] .. ": and no color is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
+    proxy("CLEAR_ALL_SCENES")
+  end
+end
+
 T.section("a stop in a scene step's fade keeps the color the step set")
 do
   -- The step's color is the one the light is in, so it primes no color ramp.

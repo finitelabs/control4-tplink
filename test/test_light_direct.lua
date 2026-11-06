@@ -5268,6 +5268,77 @@ do
   T.eq("the new attempt is the one shown", status(), "Connecting (KLAP)...")
 end
 
+T.section("a scene step that sets a color alone leaves a light that is off, or fading to off, to go off")
+do
+  --- A scene of one element that sets a color and no level, at once.
+  local function colorAlone(color)
+    return (
+      "<element><delay>0</delay><rate>0</rate><colorEnabled>true</colorEnabled><colorX>%s</colorX>"
+      .. "<colorY>%s</colorY><colorMode>0</colorMode></element>"
+    ):format(color[1], color[2])
+  end
+  local function activateColorAlone()
+    proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorAlone(xy(120, 50)) })
+    mark()
+    proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+  end
+
+  forgetSetup()
+  walked({ device_on = false }, NO_POLLS)
+  activateColorAlone()
+  T.eq("a Tapo strip that is off is sent nothing: it takes no color while off", flying(), {})
+  serve(2000, 250)
+  T.eq("and stays off", strip.device_on, false)
+  mark()
+  proxy("ON")
+  T.eq("its next on carries the color", flying(), {
+    { device_on = true, brightness = 100, hue = 120, saturation = 50, color_temp = 0 },
+  })
+  serve(1000, 250)
+  proxy("CLEAR_ALL_SCENES")
+
+  forgetSetup()
+  walked({ brightness = 60 }, NO_POLLS)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  serve(1000, 250)
+  activateColorAlone()
+  serve(6000, 250)
+  T.eq("a strip the driver walks to off still ends off", strip.device_on, false)
+  T.eq("at the walk's end, as the proxy is told", levels(), { 0 })
+  proxy("CLEAR_ALL_SCENES")
+
+  forgetSetup()
+  walked({ brightness = 60 }, NO_POLLS)
+  setProperty("Fades", "Light")
+  serve(1000, 250)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  serve(500, 250)
+  activateColorAlone()
+  serve(6000, 250)
+  T.eq("a strip fading to off by itself is left off", strip.device_on, false)
+  proxy("CLEAR_ALL_SCENES")
+
+  bulb({ on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } })
+  activateColorAlone()
+  T.eq("a Kasa bulb that is off is sent the color as off", flying(), {
+    { on_off = 0, hue = 120, saturation = 50, color_temp = 0, ignore_default = 1 },
+  })
+  reply()
+  proxy("CLEAR_ALL_SCENES")
+
+  bulb({ on_off = 1, brightness = 60, hue = 0, saturation = 100, color_temp = 0 })
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  reply()
+  run(1000)
+  activateColorAlone()
+  T.eq("a Kasa bulb fading to off is sent the color as off, so its off holds", flying(), {
+    { on_off = 0, hue = 120, saturation = 50, color_temp = 0, ignore_default = 1 },
+  })
+  reply()
+  run(6000)
+  proxy("CLEAR_ALL_SCENES")
+end
+
 T.section("the keypad LEDs show the light off when it goes offline")
 do
   light()
