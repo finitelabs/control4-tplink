@@ -1648,6 +1648,31 @@ do
       told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
       { CCT }
     )
+
+    -- A rated on from off carrying a white On color, replaced part way by a fade to another white.
+    light(case[2], false)
+    target(RED[1], RED[2], FULL, 0)
+    proxy("UPDATE_COLOR_ON_MODE", {
+      COLOR_PRESET_ID = 1,
+      COLOR_PRESET_ORIGIN = 1,
+      COLOR_PRESET_COLOR_X = whiteX,
+      COLOR_PRESET_COLOR_Y = whiteY,
+      COLOR_PRESET_COLOR_MODE = CCT,
+      COLOR_FADE_PRESET_ID = 0,
+      COLOR_FADE_PRESET_ORIGIN = 0,
+      COLOR_FADE_PRESET_COLOR_X = 0,
+      COLOR_FADE_PRESET_COLOR_Y = 0,
+      COLOR_FADE_PRESET_COLOR_MODE = 0,
+    })
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 6000 })
+    run(1500)
+    target(warmX, warmY, CCT, 6000)
+    run(1500)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(name .. "a stop in a fade that replaced an on's color sends no color temperature", temperatures(), {})
+    T.eq(name .. "and tells a color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { FULL })
+    run(15000)
   end
   C4.ColorCCTtoXY, C4.ColorXYtoCCT = toXY, toCCT
 end

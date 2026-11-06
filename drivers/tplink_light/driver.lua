@@ -1349,6 +1349,19 @@ local leaveColorRamp -- defined with the color ramp helpers below
 -- walks: helpers below, in one table as this chunk is near Lua's 200 locals.
 local carry = {}
 
+--- The mode of a point on the way from a color in one mode to a color in another.
+--- From a color to a white the light passes through colors: a point off the line
+--- of whites is one.
+function carry.pointMode(x, y, startMode, targetMode)
+  if startMode == LIGHT_COLOR_MODE_FULL and targetMode == LIGHT_COLOR_MODE_CCT then
+    local whiteX, whiteY = takenColor(x, y, LIGHT_COLOR_MODE_CCT)
+    if not sameColor(x, y, LIGHT_COLOR_MODE_CCT, whiteX, whiteY, LIGHT_COLOR_MODE_CCT) then
+      return LIGHT_COLOR_MODE_FULL
+    end
+  end
+  return targetMode
+end
+
 -- Caller contract: only invoked when supportsDimming is true (lightOn/Off,
 -- rampToBrightness, scene apply, etc. all gate on it). On/off-only entities
 -- get a different code path that doesn't touch brightness.
@@ -1588,6 +1601,7 @@ local function leaveMergedColor()
   local merged = brightnessRamp and brightnessRamp.mergedColor
   if merged then
     local x, y, mode = carriedColor(brightnessRamp)
+    mode = carry.pointMode(x, y, currentColorMode, mode)
     if fades == "Driver" then
       -- The light is in the color its last step carried, or still in its own.
       local sent = brightnessRamp.sentColor or { x = currentColorX, y = currentColorY, mode = currentColorMode }
@@ -1756,15 +1770,7 @@ local function interpolatedColor(line)
     x = colorRamp.startX + (colorRamp.targetX - colorRamp.startX) * progress
     y = colorRamp.startY + (colorRamp.targetY - colorRamp.startY) * progress
   end
-  -- From a color to a white the light passes through colors: a point off the
-  -- line of whites is one.
-  if colorRamp.startMode == LIGHT_COLOR_MODE_FULL and colorRamp.targetMode == LIGHT_COLOR_MODE_CCT then
-    local whiteX, whiteY = takenColor(x, y, LIGHT_COLOR_MODE_CCT)
-    if not sameColor(x, y, LIGHT_COLOR_MODE_CCT, whiteX, whiteY, LIGHT_COLOR_MODE_CCT) then
-      return x, y, LIGHT_COLOR_MODE_FULL
-    end
-  end
-  return x, y, colorRamp.targetMode
+  return x, y, carry.pointMode(x, y, colorRamp.startMode, colorRamp.targetMode)
 end
 
 -- End a color ramp where it has got to: what replaces it starts there.
