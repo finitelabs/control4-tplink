@@ -5339,6 +5339,45 @@ do
   proxy("CLEAR_ALL_SCENES")
 end
 
+T.section("a strip walked from a color to a white goes through the colors between, and a stop holds it in one")
+do
+  local RED, WHITE = xy(0, 100), { 0.4, 0.4 }
+  local function toWhite(rate)
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = WHITE[1],
+      LIGHT_COLOR_TARGET_Y = WHITE[2],
+      LIGHT_COLOR_TARGET_MODE = 1,
+      LIGHT_COLOR_TARGET_COLOR_RATE = rate,
+    })
+  end
+  forgetSetup()
+  walked({ brightness = 100, hue = 0, saturation = 100, color_temp = 0 }, NO_POLLS)
+  colorTarget(RED, 0)
+  serve(1000, 250)
+  mark()
+  toWhite(4000)
+  local steps = serve(1500, 250)
+  T.check("the walk has steps", #steps > 1, T.show(steps))
+  local colorsOnly = true
+  for _, step in ipairs(steps) do
+    colorsOnly = colorsOnly and (step.sent.color_temp == nil or step.sent.color_temp == 0)
+  end
+  T.check("each is a color, not a color temperature read off a point between", colorsOnly, T.show(steps))
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a stop is told as a color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { 0 })
+  serve(3000, 250)
+  T.eq("and the strip stays in one", strip.color_temp, 0)
+
+  colorTarget(RED, 0)
+  serve(1000, 250)
+  mark()
+  toWhite(2000)
+  serve(4000, 250)
+  T.eq("a walk left alone ends in the white", strip.color_temp, 4000)
+  T.eq("and is told as one", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { 1 })
+end
+
 T.section("the keypad LEDs show the light off when it goes offline")
 do
   light()
