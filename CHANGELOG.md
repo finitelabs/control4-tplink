@@ -29,6 +29,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a scene step's color on a light that cannot show it. A dimmer or switch
   no longer turns on for it, and Control4 is no longer told of a color fade the
   light cannot make.
+- Fixed a fade from a color to a white. A stop part way now holds the color the
+  light has got to, where it sent a color temperature that took the light to its
+  warmest white, and a fade on a Tapo light now goes through the colors between
+  instead of jumping to white at its start.
 
 ## v20261105 - 2026-11-05
 

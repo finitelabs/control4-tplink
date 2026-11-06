@@ -1744,19 +1744,26 @@ local function interpolatedColor(line)
   if not colorRamp or colorRamp.durationMs <= 0 then
     return currentColorX, currentColorY, currentColorMode
   end
+  local x, y
   if fades == "Driver" and not line then
-    return colorRamp.sentX or colorRamp.startX, colorRamp.sentY or colorRamp.startY, colorRamp.targetMode
+    x, y = colorRamp.sentX or colorRamp.startX, colorRamp.sentY or colorRamp.startY
+  else
+    local elapsed = C4:GetTime() - colorRamp.startTime
+    if elapsed >= colorRamp.durationMs then
+      return colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode
+    end
+    local progress = math.max(0, elapsed) / colorRamp.durationMs
+    x = colorRamp.startX + (colorRamp.targetX - colorRamp.startX) * progress
+    y = colorRamp.startY + (colorRamp.targetY - colorRamp.startY) * progress
   end
-  local elapsed = C4:GetTime() - colorRamp.startTime
-  if elapsed <= 0 then
-    return colorRamp.startX, colorRamp.startY, colorRamp.targetMode
+  -- From a color to a white the light passes through colors: a point off the
+  -- line of whites is one.
+  if colorRamp.startMode == LIGHT_COLOR_MODE_FULL and colorRamp.targetMode == LIGHT_COLOR_MODE_CCT then
+    local whiteX, whiteY = takenColor(x, y, LIGHT_COLOR_MODE_CCT)
+    if not sameColor(x, y, LIGHT_COLOR_MODE_CCT, whiteX, whiteY, LIGHT_COLOR_MODE_CCT) then
+      return x, y, LIGHT_COLOR_MODE_FULL
+    end
   end
-  if elapsed >= colorRamp.durationMs then
-    return colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode
-  end
-  local progress = elapsed / colorRamp.durationMs
-  local x = colorRamp.startX + (colorRamp.targetX - colorRamp.startX) * progress
-  local y = colorRamp.startY + (colorRamp.targetY - colorRamp.startY) * progress
   return x, y, colorRamp.targetMode
 end
 
@@ -1819,6 +1826,7 @@ function carry.color(x, y, mode, ms, on)
   rampingColor = true
   colorRamp = {
     startTime = C4:GetTime(),
+    startMode = currentColorMode,
     startX = currentColorX,
     startY = currentColorY,
     targetX = x,
@@ -1890,6 +1898,7 @@ local function rampToColor(targetX, targetY, targetMode, rate)
   rampingColor = true
   colorRamp = {
     startTime = C4:GetTime(),
+    startMode = currentColorMode,
     startX = currentColorX,
     startY = currentColorY,
     targetX = targetX,
@@ -2500,6 +2509,7 @@ local function applySceneStep(step)
       rampingColor = true
       colorRamp = {
         startTime = startTime,
+        startMode = currentColorMode,
         startX = currentColorX,
         startY = currentColorY,
         targetX = color.x,

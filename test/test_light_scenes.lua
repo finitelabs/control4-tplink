@@ -1567,6 +1567,91 @@ do
   end
 end
 
+T.section("a stop part way from a color to a white holds the color the light has got to")
+do
+  -- Kelvin as x over a y that curves as the locus does, so a point between a
+  -- color and a white lies off it, where no temperature a bulb reports reads.
+  local toXY, toCCT = C4.ColorCCTtoXY, C4.ColorXYtoCCT
+  function C4:ColorCCTtoXY(kelvin)
+    local x = kelvin / 10000
+    return x, 0.4 - (x - 0.45) ^ 2
+  end
+  function C4:ColorXYtoCCT(x)
+    return x * 10000
+  end
+  local FULL, CCT = 0, 1
+  local RED = { 0.64, 0.33 }
+  local whiteX, whiteY = C4:ColorCCTtoXY(4000)
+  local function target(x, y, mode, rate)
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = x,
+      LIGHT_COLOR_TARGET_Y = y,
+      LIGHT_COLOR_TARGET_MODE = mode,
+      LIGHT_COLOR_TARGET_COLOR_RATE = rate,
+    })
+  end
+  --- Each color temperature sent since the mark.
+  local function temperatures()
+    local out = {}
+    for _, s in ipairs(sent) do
+      local cmd = s.binding == OUTLET and s.command == "ENTITY_COMMAND" and DeserializeSafe(s.params.body)
+      if cmd and cmd.has_color_temperature then
+        out[#out + 1] = cmd.color_temperature
+      end
+    end
+    return out
+  end
+  for _, case in ipairs({
+    { "a combined mode", { ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE } },
+    { "separate modes", { ColorMode.COLOR_MODE_RGB, ColorMode.COLOR_MODE_COLOR_TEMPERATURE } },
+  }) do
+    local name = case[1] .. ": "
+    light(case[2], true)
+    target(RED[1], RED[2], FULL, 0)
+    target(whiteX, whiteY, CCT, 6000)
+    run(1500)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(name .. "a stop a quarter of the way sends no color temperature", temperatures(), {})
+    T.eq(name .. "it sends the color it has got to", #colors(), 1)
+    T.eq(name .. "and tells that color's mode", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { FULL })
+    local toldX = told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")[1]
+    T.check(name .. "and its point", math.abs(toldX - (RED[1] + (whiteX - RED[1]) * 0.25)) < 1e-6, toldX)
+    mark()
+    target(RED[1], RED[2], FULL, 0)
+    run(100)
+
+    -- Unchanged: a fade between whites stays a white, and one to a color a color.
+    local warmX, warmY = C4:ColorCCTtoXY(3000)
+    target(warmX, warmY, CCT, 0)
+    target(whiteX, whiteY, CCT, 6000)
+    run(1500)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(name .. "a stop between two whites sends a white", #temperatures(), 1)
+    T.eq(name .. "and tells a white", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { CCT })
+    target(whiteX, whiteY, CCT, 0)
+    target(RED[1], RED[2], FULL, 6000)
+    run(1500)
+    mark()
+    proxy("SET_COLOR_STOP")
+    T.eq(name .. "a stop from a white to a color sends a color", { #colors(), #temperatures() }, { 1, 0 })
+    T.eq(name .. "and tells a color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { FULL })
+
+    -- A fade left to its end still ends in the white.
+    target(RED[1], RED[2], FULL, 0)
+    mark()
+    target(whiteX, whiteY, CCT, 2000)
+    run(5000)
+    T.eq(
+      name .. "a fade left alone ends in the white",
+      told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
+      { CCT }
+    )
+  end
+  C4.ColorCCTtoXY, C4.ColorXYtoCCT = toXY, toCCT
+end
+
 T.section("a Color On Mode's color, and a scene step's, is told in the form the light takes it")
 do
   -- Kelvin as x over a y that curves as the locus does, so the mix of two
