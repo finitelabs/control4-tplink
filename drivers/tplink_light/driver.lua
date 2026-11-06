@@ -1158,13 +1158,13 @@ local function getColorOnModeKind()
   return COLOR_ON_MODE_NONE
 end
 
--- The bulb is "logically on" if either we already think it's on or a ramp
--- is in flight targeting an on-state. Used so a SET_COLOR_TARGET arriving
--- mid-ramp from off→on doesn't send state=false (which kills the brightness
--- fade by reverting the bulb to off).
+-- The bulb is "logically on" if a ramp in flight is heading for an on level, or
+-- with none in flight if we think it's on. A color command sends this state: the
+-- other would switch a light off in a fade up, or send an on to one fading to
+-- off. A light the driver walks stays on until the walk's last step.
 local function isLogicallyOn()
-  if rampingBrightness and brightnessRamp and (brightnessRamp.targetLevel or 0) > 0 then
-    return true
+  if rampingBrightness and brightnessRamp and (fades ~= "Driver" or (brightnessRamp.targetLevel or 0) > 0) then
+    return (brightnessRamp.targetLevel or 0) > 0
   end
   return currentBrightness > 0
 end
@@ -1717,8 +1717,6 @@ local function sendColor(x, y, mode, rateMs, on)
   if not (supportsColor or supportsCCT) then
     return
   end
-  -- isLogicallyOn so that a SET_COLOR_TARGET arriving mid-ramp from off→on
-  -- doesn't send state=false (which would cancel the brightness transition).
   if on == nil then
     on = isLogicallyOn()
   end
@@ -2452,6 +2450,17 @@ local function applySceneStep(step)
     elseif goingOn then
       color = resolveOnColor(step.level)
     end
+  end
+  -- A color the light cannot take builds no fields: the step then sets none.
+  if color and not buildColorCmdFields(color.x, color.y, color.mode) then
+    color, ownColor = nil, nil
+  end
+  -- A color alone, for a light that is off or fading to off, is the color it
+  -- next comes on in, as a color command's is: the step does not turn it on.
+  if ownColor and level == nil and not isLogicallyOn() then
+    currentColorPreset = nil
+    rampToColor(color.x, color.y, color.mode, rate)
+    return rate
   end
   local colorAtOnce = nil
   if color and not turningOff then
