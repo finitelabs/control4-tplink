@@ -3566,6 +3566,19 @@ local directCommands = 0
 --- @type table?
 local pendingColor = nil
 
+--- The color held for a light, as a poll finds it: one that is off comes on in
+--- it. A light turned on by another hand came on in the color it had, so the
+--- hold is let go.
+--- @param on boolean Whether the light is on.
+--- @return table? held
+local function heldColor(on)
+  if on and pendingColor then
+    pendingColor = nil
+    persist:delete(P.PENDING_COLOR)
+  end
+  return pendingColor
+end
+
 --- What a SMART light holds, as it was sent or read since the last command
 --- from Control4: its state, its level and its color.
 --- @type table?
@@ -3692,7 +3705,6 @@ local function directPoll()
   local asked = directCommands
 
   if directSchema == "iot" and iotBulb ~= nil then
-    -- The color held for a bulb that is off is the one it will come on in.
     directFlight(iotBulb:poll(pendingColor), function(result)
       if not follow.device:accepts(result.mac) then
         follow.another()
@@ -3701,11 +3713,7 @@ local function directPoll()
       follow.answered()
       directConnected = true
       if asked == directCommands then
-        if result.state.state and pendingColor then
-          -- Turned on by another hand, in the color it had.
-          pendingColor = nil
-          persist:delete(P.PENDING_COLOR)
-        end
+        heldColor(result.state.state)
         applyUpdate(result.entity, result.state)
       end
     end, function(err)
@@ -3735,13 +3743,7 @@ local function directPoll()
     directConnected = true
     if asked == directCommands then
       local moved = smartRead(info)
-      if toboolean(info.device_on) and pendingColor then
-        -- Turned on by another hand, in the color it had.
-        pendingColor = nil
-        persist:delete(P.PENDING_COLOR)
-      end
-      -- The color held for a light that is off is the one it will come on in.
-      for field, value in pairs(pendingColor or {}) do
+      for field, value in pairs(heldColor(toboolean(info.device_on)) or {}) do
         info[field] = value
       end
       applyUpdate(synthesizeEntity(info), synthesizeState(info), moved)
