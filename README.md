@@ -143,6 +143,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   color is now kept for the light's next on, as a color command's is.
 - Fixed a color sent to a Kasa light that is fading to off turning it back on.
   The light now goes off and keeps the color for its next on.
+- Fixed a color set on a Kasa light while it is off, or turning off, being lost:
+  the light dropped it. The color is now kept for the light's next on, as it is
+  on a Tapo light.
 - Fixed a scene step's color on a light that cannot show it. A dimmer or switch
   no longer turns on for it, and Control4 is no longer told of a color fade the
   light cannot make.

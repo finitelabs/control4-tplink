@@ -1140,14 +1140,53 @@ do
   T.eq("and the color kept for it is let go", flying(), { { device_on = true, brightness = 40 } })
   reply()
 
-  -- Unmeasured on the IOT schema: a Kasa bulb is sent the color as before.
-  bulb({ on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } })
+  -- A Kasa bulb drops a color sent with an off too: the color is kept for it the same way.
+  local kasaOff = { on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } }
+  --- Answer every poll in flight with this light state.
+  local function polled(lightState)
+    while flying()[1] == "poll" do
+      reply(sysinfo(lightState))
+    end
+  end
+  bulb(kasaOff)
   colorTarget(GREEN, 0)
+  T.eq("a Kasa bulb that is off is sent the off alone", flying(), { { on_off = 0 } })
+  reply()
+  run(16000)
+  mark()
+  polled(kasaOff)
+  T.eq("its poll tells nothing: the color kept is the one shown", colorsTold(), {})
+  proxy("ON")
   T.eq(
-    "a Kasa bulb that is off is sent the color",
+    "its next on carries the color kept",
     flying(),
-    { { on_off = 0, hue = 120, saturation = 50, color_temp = 0, ignore_default = 1 } }
+    { { on_off = 1, brightness = 100, hue = 120, saturation = 50, color_temp = 0, ignore_default = 1 } }
   )
+  reply()
+  proxy("OFF")
+  reply()
+  proxy("ON")
+  T.eq("and lets it go", flying(), { { on_off = 1, brightness = 100, ignore_default = 1 } })
+  reply()
+
+  bulb(kasaOff)
+  colorTarget(GREEN, 0)
+  reply()
+  setProperty("Poll Rate (Seconds)", "10")
+  reply(sysinfo(kasaOff))
+  proxy("ON")
+  T.eq("a color kept for a Kasa bulb is carried through a restart", Select(flying(), 1, "hue"), 120)
+  reply()
+
+  bulb(kasaOff)
+  colorTarget(GREEN, 0)
+  reply()
+  run(16000)
+  mark()
+  polled()
+  T.eq("a Kasa bulb that came on by another hand is told in the color it had", colorsTold(), { 0 })
+  proxy("SET_LEVEL", { LEVEL = 40 })
+  T.eq("and the color kept for it is let go", flying(), { { on_off = 1, brightness = 40, ignore_default = 1 } })
   reply()
 end
 
@@ -5320,8 +5359,8 @@ do
 
   bulb({ on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } })
   activateColorAlone()
-  T.eq("a Kasa bulb that is off is sent the color as off", flying(), {
-    { on_off = 0, hue = 120, saturation = 50, color_temp = 0, ignore_default = 1 },
+  T.eq("a Kasa bulb that is off is sent the off alone, its color kept for its next on", flying(), {
+    { on_off = 0 },
   })
   reply()
   proxy("CLEAR_ALL_SCENES")
@@ -5331,8 +5370,8 @@ do
   reply()
   run(1000)
   activateColorAlone()
-  T.eq("a Kasa bulb fading to off is sent the color as off, so its off holds", flying(), {
-    { on_off = 0, hue = 120, saturation = 50, color_temp = 0, ignore_default = 1 },
+  T.eq("a Kasa bulb fading to off is sent the off alone, so its off holds", flying(), {
+    { on_off = 0 },
   })
   reply()
   run(6000)

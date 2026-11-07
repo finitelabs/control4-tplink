@@ -29,6 +29,9 @@ local diagnostics = require("lib.diagnostics")
 local persist = require("lib.persist")
 local constants = require("constants")
 local IotBulb = require("tplink.iotbulb")
+local Klap = require("tplink.klap")
+local Legacy = require("tplink.legacy")
+local Tpap = require("tplink.tpap")
 
 --- Color mode identifiers shared with tplink_outlet over the TPLINK_LIGHT
 --- binding protocol. The internal proxy logic keys off these in what a light
@@ -64,10 +67,10 @@ end
 --- @field tpap Tpap TPAP: a light whose account has Third-Party Compatibility off.
 --- @field smart Klap|Tpap The session SMART-schema requests go through.
 local link = {
-  klap = require("tplink.klap"):new(),
-  klapV1 = require("tplink.klap"):new({ authVersion = 1 }),
-  legacy = require("tplink.legacy"):new(),
-  tpap = require("tplink.tpap"):new(),
+  klap = Klap:new(),
+  klapV1 = Klap:new({ authVersion = 1 }),
+  legacy = Legacy:new(),
+  tpap = Tpap:new(),
 }
 link.smart = link.klap
 
@@ -3557,11 +3560,24 @@ local directPollWaiting = false
 --- @type number
 local directCommands = 0
 
---- The color a SMART light was given while off, which it would ignore. It is
---- held here, and stored, and goes out with the next command that turns the
---- light on.
+--- The color a light was given while off, which it would drop. It is held
+--- here, and stored, and goes out with the next command that turns the light
+--- on.
 --- @type table?
-local smartPendingColor = nil
+local pendingColor = nil
+
+--- The color held for a light, as a poll finds it: one that is off comes on in
+--- it. A light turned on by another hand came on in the color it had, so the
+--- hold is let go.
+--- @param on boolean Whether the light is on.
+--- @return table? held
+local function heldColor(on)
+  if on and pendingColor then
+    pendingColor = nil
+    persist:delete(P.PENDING_COLOR)
+  end
+  return pendingColor
+end
 
 --- What a SMART light holds, as it was sent or read since the last command
 --- from Control4: its state, its level and its color.
@@ -3689,7 +3705,7 @@ local function directPoll()
   local asked = directCommands
 
   if directSchema == "iot" and iotBulb ~= nil then
-    directFlight(iotBulb:poll(), function(result)
+    directFlight(iotBulb:poll(pendingColor), function(result)
       if not follow.device:accepts(result.mac) then
         follow.another()
         return
@@ -3697,6 +3713,7 @@ local function directPoll()
       follow.answered()
       directConnected = true
       if asked == directCommands then
+        heldColor(result.state.state)
         applyUpdate(result.entity, result.state)
       end
     end, function(err)
@@ -3726,13 +3743,7 @@ local function directPoll()
     directConnected = true
     if asked == directCommands then
       local moved = smartRead(info)
-      if toboolean(info.device_on) and smartPendingColor then
-        -- Turned on by another hand, in the color it had.
-        smartPendingColor = nil
-        persist:delete(P.PENDING_COLOR)
-      end
-      -- The color held for a light that is off is the one it will come on in.
-      for field, value in pairs(smartPendingColor or {}) do
+      for field, value in pairs(heldColor(toboolean(info.device_on)) or {}) do
         info[field] = value
       end
       applyUpdate(synthesizeEntity(info), synthesizeState(info), moved)
@@ -3746,10 +3757,32 @@ local function directPoll()
   end)
 end
 
+--- Hold the color of a command that does not turn the light on, which the
+--- light would drop, and add a held one to an on that names no color. Both
+--- schemas name a color's params alike.
+--- @param params table A request's params; the color is taken out when held.
+--- @param on boolean? Whether the command turns the light on.
+local function holdColor(params, on)
+  local color = params.color_temp ~= nil
+  if color and not on then
+    pendingColor = { hue = params.hue, saturation = params.saturation, color_temp = params.color_temp }
+    persist:set(P.PENDING_COLOR, pendingColor)
+    params.hue, params.saturation, params.color_temp = nil, nil, nil
+  elseif pendingColor and (color or on) then
+    if not color then
+      for field, value in pairs(pendingColor) do
+        params[field] = value
+      end
+    end
+    pendingColor = nil
+    persist:delete(P.PENDING_COLOR)
+  end
+end
+
 --- Translate an internal light command to the params of a SMART
 --- set_device_info request. A ramp rate the command carries is not sent: the
 --- light takes no fade time from a command. A color for a light that is off is
---- held (smartPendingColor), and added to the next on.
+--- held (holdColor), and added to the next on.
 --- @param opts table
 --- @return table? params nil when the command names nothing to send.
 local function smartParams(opts)
@@ -3776,21 +3809,8 @@ local function smartParams(opts)
     params.saturation = math.max(0, math.min(100, math.floor((sat or 0) + 0.5)))
     params.color_temp = 0
   end
-  local color = params.color_temp ~= nil
   -- No on with it: the light is off, or is being turned off.
-  if color and not params.device_on then
-    smartPendingColor = { hue = params.hue, saturation = params.saturation, color_temp = params.color_temp }
-    persist:set(P.PENDING_COLOR, smartPendingColor)
-    params.hue, params.saturation, params.color_temp = nil, nil, nil
-  elseif smartPendingColor and (color or params.device_on) then
-    if not color then
-      for field, value in pairs(smartPendingColor) do
-        params[field] = value
-      end
-    end
-    smartPendingColor = nil
-    persist:delete(P.PENDING_COLOR)
-  end
+  holdColor(params, params.device_on)
   if IsEmpty(params) then
     return nil
   end
@@ -3806,7 +3826,7 @@ local function directSend(opts)
     return false
   end
   if directSchema == "iot" and iotBulb ~= nil then
-    directFlight(iotBulb:execute(opts), function() end, function(err)
+    directFlight(iotBulb:execute(opts, holdColor), function() end, function(err)
       -- Command failures are logged only; the poll loop decides connectivity.
       log:error("IOT bulb command failed: %s", Select(err, "error") or err)
     end)
@@ -4086,7 +4106,7 @@ backendStart = function(retry)
   directBusy = false
   directWaiting = nil
   directPollWaiting = false
-  smartPendingColor = persist:get(P.PENDING_COLOR)
+  pendingColor = persist:get(P.PENDING_COLOR)
   fades = nil
   ownFades = {}
   C4:SetPropertyAttribs("Fades", constants.HIDE_PROPERTY)
@@ -4271,7 +4291,6 @@ backendStart = function(retry)
   --- @param onFail fun(reason: string, final: boolean?) final is set when TPAP
   ---   answered for the light and its reason is the one to show.
   local function tryTpap(onFail)
-    local Tpap = require("tplink.tpap")
     connecting("TPAP")
     Tpap.discover(ip):next(
       live(function(info)

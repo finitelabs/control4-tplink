@@ -16,6 +16,9 @@ local JSON = require("JSON")
 local log = require("lib.logging")
 local persist = require("lib.persist")
 local cipher = require("tplink.kasa-cipher")
+--#ifdef DRIVERCENTRAL
+local diagnostics = require("lib.diagnostics")
+--#endif
 
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.handlers")
@@ -140,7 +143,7 @@ local function install()
   end
   --#ifdef DRIVERCENTRAL
   -- No handler dispatcher runs OnServerDataIn, so its errors are reported here.
-  onServerDataIn = require("lib.diagnostics"):wrap(onServerDataIn, "Discovery.OnServerDataIn")
+  onServerDataIn = diagnostics:wrap(onServerDataIn, "Discovery.OnServerDataIn")
   --#endif
   OnServerDataIn = onServerDataIn
 end
