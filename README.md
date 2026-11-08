@@ -154,6 +154,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   warmest white, and a fade on a Tapo light now goes through the colors between
   instead of jumping to white at its start.
 
+### Changed
+
+- Changed Log Level in the DriverCentral build to stop at `4 - Debug`:
+  `5 - Trace` and `6 - Ultra` are offered only while a Support Code from Finite
+  Labs support has the Lua tab open, and a driver set to either goes back to
+  `4 - Debug`.
+
 ## v20261105 - 2026-11-05
 
 ### Added
