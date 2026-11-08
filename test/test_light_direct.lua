@@ -3469,7 +3469,6 @@ end
 
 T.section("a light without color has a color stop, and one in a fade does nothing")
 do
-  -- The proxy passes a brightness stop on only to a light that has a color stop (dev, 2026-11-08).
   strip, busiest = { device_on = true, brightness = 5 }, 0
   own = {
     on_state = { enable = true, duration = 1, max_duration = 60 },
