@@ -153,6 +153,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   light has got to, where it sent a color temperature that took the light to its
   warmest white, and a fade on a Tapo light now goes through the colors between
   instead of jumping to white at its start.
+- Fixed Stop Brightness Change from Control4 programming or the app not stopping
+  a fade on a light without color. Control4 passes that stop only to a light
+  that has a color stop, which every light that dims now has. A light already in
+  a project takes this at the controller's next restart.
 
 ### Changed
 

@@ -3416,7 +3416,7 @@ do
       brightness_rate_min = fixed or 0,
       brightness_rate_max = fixed or 65535,
       supports_brightness_stop = fixed == nil,
-      supports_color_stop = false,
+      supports_color_stop = fixed == nil,
       color_rate_behavior = fixed and 0 or 1,
       color_rate_min = 0,
       color_rate_max = 65535,
@@ -3465,6 +3465,36 @@ do
   reply(white)
   serve(2000, 250)
   T.eq("the same with a driver update before it is back: the driver's rates are told", rates(), whiteRates())
+end
+
+T.section("a light without color has a color stop, and one in a fade does nothing")
+do
+  strip, busiest = { device_on = true, brightness = 5 }, 0
+  own = {
+    on_state = { enable = true, duration = 1, max_duration = 60 },
+    off_state = { enable = true, duration = 1, max_duration = 60 },
+    change_state = { enable = true },
+  }
+  startDriver(NO_POLLS)
+  shakeHands()
+  reply({ device_on = true, brightness = 5 })
+  serve(2000, 250)
+  T.eq(
+    "a dimmable white light is told it has both stops",
+    { rates().supports_brightness_stop, rates().supports_color_stop },
+    { true, true }
+  )
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 10000 })
+  serve(5000, 250)
+  local step = { { device_on = true, brightness = 51 } }
+  T.eq("half way through 5 to 100 % a step is in flight", flying(), step)
+  mark()
+  proxy("SET_COLOR_STOP")
+  T.eq("a color stop then tells the proxy nothing", #sent, 0)
+  T.eq("and sends the light nothing", flying(), step)
+  serve(6000, 250)
+  T.eq("the fade goes on to its end", strip.brightness, 100)
+  T.eq("which is told", levels(), { 100 })
 end
 
 T.section("with Fades on Light a stop sends nothing, and a held button goes to its end")
