@@ -617,7 +617,8 @@ local function rateCapabilities()
     color_rate_behavior = own and 0 or 1,
     color_rate_min = 0,
     color_rate_max = 65535,
-    supports_color_stop = (supportsColor or supportsCCT) and not own,
+    -- The proxy passes a brightness stop on only to a light that has a color stop, so one that dims has both.
+    supports_color_stop = supportsDimming and not own,
   }
   return caps
 end
