@@ -53,7 +53,8 @@ then pull the change in with `copier update`.
 - `support-code.lua`: the Support Code that opens a DriverCentral build's Lua
   window (see [The Support Code](#the-support-code))
 - `update-settings.lua`: keeps Automatic Updates and Update Channel the same on
-  every item of the drivers the repo builds, in DriverCentral and OSS builds
+  every item of the drivers the repo builds, in DriverCentral and OSS builds. A
+  driver's Reset Driver leaves both as they are
 - `utils.lua`: general utilities (XML, device queries, table helpers, type
   coercion)
 - `values.lua`: value parsing, coercion, and formatting
@@ -356,6 +357,9 @@ runs `fn` with `print` collected and returns `ok, err, output`, and
 - `F.captureTcpClient()` swaps in a `C4:CreateTCPClient` that records every
   write and completes the connect synchronously. Read `.writes`, then
   `.restore()`.
+- `F.dofileBuild(path, build)` runs a Lua file as the `"drivercentral"` or
+  `"oss"` build compiles it, with its `#ifdef` blocks applied. A driver loaded
+  raw runs every arm.
 
 ### Persisted values
 
