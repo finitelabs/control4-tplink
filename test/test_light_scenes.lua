@@ -337,21 +337,20 @@ do
   run(15000)
   local out = colors()
   T.eq("the on comes on in it, not the On color", out[#out], held)
-  local xs = told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")
-  T.eq("which is the last the proxy is told", xs[#xs], 0.3)
+  T.eq("and the proxy is told it once, as it was set", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.3 })
   offInBlue()
   colorTarget({ 0.3, 0.6 }, 1000)
+  held = colors()[#colors()]
   run(100)
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
-  T.eq(
-    "a rated on: in it from the start",
-    { told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X") },
-    { { 0.3 }, { 0.3 } }
-  )
+  T.eq("a rated on: in it from the start", colors()[1], held)
   run(15000)
-  T.eq("and the proxy is told it at the on's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.3 })
-  T.eq("at 4 s", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+  T.eq(
+    "and the proxy, which has it, is told no color at its start or its end",
+    { told("LIGHT_COLOR_CHANGING"), told("LIGHT_COLOR_CHANGED") },
+    { {}, {} }
+  )
   -- With Dim-To-Warm a color picked while the light is on stays: a level set during its ramp leaves it running.
   light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON, DIM)
@@ -367,6 +366,81 @@ do
     { 0.3 }
   )
   T.eq("at the ramp's end", told("LIGHT_COLOR_CHANGED", "at"), { 3000 })
+end
+
+T.section("a color set while off: scene steps take it, another client's on lets it go, and a rebind ends it")
+do
+  local GREEN = { 0.3, 0.6 }
+  --- A light off in blue with the On color as its mode, then green set while off: the green it is sent.
+  local function held(dim)
+    offInBlue()
+    if dim then
+      onMode(ON, DIM)
+    end
+    return setColor(GREEN)
+  end
+  local function lastSent()
+    local out = colors()
+    return out[#out]
+  end
+
+  -- A color-only step on an off light sets the next on's color, as a color command does.
+  offInBlue()
+  activate(colorStep(nil, GREEN, 0))
+  local stepColor = colors()[1]
+  mark()
+  proxy("ON")
+  run(15000)
+  T.eq("a color-only scene step while off, then On: the light comes on in it", lastSent(), stepColor)
+  proxy("CLEAR_ALL_SCENES")
+
+  -- A level step from off comes on in the color set while off, at once and over a rate.
+  for _, rate in ipairs({ 0, 2000 }) do
+    local green = held()
+    mark()
+    activate(levelStep(60, rate))
+    run(15000)
+    T.eq(
+      ("a level step from off over %d ms: the light comes on in the color set while off"):format(rate),
+      colors()[1],
+      green
+    )
+    proxy("CLEAR_ALL_SCENES")
+  end
+
+  -- Turned on by another client, the light is in its own color: the one set while off is let go, and no pick holds.
+  held(true)
+  RFP.UPDATE_STATE(OUTLET, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { ColorMode.COLOR_MODE_RGB } }),
+    state = SerializeSafe({ state = true, brightness = 1.0 }),
+  })
+  run(15000)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  run(15000)
+  T.eq(
+    "turned on by another client, then a level: the proxy is told the Dim-To-Warm mix",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { mix(50) }
+  )
+
+  -- A rebind to another device ends the color set while off for the one it had.
+  held()
+  OBC[OUTLET](OUTLET, "TPLINK_OUTLET", false)
+  OBC[OUTLET](OUTLET, "TPLINK_OUTLET", true)
+  RFP.UPDATE_STATE(OUTLET, "UPDATE_STATE", {
+    entity = SerializeSafe({ key = 1, name = "Light", supported_color_modes = { ColorMode.COLOR_MODE_RGB } }),
+    state = SerializeSafe({ state = false, brightness = 1.0 }),
+  })
+  run(15000)
+  mark()
+  proxy("ON")
+  run(15000)
+  T.eq(
+    "rebound, then On: the proxy is told the On color",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
 end
 
 T.section("a level ramp begun during a scene's fade runs to its own end, not to the scene step's")
@@ -456,10 +530,14 @@ do
   for _, case in ipairs({ { 4000, 500 }, { 500, 500 }, { 0, 500 }, { 1000, 100 } }) do
     local rate, at = case[1], case[2]
     local name = ("over %d ms, %d ms into the on"):format(rate, at)
+    -- Off in blue, so no color is held for the on.
     light({ ColorMode.COLOR_MODE_RGB }, false)
     onMode(ON, DIM)
+    proxy("ON")
     local asked = setColor({ 0.2, 0.5 })
     setColor(BLUE)
+    proxy("OFF")
+    run(15000)
     mark()
     proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
     run(at)
@@ -503,9 +581,14 @@ end
 
 T.section("an edit of the preset the Color On Mode names is the color the light next turns on in")
 do
+  -- Off in blue, so no color is held for the on.
   light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON)
+  proxy("ON")
   local edited = setColor({ 0.2, 0.5 })
+  setColor(BLUE)
+  proxy("OFF")
+  run(15000)
   proxy(
     "UPDATE_COLOR_PRESET",
     { COMMAND = "MODIFIED", ID = 1, NAME = "On Color", COLOR_X = 0.2, COLOR_Y = 0.5, COLOR_MODE = 0 }
@@ -1503,38 +1586,34 @@ do
   )
   mixed("a fade to off sent on again as it reaches off")
 
-  -- A color set while the light is off, or fading to off, is the one it next comes on in, over the Color On Mode, and
-  -- is a pick from that on.
-  for _, c in ipairs({
-    {
-      "a color set while off, then On",
-      function()
-        lit(true)
-        setColor(green)
-      end,
-    },
-    {
-      "a color set in a fade to off, then On",
-      function()
-        lit()
-        proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
-        run(1000)
-        colorTarget(green, 0)
-        run(15000)
-      end,
-    },
-  }) do
-    c[2]()
-    mark()
-    proxy("ON")
-    run(15000)
-    local xs = told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")
-    T.eq(c[1] .. ": it comes on in it", xs[#xs], green[1])
-    mark()
-    proxy("SET_LEVEL", { LEVEL = 50 })
-    run(15000)
-    kept(c[1] .. ", then a level")
-  end
+  -- A color set while the light is off is the one it next comes on in, over the Color On Mode, and is a pick from that
+  -- on. One set in a fade to off is the color the light goes off in, which the Color On Mode replaces.
+  lit(true)
+  local greenSent = setColor(green)
+  mark()
+  proxy("ON")
+  run(15000)
+  local out = colors()
+  T.eq("a color set while off, then On: it comes on in it", out[#out], greenSent)
+  T.eq("which the proxy, told it as it was set, is not told again", told("LIGHT_COLOR_CHANGED"), {})
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  run(15000)
+  kept("a color set while off, then On, then a level")
+  lit()
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
+  run(1000)
+  colorTarget(green, 0)
+  run(15000)
+  mark()
+  proxy("ON")
+  run(15000)
+  T.eq(
+    "a color set in a fade to off, then On: the proxy is told the On color",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
+  mixed("a color set in a fade to off, then On")
   -- One set from the app is no Control4 command.
   lit()
   appColor(green, 100)

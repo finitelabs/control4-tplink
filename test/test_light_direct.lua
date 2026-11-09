@@ -1479,11 +1479,17 @@ do
   for _, c in ipairs({
     { "no answer", false },
     { "an empty answer", "" },
-    { "an answer that is not whole", setup:sub(1, 2000) },
+    -- One that cannot be parsed is an error DriverCentral is told of.
+    { "an answer that is not whole", setup:sub(1, 2000), "TPLinkLight.readProxySetup" },
     { "a setup with none of the tags", withTags(setup, none) },
   }) do
     proxySetup = c[2]
-    light({ device_on = false })
+    local ok, err = pcall(light, { device_on = false })
+    T.eq(
+      c[1] .. ": an error is captured only where the answer cannot be read",
+      ok and "none" or tostring(err):match("TPLinkLight%.%w+"),
+      c[3] or "none"
+    )
     T.eq(c[1] .. ": nothing stored changes", stored(), before)
   end
   -- A preset the setup names and does not list has no color or level to
@@ -2337,16 +2343,63 @@ do
   local function navigatorOn()
     proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, LIGHT_BRIGHTNESS_TARGET_PRESET_ID = 1, RATE = 750 })
   end
-  -- Programming's On, a Toggle and a level have no follow-up: a color set right after one is a pick, sent.
+  --- The follow-up of the on mode's own preset: the On Color's (1), or Previous On (10) where `id` says.
+  local function onModePreset(id)
+    return function()
+      followUp(ON, id or 1, 1)
+    end
+  end
+  -- Each condition of the wait for the follow-up has a case that fails without it. Programming's On, a Toggle and a
+  -- level have no follow-up: a color set right after one is a pick, sent.
   for _, case in ipairs({
-    { "a Navigator's on, then the On color's preset, not applied", navigatorOn, { 1, 1 }, 120 },
-    { "a Navigator's on, then another preset, a pick", navigatorOn, { 5, 2 }, 60 },
+    { "a Navigator's on, then the On color's preset, not applied", navigatorOn, onModePreset(), 120 },
+    {
+      "with Previous, a Navigator's on, then Previous On's preset, not applied",
+      navigatorOn,
+      onModePreset(10),
+      120,
+      true,
+    },
+    {
+      "a Navigator's on, then another preset, a pick",
+      navigatorOn,
+      function()
+        followUp(ON, 5, 2)
+      end,
+      60,
+    },
+    {
+      "a Navigator's on, then the Color Agent's preset of the On color's id, a pick",
+      navigatorOn,
+      function()
+        followUp(ON, 1, 2)
+      end,
+      60,
+    },
+    {
+      "a Navigator's on, then the On color's preset once the wait is over, a pick",
+      navigatorOn,
+      function()
+        run(300)
+        followUp(ON, 1, 1)
+      end,
+      60,
+    },
+    {
+      "a Navigator's on, then another color and the On color's preset, each a pick",
+      navigatorOn,
+      function()
+        colorTarget(BLUE, 0)
+        followUp(ON, 1, 1)
+      end,
+      60,
+    },
     {
       "On, then the On color's preset, a pick",
       function()
         proxy("ON")
       end,
-      { 1, 1 },
+      onModePreset(),
       60,
     },
     {
@@ -2354,7 +2407,7 @@ do
       function()
         proxy("TOGGLE")
       end,
-      { 1, 1 },
+      onModePreset(),
       60,
     },
     {
@@ -2362,7 +2415,7 @@ do
       function()
         proxy("SET_LEVEL", { LEVEL = 100 })
       end,
-      { 1, 1 },
+      onModePreset(),
       60,
     },
     {
@@ -2370,21 +2423,28 @@ do
       function()
         proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
       end,
-      { 1, 1 },
+      onModePreset(),
       60,
     },
   }) do
     forgetSetup()
     walked({ hue = 240, saturation = 100 }, NO_POLLS)
-    onMode(false, false)
+    onMode(case[5], false)
     proxy("OFF")
     serve(1000, 250)
     colorTarget(GREEN, 0)
     mark()
     case[2]()
-    followUp(ON, case[3][1], case[3][2])
+    case[3]()
     local hues = each(serve(3000, 250), "hue")
     T.eq(case[1] .. ": the light ends in its hue", hues[#hues], case[4])
+    if case[4] == 120 then
+      T.eq(
+        case[1] .. ": and the proxy is told the color set while off once, at the follow-up",
+        told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+        { GREEN[1] }
+      )
+    end
   end
 
   -- A Kasa bulb holds it the same way.
@@ -3630,6 +3690,14 @@ end
 
 T.section("a light without color has a color stop, and one in a fade does nothing")
 do
+  local f = assert(io.open(HERE .. "/../drivers/tplink_light/driver.xml"))
+  local xml = f:read("*a")
+  f:close()
+  T.contains(
+    "driver.xml declares it before the light is connected",
+    xml,
+    "<supports_color_stop>True</supports_color_stop>"
+  )
   strip, busiest = { device_on = true, brightness = 5 }, 0
   own = {
     on_state = { enable = true, duration = 1, max_duration = 60 },
@@ -5561,8 +5629,8 @@ do
   reply()
   run(1000)
   activateColorAlone()
-  T.eq("a Kasa bulb fading to off is sent the off alone, so its off holds", flying(), {
-    { on_off = 0 },
+  T.eq("a Kasa bulb fading to off is sent the off alone, over what the fade has left, so its off holds", flying(), {
+    { on_off = 0, transition_period = 3000 },
   })
   reply()
   run(6000)
