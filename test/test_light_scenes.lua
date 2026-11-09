@@ -564,6 +564,10 @@ do
   proxy("ON")
   T.eq("it is sent the preset's color", colors(), { onColor })
   T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
+  T.eq("by the preset's id and origin", {
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID"),
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ORIGIN"),
+  }, { { ON.id }, { 1 } })
 end
 
 T.section("Color On Mode set to Previous turns the light on in the color it went off in")
@@ -577,6 +581,10 @@ do
   proxy("ON")
   T.eq("it is sent the color it went off in", colors(), { previous })
   T.eq("and the proxy is told it", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
+  T.eq("as the Previous On preset", {
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ID"),
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_PRESET_ORIGIN"),
+  }, { { PREVIOUS_ON.id }, { 1 } })
 end
 
 T.section("an edit of the preset the Color On Mode names is the color the light next turns on in")
