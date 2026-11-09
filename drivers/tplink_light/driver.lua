@@ -2075,8 +2075,7 @@ function RFP.SET_BRIGHTNESS_TARGET(idBinding, strCommand, tParams, args)
   local presetId = tointeger(Select(tParams, "LIGHT_BRIGHTNESS_TARGET_PRESET_ID"))
   local sent = mergedColorSent
   rampToBrightness(level, rate, presetId)
-  -- A Navigator's on is this, naming a brightness preset, and the proxy follows it with its Color On Mode's preset,
-  -- which a color held from while the light was off replaces. No other on has that follow-up.
+  -- A Navigator's on is this, naming a brightness preset. No other on is followed by the Color On Mode's preset.
   if presetId and mergedColorSent ~= sent and mergedColorSent.held then
     mergedColorSent.navigator = true
   end
