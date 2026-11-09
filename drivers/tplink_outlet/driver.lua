@@ -393,12 +393,6 @@ local function ensureButtonLinks(n)
           toggleOutput(n)
         end
       end
-      OBC[binding.bindingId] = function(idBinding, _, bIsBound)
-        if bIsBound then
-          reportButtonColors(idBinding, link)
-          reportButtonLed(idBinding, n)
-        end
-      end
     end
   end
 end

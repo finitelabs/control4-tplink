@@ -194,19 +194,14 @@ do
   )
 end
 
-T.section("a keypad bound to a link is told its colors and the output's state, and the LEDs follow it")
+T.section("a keypad bound to a link is told nothing until it asks, and the LEDs follow the output")
 do
   drain()
   for _, key in ipairs({ "on", "off", "toggle" }) do
     OnBindingChanged(link(key).bindingId, "BUTTON_LINK", true, 900, 1)
   end
   local told, _, toldColors = drain()
-  T.eq("its button's colors", toldColors, PROJECT_COLORS)
-  T.eq(
-    "off, on every link: the Off button's colors light it",
-    told,
-    { on = { false }, off = { false }, toggle = { false } }
-  )
+  T.eq("nothing at the bind: the keypad asks", { told, toldColors }, { {}, {} })
   plug.relay = 1
   EC.RefreshNow()
   told, _, toldColors = drain()
