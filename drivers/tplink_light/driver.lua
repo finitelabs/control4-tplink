@@ -2073,7 +2073,13 @@ function RFP.SET_BRIGHTNESS_TARGET(idBinding, strCommand, tParams, args)
   -- subsequent LIGHT_BRIGHTNESS_CHANGED notifies report it as the current
   -- preset id; other rampToBrightness call sites omit it and clear the id.
   local presetId = tointeger(Select(tParams, "LIGHT_BRIGHTNESS_TARGET_PRESET_ID"))
+  local sent = mergedColorSent
   rampToBrightness(level, rate, presetId)
+  -- A Navigator's on is this, naming a brightness preset, and the proxy follows it with its Color On Mode's preset,
+  -- which a color held from while the light was off replaces. No other on has that follow-up.
+  if presetId and mergedColorSent ~= sent and mergedColorSent.held then
+    mergedColorSent.navigator = true
+  end
 end
 
 function RFP.ON(idBinding, strCommand, tParams, args)
@@ -2168,12 +2174,12 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   -- The proxy sends a preset's x and y with its id and origin, and sends no preset it is asked for without an origin.
   local presetId = tointeger(Select(tParams, "LIGHT_COLOR_TARGET_PRESET_ID"))
   local presetOrigin = tointeger(Select(tParams, "LIGHT_COLOR_TARGET_PRESET_ORIGIN"))
-  -- A Navigator's on is a level and then its Color On Mode's preset: after an on in a color set while the light was
+  -- A Navigator's on is a level and then its Color On Mode's preset: after one in a color set while the light was
   -- off, that preset is the on mode's, which the color set replaces.
   local onPreset = persist:get(P.COLOR_ON_MODE, {}).onPreset
   if
     mergedColorSent
-    and mergedColorSent.held
+    and mergedColorSent.navigator
     and C4:GetTime() < mergedColorSent.untilMs
     and onPreset
     and presetId == onPreset.id

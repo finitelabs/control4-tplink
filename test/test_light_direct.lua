@@ -2334,9 +2334,45 @@ do
       LIGHT_COLOR_TARGET_PRESET_ORIGIN = origin,
     })
   end
+  local function navigatorOn()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, LIGHT_BRIGHTNESS_TARGET_PRESET_ID = 1, RATE = 750 })
+  end
+  -- Programming's On, a Toggle and a level have no follow-up: a color set right after one is a pick, sent.
   for _, case in ipairs({
-    { "the On color's preset, not applied", { 1, 1 }, 120 },
-    { "another preset, a pick", { 5, 2 }, 60 },
+    { "a Navigator's on, then the On color's preset, not applied", navigatorOn, { 1, 1 }, 120 },
+    { "a Navigator's on, then another preset, a pick", navigatorOn, { 5, 2 }, 60 },
+    {
+      "On, then the On color's preset, a pick",
+      function()
+        proxy("ON")
+      end,
+      { 1, 1 },
+      60,
+    },
+    {
+      "Toggle, then the On color's preset, a pick",
+      function()
+        proxy("TOGGLE")
+      end,
+      { 1, 1 },
+      60,
+    },
+    {
+      "a level, then the On color's preset, a pick",
+      function()
+        proxy("SET_LEVEL", { LEVEL = 100 })
+      end,
+      { 1, 1 },
+      60,
+    },
+    {
+      "a level target with no preset, then the On color's preset, a pick",
+      function()
+        proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
+      end,
+      { 1, 1 },
+      60,
+    },
   }) do
     forgetSetup()
     walked({ hue = 240, saturation = 100 }, NO_POLLS)
@@ -2345,10 +2381,10 @@ do
     serve(1000, 250)
     colorTarget(GREEN, 0)
     mark()
-    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, LIGHT_BRIGHTNESS_TARGET_PRESET_ID = 1, RATE = 750 })
-    followUp(ON, case[2][1], case[2][2])
+    case[2]()
+    followUp(ON, case[3][1], case[3][2])
     local hues = each(serve(3000, 250), "hue")
-    T.eq("a Navigator's on, then " .. case[1] .. ": the light ends in its hue", hues[#hues], case[3])
+    T.eq(case[1] .. ": the light ends in its hue", hues[#hues], case[4])
   end
 
   -- A Kasa bulb holds it the same way.
