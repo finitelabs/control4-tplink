@@ -289,6 +289,10 @@ local currentColorPreset = nil
 -- off. Not persisted, so a reload or a restart ends it.
 local colorPicked = false
 
+-- A color Control4 set while the light was off, { x, y, mode, preset }: the next on comes on in it, over the on mode's
+-- color, and it is picked from that on. Not persisted either.
+local nextOnColor = nil
+
 --#ifndef DRIVERCENTRAL
 --- Get all device IDs for instances of the TP-Link driver suite (outlet and
 --- light), sorted ascending. The suite shares one GitHub updater; the
@@ -1297,6 +1301,9 @@ local function notifyBrightnessChanged(level)
   end
   preOnTold = false
   currentBrightness = level
+  if level > 0 and nextOnColor then
+    nextOnColor, colorPicked = nil, true
+  end
   log:debug("LIGHT_BRIGHTNESS_CHANGED: %s", level)
   -- Echo back the preset id from the most recent SET_BRIGHTNESS_TARGET so the
   -- proxy / Daylight Agent (spec _10.2 / _2.1) knows the active preset still
@@ -1378,15 +1385,18 @@ local function sendBrightness(level, rateMs, keepColor, at)
   --      recompute via the formula every step, unless a color was picked since
   --      the light came on (colorPicked), which stays until it goes off.
   --   2. Off→on with any color on-mode (fade/previous/preset) — apply the
-  --      configured on-color in the same cmd. The proxy will typically also
+  --      configured on-color in the same cmd, or one set while the light was
+  --      off (nextOnColor), which is picked from then. The proxy will typically also
   --      send a SET_COLOR_TARGET right after this; mergedColorSent makes
   --      the SET_COLOR_TARGET handler skip a redundant light command that
   --      would otherwise cancel and restart the in-flight transition.
-  local mergedColor = nil
+  local mergedColor, held = nil, false
   -- A stop after a color was set sends the level alone.
   -- A color picked in a rated on from off also holds for a level that replaces the on before the light is lit.
   if not keepColor and not colorPicked then
-    if level > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE then
+    if level > 0 and nextOnColor then
+      mergedColor, nextOnColor, colorPicked, held = nextOnColor, nil, true, true
+    elseif level > 0 and getColorOnModeKind() == COLOR_ON_MODE_FADE then
       mergedColor = computeFadeColor(level)
     elseif goingOn then
       mergedColor = resolveOnColor(level)
@@ -1403,14 +1413,19 @@ local function sendBrightness(level, rateMs, keepColor, at)
       -- Window during which a follow-up SET_COLOR_TARGET targeting the same
       -- color is treated as already applied. 250ms covers the proxy's
       -- typical inter-cmd gap (~6-50ms) with a margin.
-      mergedColorSent = { x = mergedColor.x, y = mergedColor.y, mode = mergedColor.mode, untilMs = C4:GetTime() + 250 }
-      -- The merged color is computed from on-mode rules (fade/previous/
-      -- on-preset), not from an explicit SET_COLOR_TARGET. Clear any
-      -- lingering target-preset id so we don't echo a stale value. If the
+      mergedColorSent = {
+        x = mergedColor.x,
+        y = mergedColor.y,
+        mode = mergedColor.mode,
+        untilMs = C4:GetTime() + 250,
+        held = held,
+      }
+      -- An on mode's color names no preset, so a lingering target-preset id is
+      -- not echoed; one set while the light was off keeps its own. If the
       -- proxy follows up with a SET_COLOR_TARGET inside mergedColorSent's window,
       -- that handler will set the correct id before brightnessRampFinished
       -- emits the terminal LIGHT_COLOR_CHANGED.
-      currentColorPreset = nil
+      currentColorPreset = mergedColor.preset
       -- Stash on the ramp metadata so brightnessRampFinished can emit the
       -- terminal LIGHT_COLOR_CHANGED when the bulb's combined transition
       -- completes. The proxy needs CHANGING (now) + CHANGED (at finish) to
@@ -1631,7 +1646,10 @@ local function leaveBrightnessRamp()
 end
 
 local function awayFromFadeColor(level)
-  local fade = level > 0 and not colorPicked and getColorOnModeKind() == COLOR_ON_MODE_FADE and computeFadeColor(level)
+  local fade = level > 0
+    and not (colorPicked or nextOnColor)
+    and getColorOnModeKind() == COLOR_ON_MODE_FADE
+    and computeFadeColor(level)
   if not fade or not buildColorCmdFields(fade.x, fade.y, fade.mode) then
     return false
   end
@@ -1870,8 +1888,12 @@ function carry.resume()
 end
 
 local function rampToColor(targetX, targetY, targetMode, rate)
-  local lit = isLogicallyOn() and 1 or 0
-  rate = fadeTime(math.max(0, tointeger(rate) or 0), lit, lit)
+  -- A color for a light that is off is its next on's: held, and told at once.
+  local lit = isLogicallyOn()
+  if not lit then
+    nextOnColor = { x = targetX, y = targetY, mode = targetMode, preset = currentColorPreset }
+  end
+  rate = lit and fadeTime(math.max(0, tointeger(rate) or 0), 1, 1) or 0
 
   -- Drop the on color a brightness ramp carries, or its end would report it.
   leaveMergedColor()
@@ -1944,7 +1966,9 @@ local function rampStep()
   local color, last = nil, false
   if ramp and not rampingColor and not ramp.colorSet then
     if ramp.startLevel == 0 and level > 0 then
-      color = getColorOnModeKind() == COLOR_ON_MODE_FADE and not colorPicked and computeFadeColor(level)
+      color = getColorOnModeKind() == COLOR_ON_MODE_FADE
+          and not (colorPicked or nextOnColor)
+          and computeFadeColor(level)
         or ramp.mergedColor
       last = level == ramp.targetLevel
     elseif ramp.startLevel > 0 and ramp.mergedColor then
@@ -2049,7 +2073,12 @@ function RFP.SET_BRIGHTNESS_TARGET(idBinding, strCommand, tParams, args)
   -- subsequent LIGHT_BRIGHTNESS_CHANGED notifies report it as the current
   -- preset id; other rampToBrightness call sites omit it and clear the id.
   local presetId = tointeger(Select(tParams, "LIGHT_BRIGHTNESS_TARGET_PRESET_ID"))
+  local sent = mergedColorSent
   rampToBrightness(level, rate, presetId)
+  -- A Navigator's on is this, naming a brightness preset. No other on is followed by the Color On Mode's preset.
+  if presetId and mergedColorSent ~= sent and mergedColorSent.held then
+    mergedColorSent.navigator = true
+  end
 end
 
 function RFP.ON(idBinding, strCommand, tParams, args)
@@ -2144,6 +2173,20 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
   -- The proxy sends a preset's x and y with its id and origin, and sends no preset it is asked for without an origin.
   local presetId = tointeger(Select(tParams, "LIGHT_COLOR_TARGET_PRESET_ID"))
   local presetOrigin = tointeger(Select(tParams, "LIGHT_COLOR_TARGET_PRESET_ORIGIN"))
+  -- A Navigator's on is a level and then its Color On Mode's preset: after one in a color set while the light was
+  -- off, that preset is the on mode's, which the color set replaces.
+  local onPreset = persist:get(P.COLOR_ON_MODE, {}).onPreset
+  if
+    mergedColorSent
+    and mergedColorSent.navigator
+    and C4:GetTime() < mergedColorSent.untilMs
+    and onPreset
+    and presetId == onPreset.id
+    and presetOrigin == onPreset.origin
+  then
+    log:debug("SET_COLOR_TARGET of the Color On Mode's preset after an on in a held color: not sent")
+    return
+  end
   currentColorPreset = presetId and presetOrigin and { id = presetId, origin = presetOrigin } or nil
 
   local targetX, targetY, targetMode
@@ -2189,8 +2232,8 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
     return
   end
 
-  -- One set while the light is off is the color it next comes on in, which its Color On Mode then replaces. The
-  -- proxy's follow-up of an instant on's color still goes out, and is no pick.
+  -- One set while the light is off is the color it next comes on in, over its Color On Mode. The proxy's follow-up
+  -- of an instant on's color still goes out, and is no pick.
   local echo = window
     and sameColor(mergedColorSent.x, mergedColorSent.y, mergedColorSent.mode, targetX, targetY, targetMode)
   colorPicked = colorPicked or (isLogicallyOn() and not echo)
@@ -2449,7 +2492,10 @@ local function applySceneStep(step)
   local ownColor = color
   -- A step that sets a level alone takes the color a level command would, and none while a picked color holds.
   if not color and (level or 0) > 0 and not colorPicked then
-    if getColorOnModeKind() == COLOR_ON_MODE_FADE then
+    if nextOnColor then
+      color, nextOnColor, colorPicked = nextOnColor, nil, true
+      currentColorPreset = color.preset
+    elseif getColorOnModeKind() == COLOR_ON_MODE_FADE then
       color = computeFadeColor(step.level)
     elseif goingOn then
       color = resolveOnColor(step.level)

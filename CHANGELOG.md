@@ -43,6 +43,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a keypad button bound to a light's or an outlet's Button Link getting no
   answer when it asks for its colors and LED state. It is now answered on its
   link, and a light's button colors changed in Composer show on it at once.
+- Fixed a color set on a light while it is off giving way to the light's Color
+  On Mode at its next on. The light now comes on in that color, from a Navigator
+  as from programming, and Dim-To-Warm leaves it until the light turns off.
+  Control4 now shows such a color at once, even one set with a fade time.
 
 ### Changed
 
