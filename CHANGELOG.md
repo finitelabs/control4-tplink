@@ -40,8 +40,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Changed
 
-- Changed Log Level in the DriverCentral build to stop at 4 - Debug unless a
-  Support Code from Finite Labs support has the Lua tab open.
+- Changed Log Level to stop at 4 - Debug unless a Support Code from Finite Labs
+  support has the Lua tab open.
 
 <!-- #endif -->
 
