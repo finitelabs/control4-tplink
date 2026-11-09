@@ -148,7 +148,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   color.
 - Fixed a fade from a color to a white jumping to the warmest white when stopped
   part way, or to white at its start on a Tapo light.
-- Fixed Stop Brightness Change not stopping a fade on a light without color.
+- Fixed Stop Brightness Change not stopping a fade on a light without color,
+  which takes a controller restart for a light already in the project.
 - Fixed a keypad button bound to a light's or an outlet's Button Link not
   showing its colors and LED state.
 
