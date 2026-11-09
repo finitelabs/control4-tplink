@@ -57,6 +57,10 @@ end
 function C4:GetProxyDevices()
   return 727
 end
+-- The project's button LED colors, as dev's project has them.
+function C4:GetProjectProperty(name)
+  return ({ TopLEDOn = "0000ff", BottomLEDOff = "0000ff", ToggleLEDOn = "0000ff" })[name] or "000000"
+end
 function C4:GetBoundProviderDevice()
   return 0
 end
