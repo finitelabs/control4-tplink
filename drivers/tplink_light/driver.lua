@@ -2227,8 +2227,8 @@ function RFP.SET_COLOR_TARGET(idBinding, strCommand, tParams, args)
     return
   end
 
-  -- One set while the light is off is the color it next comes on in, which its Color On Mode then replaces. The
-  -- proxy's follow-up of an instant on's color still goes out, and is no pick.
+  -- One set while the light is off is the color it next comes on in, over its Color On Mode. The proxy's follow-up
+  -- of an instant on's color still goes out, and is no pick.
   local echo = window
     and sameColor(mergedColorSent.x, mergedColorSent.y, mergedColorSent.mode, targetX, targetY, targetMode)
   colorPicked = colorPicked or (isLogicallyOn() and not echo)
