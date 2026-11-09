@@ -57,6 +57,9 @@ end
 function C4:GetProxyDevices()
   return 727
 end
+function C4:GetProjectProperty()
+  return "000000"
+end
 function C4:GetBoundProviderDevice()
   return 0
 end

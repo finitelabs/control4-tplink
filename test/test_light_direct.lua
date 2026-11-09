@@ -297,6 +297,18 @@ local proxySetup = ""
 function C4:GetProxyDevices()
   return 727
 end
+-- The project's button LED colors, as dev's project has them.
+local project = {
+  TopLEDOn = "0000ff",
+  TopLEDOff = "000000",
+  BottomLEDOn = "000000",
+  BottomLEDOff = "0000ff",
+  ToggleLEDOn = "0000ff",
+  ToggleLEDOff = "000000",
+}
+function C4:GetProjectProperty(name)
+  return project[name]
+end
 -- What the proxy shows, or nil for one never told it: its Brightness Percent (1001) and Current Color Chromaticity
 -- (1200, to six figures as a dev proxy shows it), each the current a CHANGED or CHANGING told it, and their targets
 -- (1110, 1210), a CHANGING's target or a CHANGED's value.
@@ -4185,7 +4197,7 @@ do
     local rate = told("LIGHT_BRIGHTNESS_CHANGING", "RATE")[1]
     serve(rate / 2, 250)
     T.eq(c[1] .. " from off: the LEDs are told on as its ramp begins", leds(), { { 0, true } })
-    T.eq("and Request Button Colors half way says on", buttonColors(), { true, true, false })
+    T.eq("and Request Button Colors half way says on", buttonColors(), { true, true, true })
     mark()
     serve(rate, 250)
     T.eq("and the LEDs are told nothing more at its end", leds(), {})
@@ -4211,7 +4223,7 @@ do
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 2000 })
   serve(1000, 250)
   T.eq("a fade to off: the LEDs are told nothing half way", leds(), {})
-  T.eq("and Request Button Colors half way says on", buttonColors(), { true, true, false })
+  T.eq("and Request Button Colors half way says on", buttonColors(), { true, true, true })
   mark()
   serve(2000, 250)
   T.eq("they are told off at the fade's end", leds(), { { 1000, false } })
@@ -5701,9 +5713,9 @@ do
   T.eq("and to no other link", toldOn(TOP_LINK), {})
   mark()
   RFP.REQUEST_BUTTON_COLORS(BOTTOM_LINK, "REQUEST_BUTTON_COLORS", {})
-  T.eq("the Bottom link asked: its colors, then its LED, unlit while the light is on", toldOn(BOTTOM_LINK), {
+  T.eq("the Bottom link asked: its colors, then the light's state, on", toldOn(BOTTOM_LINK), {
     { "BUTTON_COLORS", { ON_COLOR = "ff0000", OFF_COLOR = "00ff00" } },
-    { "MATCH_LED_STATE", { STATE = false } },
+    { "MATCH_LED_STATE", { STATE = true } },
   })
   T.eq("and the proxy is told nothing", #sent, 2)
   mark()
@@ -5715,6 +5727,64 @@ do
   mark()
   RFP.REQUEST_BUTTON_COLORS(999, "REQUEST_BUTTON_COLORS", {})
   T.eq("a binding that is no link is told nothing", sent, {})
+end
+
+T.section("a light's buttons have the proxy's colors, or else the project's, and each link is told them at start")
+do
+  local f = assert(io.open(HERE .. "/../drivers/tplink_light/driver.xml"))
+  local xml = f:read("*a")
+  f:close()
+  T.contains("driver.xml lets Composer set the button colors", xml, "<has_leds>True</has_leds>")
+
+  --- What each Button Link was told of its colors since the mark: Top, Toggle, Bottom.
+  local function linkColors()
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.command == "BUTTON_COLORS" and s.binding ~= PROXY then
+        out[s.binding] = { s.params.ON_COLOR, s.params.OFF_COLOR }
+      end
+    end
+    return { out[300], out[301], out[302] }
+  end
+  --- Start the light on `setup` with no colors of its own, and keep what it tells.
+  local function started(setup)
+    persist:delete("button_colors")
+    forgetSetup()
+    proxySetup = setup
+    startDriver()
+    shakeHands()
+    mark()
+    reply(info())
+  end
+  project.TopLEDOn, project.ToggleLEDOff = "ff8800", "112233"
+
+  started("")
+  T.eq("a proxy that lists no buttons: the project's colors", linkColors(), {
+    { "ff8800", "000000" },
+    { "0000ff", "112233" },
+    { "000000", "0000ff" },
+  })
+
+  -- The proxy lists its buttons with the colors it had at install, which may be other than the project's now.
+  local setup = setupFile("setup-727.xml"):gsub("<ON_COLOR>0000ff</ON_COLOR>", "<ON_COLOR>00ff00</ON_COLOR>", 1)
+  started(setup)
+  T.eq("a proxy that lists them: its own", linkColors(), {
+    { "00ff00", "000000" },
+    { "0000ff", "000000" },
+    { "000000", "0000ff" },
+  })
+  mark()
+  RFP.REQUEST_BUTTON_COLORS(300, "REQUEST_BUTTON_COLORS", {})
+  T.eq("and the Top link is answered with them", linkColors(), { { "00ff00", "000000" } })
+
+  started("")
+  mark()
+  proxy("SET_BUTTON_COLOR", { BUTTON_ID = 2, ON_COLOR = "abcdef" })
+  T.eq("an on color alone keeps the project's off color", linkColors(), { nil, { "abcdef", "112233" } })
+
+  project.TopLEDOn, project.ToggleLEDOff = "0000ff", "000000"
+  persist:delete("button_colors")
+  proxySetup = ""
 end
 
 T.section("the keypad LEDs show the light off when it goes offline")

@@ -38,11 +38,11 @@
  17700  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={on_off=0,transition_period=750}}}
  18360 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=0}
  18360  300 MATCH_LED_STATE {STATE=false}
- 18360  302 MATCH_LED_STATE {STATE=true}
+ 18360  302 MATCH_LED_STATE {STATE=false}
  18360  301 MATCH_LED_STATE {STATE=false}
  19610 5001 LIGHT_BRIGHTNESS_CHANGING {LIGHT_BRIGHTNESS_CURRENT=1,LIGHT_BRIGHTNESS_TARGET=60,RATE=2000}
  19610  300 MATCH_LED_STATE {STATE=true}
- 19610  302 MATCH_LED_STATE {STATE=false}
+ 19610  302 MATCH_LED_STATE {STATE=true}
  19610  301 MATCH_LED_STATE {STATE=true}
  19610  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={brightness=60,ignore_default=1,on_off=1,transition_period=2000}}}
  20000  req {system={get_sysinfo={}}}
@@ -52,7 +52,7 @@
  24110 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=10}
  24610 5001 LIGHT_BRIGHTNESS_CHANGED {LIGHT_BRIGHTNESS_CURRENT=0}
  24610  300 MATCH_LED_STATE {STATE=false}
- 24610  302 MATCH_LED_STATE {STATE=true}
+ 24610  302 MATCH_LED_STATE {STATE=false}
  24610  301 MATCH_LED_STATE {STATE=false}
  24610  req {smartlife.iot.smartbulb.lightingservice={transition_light_state={on_off=0}}}
  25000  req {system={get_sysinfo={}}}

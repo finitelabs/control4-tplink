@@ -152,6 +152,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   which takes a controller restart for a light already in the project.
 - Fixed a keypad button bound to a light's or an outlet's Button Link not
   showing its colors and LED state.
+- Fixed keypad buttons on a light's Button Links showing default colors in place
+  of the project's button LED colors, which can now be set for each light in
+  Composer.
 
 ## v20261105 - 2026-11-05
 
