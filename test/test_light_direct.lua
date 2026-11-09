@@ -2073,6 +2073,14 @@ do
       COLOR_FADE_PRESET_COLOR_MODE = 0,
     })
   end
+  --- The strip turned off in `color`, which holds for no next on.
+  local function offIn(color)
+    proxy("SET_LEVEL", { LEVEL = 100 })
+    colorTarget(color, 0)
+    serve(1000, 250)
+    proxy("OFF")
+    serve(1000, 250)
+  end
   forgetSetup()
   walked({ device_on = false }, NO_POLLS)
   onMode(false)
@@ -2088,9 +2096,7 @@ do
   })
   T.eq("and the steps after name the level alone", Select(steps, 2, "sent"), { device_on = true, brightness = 9 })
   T.eq("the proxy is told the color at the ramp's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
-  proxy("OFF")
-  serve(1000, 250)
-  colorTarget(BLUE, 0)
+  offIn(BLUE)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 10, RATE = 30000 })
   run(100)
   T.eq("off in blue, a slow on's first step, at 1 %, carries it too", flying(), {
@@ -2114,7 +2120,7 @@ do
     { ON[1] }
   )
   -- Off in blue, a ramped on in the On color, and a color before its first step.
-  colorTarget(BLUE, 0)
+  offIn(BLUE)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   mark()
   colorTarget(xy(120, 50), 2000)
@@ -2124,10 +2130,8 @@ do
     { BLUE[1] }
   )
   serve(5000, 250)
-  proxy("OFF")
-  serve(1000, 250)
   -- Off in blue, a ramped on in the On color, and a level a second into it.
-  colorTarget(BLUE, 0)
+  offIn(BLUE)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   serve(1000, 250)
   proxy("SET_LEVEL", { LEVEL = 50 })
@@ -2236,6 +2240,131 @@ do
     { #steps, each(steps, "hue") },
     { 20, { 32, 35, 38, 41, 44, 47, 50, 53, 56, 59, 60 } }
   )
+  forgetSetup()
+end
+
+T.section("a color Control4 sets while a light is off is the color of its next on, over its Color On Mode")
+do
+  local ON, DIM, GREEN = xy(60, 20), xy(30, 80), xy(120, 50)
+  local IN_GREEN = { hue = 120, saturation = 50, color_temp = 0 }
+  --- A Color On Mode of the preset ON, or Previous, with Dim-To-Warm down to DIM if `fade`.
+  local function onMode(previous, fade)
+    proxy("UPDATE_COLOR_ON_MODE", {
+      COLOR_PRESET_ID = previous and 10 or 1,
+      COLOR_PRESET_ORIGIN = 1,
+      COLOR_PRESET_COLOR_X = ON[1],
+      COLOR_PRESET_COLOR_Y = ON[2],
+      COLOR_PRESET_COLOR_MODE = 0,
+      COLOR_FADE_PRESET_ID = fade and 2 or 0,
+      COLOR_FADE_PRESET_ORIGIN = fade and 1 or 0,
+      COLOR_FADE_PRESET_COLOR_X = DIM[1],
+      COLOR_FADE_PRESET_COLOR_Y = DIM[2],
+      COLOR_FADE_PRESET_COLOR_MODE = 0,
+    })
+  end
+  local function color(sent)
+    return sent and { hue = sent.hue, saturation = sent.saturation, color_temp = sent.color_temp }
+  end
+
+  for _, case in ipairs({ { "with an On color", false }, { "with Previous", true } }) do
+    local name, previous = case[1], case[2]
+    forgetSetup()
+    -- Off in blue, so Previous has a color of its own.
+    walked({ hue = 240, saturation = 100 }, NO_POLLS)
+    onMode(previous, false)
+    proxy("OFF")
+    serve(1000, 250)
+    mark()
+    colorTarget(GREEN, 2000)
+    T.eq(
+      name .. ": a color over a rate is told at once, as the light's color",
+      { told("LIGHT_COLOR_CHANGING"), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X") },
+      { {}, { GREEN[1] } }
+    )
+    T.eq(name .. ": and the light is sent nothing", serve(3000, 250), {})
+    proxy("ON")
+    local steps = serve(1000, 250)
+    T.eq(name .. ": the next on comes on in it", color(Select(steps, 1, "sent")), IN_GREEN)
+    proxy("OFF")
+    serve(1000, 250)
+    proxy("ON")
+    steps = serve(1000, 250)
+    T.eq(
+      name .. ": the on after that is in the Color On Mode's color again",
+      color(Select(steps, 1, "sent")),
+      previous and IN_GREEN or { hue = 60, saturation = 20, color_temp = 0 }
+    )
+  end
+
+  forgetSetup()
+  walked({ device_on = false }, NO_POLLS)
+  onMode(false, true)
+  colorTarget(GREEN, 0)
+  proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
+  local steps = serve(5000, 250)
+  T.eq("with Dim-To-Warm: a ramped on's first step is in it", color(Select(steps, 1, "sent")), IN_GREEN)
+  T.eq("and no step after it names a color", #each(steps, "hue"), 1)
+  mark()
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  steps = serve(1000, 250)
+  T.eq("a level then keeps it, as one picked while the light is on", Select(steps, 1, "sent"), {
+    device_on = true,
+    brightness = 50,
+  })
+  T.eq("and tells no color", told("LIGHT_COLOR_CHANGED"), {})
+  proxy("OFF")
+  serve(1000, 250)
+  proxy("SET_LEVEL", { LEVEL = 50 })
+  steps = serve(1000, 250)
+  T.eq(
+    "once off, the next on follows Dim-To-Warm again",
+    color(Select(steps, 1, "sent")),
+    { hue = 45, saturation = 50, color_temp = 0 }
+  )
+
+  -- A Navigator's on is a level and then the Color On Mode's preset, which the color set while off replaces.
+  --- The proxy's follow-up of an on, naming the preset `id` of `origin`.
+  local function followUp(color, id, origin)
+    proxy("SET_COLOR_TARGET", {
+      LIGHT_COLOR_TARGET_X = color[1],
+      LIGHT_COLOR_TARGET_Y = color[2],
+      LIGHT_COLOR_TARGET_MODE = 0,
+      LIGHT_COLOR_TARGET_RATE = 750,
+      LIGHT_COLOR_TARGET_PRESET_ID = id,
+      LIGHT_COLOR_TARGET_PRESET_ORIGIN = origin,
+    })
+  end
+  for _, case in ipairs({
+    { "the On color's preset, not applied", { 1, 1 }, 120 },
+    { "another preset, a pick", { 5, 2 }, 60 },
+  }) do
+    forgetSetup()
+    walked({ hue = 240, saturation = 100 }, NO_POLLS)
+    onMode(false, false)
+    proxy("OFF")
+    serve(1000, 250)
+    colorTarget(GREEN, 0)
+    mark()
+    proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, LIGHT_BRIGHTNESS_TARGET_PRESET_ID = 1, RATE = 750 })
+    followUp(ON, case[2][1], case[2][2])
+    local hues = each(serve(3000, 250), "hue")
+    T.eq("a Navigator's on, then " .. case[1] .. ": the light ends in its hue", hues[#hues], case[3])
+  end
+
+  -- A Kasa bulb holds it the same way.
+  forgetSetup()
+  local kasaOff = { on_off = 0, dft_on_state = { brightness = 100, hue = 0, saturation = 100, color_temp = 0 } }
+  bulb(kasaOff)
+  onMode(false, false)
+  colorTarget(GREEN, 0)
+  reply()
+  proxy("ON")
+  T.eq(
+    "a Kasa bulb's next on carries it over the On color",
+    flying(),
+    { { on_off = 1, brightness = 100, hue = 120, saturation = 50, color_temp = 0, ignore_default = 1 } }
+  )
+  reply()
   forgetSetup()
 end
 
@@ -2770,7 +2899,7 @@ do
 
   -- The color a ramped on carries, told as changing, when the level is moved.
   forgetSetup()
-  walked({ device_on = false })
+  walked({ device_on = false, hue = 240, saturation = 100 })
   proxy("UPDATE_COLOR_ON_MODE", {
     COLOR_PRESET_ID = 1,
     COLOR_PRESET_ORIGIN = 1,
@@ -2780,10 +2909,6 @@ do
     COLOR_FADE_PRESET_ID = 0,
     COLOR_FADE_PRESET_ORIGIN = 0,
   })
-  proxy(
-    "SET_COLOR_TARGET",
-    { LIGHT_COLOR_TARGET_X = BLUE[1], LIGHT_COLOR_TARGET_Y = BLUE[2], LIGHT_COLOR_TARGET_MODE = 0 }
-  )
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 300000 })
   serve(9000, 250)
   strip.brightness = 70

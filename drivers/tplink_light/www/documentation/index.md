@@ -438,6 +438,13 @@ stays when the light is dimmed or brightened. The light follows Dim-To-Warm
 again the next time it turns on, and from its first level change after a
 controller restart or a driver update.
 
+A color set while the light is off is the color it next turns on in, over its
+**Color On Mode**, whether it is turned on from a Navigator, programming or a
+scene. Control4 shows it as the light's color at once, with no fade. With
+Dim-To-Warm it then stays when the light is dimmed or brightened, until the
+light turns off. A controller restart or a driver update before the light turns
+on returns it to its Color On Mode.
+
 # <span style="color:#4ACBD6">Troubleshooting</span>
 
 <!-- #ifdef DRIVERCENTRAL -->
