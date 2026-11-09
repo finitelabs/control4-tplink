@@ -245,6 +245,7 @@
     <hold_rate_max>86400000</hold_rate_max>
     <supports_color>False</supports_color>
     <supports_color_correlated_temperature>False</supports_color_correlated_temperature>
+    <!-- The proxy passes SET_BRIGHTNESS_STOP on only to a light with this True. -->
     <supports_color_stop>True</supports_color_stop>
     <color_correlated_temperature_min>2000</color_correlated_temperature_min>
     <color_correlated_temperature_max>6500</color_correlated_temperature_max>
