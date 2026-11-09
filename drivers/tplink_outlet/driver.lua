@@ -308,32 +308,48 @@ local BUTTON_LINK_COALESCE_MS = 500
 --- @type table<integer, boolean>
 local buttonCoalescing = {}
 
---- Each output's keypad links, by the key of their binding.
+--- Each output's keypad links, by the key of their binding, with the project
+--- properties that hold their button's LED colors, on and off.
 local BUTTON_LINKS = {
-  { key = "on", name = "On" },
-  { key = "off", name = "Off" },
-  { key = "toggle", name = "Toggle" },
+  { key = "on", name = "On", colors = { "TopLEDOn", "TopLEDOff" } },
+  { key = "off", name = "Off", colors = { "BottomLEDOn", "BottomLEDOff" } },
+  { key = "toggle", name = "Toggle", colors = { "ToggleLEDOn", "ToggleLEDOff" } },
 }
 
---- Tell a keypad link its LED state: On and Toggle light while the output is
---- on, Off while it is off. Sends nothing while the state is unknown.
+--- Tell a keypad link the output's state. Every link is told the same: the Off
+--- button's colors are what light its LED while the output is off. Sends
+--- nothing while the state is unknown.
 --- @param idBinding integer
 --- @param n number Output number (1-based).
---- @param key string "on", "off" or "toggle".
-local function reportButtonLed(idBinding, n, key)
+local function reportButtonLed(idBinding, n)
   local state = Select(outputs, n, "state")
   if state ~= nil then
-    SendToProxy(idBinding, "MATCH_LED_STATE", { STATE = (key == "off") ~= state }, "NOTIFY", true)
+    SendToProxy(idBinding, "MATCH_LED_STATE", { STATE = state }, "NOTIFY", true)
   end
 end
 
---- Tell each of an output's keypad links its LED state.
+--- Tell a keypad link its button's colors, the project's.
+--- @param idBinding integer
+--- @param link table An entry of BUTTON_LINKS.
+local function reportButtonColors(idBinding, link)
+  SendToProxy(idBinding, "BUTTON_COLORS", {
+    ON_COLOR = C4:GetProjectProperty(link.colors[1]),
+    OFF_COLOR = C4:GetProjectProperty(link.colors[2]),
+  }, "NOTIFY")
+end
+
+--- Tell each of an output's keypad links its LED state, and its colors first
+--- where `withColors` is set.
 --- @param n number Output number (1-based).
-local function reportButtonLeds(n)
+--- @param withColors? boolean
+local function reportButtonLeds(n, withColors)
   for _, link in ipairs(BUTTON_LINKS) do
     local binding = bindings:getDynamicBinding(NS_BUTTON, "output_" .. n .. "_" .. link.key)
     if binding ~= nil then
-      reportButtonLed(binding.bindingId, n, link.key)
+      if withColors then
+        reportButtonColors(binding.bindingId, link)
+      end
+      reportButtonLed(binding.bindingId, n)
     end
   end
 end
@@ -353,9 +369,10 @@ local function ensureButtonLinks(n)
     if binding ~= nil then
       RFP[binding.bindingId] = function(idBinding, strCommand)
         log:trace("RFP button output=%s link=%s strCommand=%s", n, link.key, strCommand)
-        -- A keypad asks its link over the link: an output has no button colors, so it is told its LED.
+        -- A keypad asks its link over the link, and is told its colors and the output's state.
         if strCommand == "REQUEST_BUTTON_COLORS" then
-          reportButtonLed(idBinding, n, link.key)
+          reportButtonColors(idBinding, link)
+          reportButtonLed(idBinding, n)
           return
         end
         if strCommand ~= "DO_PUSH" and strCommand ~= "DO_CLICK" then
@@ -378,7 +395,8 @@ local function ensureButtonLinks(n)
       end
       OBC[binding.bindingId] = function(idBinding, _, bIsBound)
         if bIsBound then
-          reportButtonLed(idBinding, n, link.key)
+          reportButtonColors(idBinding, link)
+          reportButtonLed(idBinding, n)
         end
       end
     end
@@ -424,14 +442,18 @@ local function applyOutputState(n, state)
     if binding then
       SendToProxy(binding.bindingId, state and "CLOSED" or "OPENED", {}, "NOTIFY")
     end
-    reportButtonLeds(n)
+    -- A keypad keeps the colors it was last told, so a start's first state tells them again.
+    reportButtonLeds(n, first)
     if gInitialized then
       C4:FireEventByID(state and n or (constants.EVENT_OFF_OFFSET + n))
     end
-  elseif first and binding then
-    -- A relay bound before this start's first poll was told nothing, and a
-    -- restarted controller shows its state unverified until it is told.
-    reportRelayState(binding.bindingId, n)
+  elseif first then
+    if binding then
+      -- A relay bound before this start's first poll was told nothing, and a
+      -- restarted controller shows its state unverified until it is told.
+      reportRelayState(binding.bindingId, n)
+    end
+    reportButtonLeds(n, true)
   end
 
   -- Always re-sync a bound light, not just on change: a light driver that

@@ -83,6 +83,19 @@ function C4:UpdateProperty(name, value)
   Properties[name] = value
 end
 
+-- The project's button LED colors: dev's, with Toggle's changed so each button's pair is its own.
+local project = {
+  TopLEDOn = "0000ff",
+  TopLEDOff = "000000",
+  BottomLEDOn = "000000",
+  BottomLEDOff = "0000ff",
+  ToggleLEDOn = "ff8800",
+  ToggleLEDOff = "112233",
+}
+function C4:GetProjectProperty(name)
+  return project[name]
+end
+
 --- Every event fired, by id.
 local fired = {}
 function C4:FireEventByID(id)
@@ -115,25 +128,31 @@ local function link(key)
   return bindings:getDynamicBinding("button", "output_1_" .. key)
 end
 
---- LED states told to each keypad link, as { key = { states } }.
-local leds = {}
+--- LED states told to each keypad link, as { key = { states } }, and the
+--- colors each was told, as { key = { on, off } }, the last of them.
+local leds, colors = {}, {}
 function SendToProxy(idBinding, strCommand, tParams)
-  if strCommand == "MATCH_LED_STATE" then
-    for _, key in ipairs({ "on", "off", "toggle" }) do
-      if link(key) ~= nil and link(key).bindingId == idBinding then
+  for _, key in ipairs({ "on", "off", "toggle" }) do
+    if link(key) ~= nil and link(key).bindingId == idBinding then
+      if strCommand == "MATCH_LED_STATE" then
         leds[key] = leds[key] or {}
         table.insert(leds[key], tParams.STATE)
+      elseif strCommand == "BUTTON_COLORS" then
+        colors[key] = { tParams.ON_COLOR, tParams.OFF_COLOR }
       end
     end
   end
 end
 
---- The LEDs told and the relay states set since the last call.
+--- The LEDs told and the relay states set since the last call, and the colors told.
 local function drain()
-  local told, set = leds, plug.set
-  leds, plug.set = {}, {}
-  return told, set
+  local told, set, toldColors = leds, plug.set, colors
+  leds, plug.set, colors = {}, {}, {}
+  return told, set, toldColors
 end
+
+--- Each link's colors, as the project has them for its button.
+local PROJECT_COLORS = { on = { "0000ff", "000000" }, off = { "000000", "0000ff" }, toggle = { "ff8800", "112233" } }
 
 --- Set a property as Composer does: the value, then the driver's handler.
 local function setProperty(name, value)
@@ -175,34 +194,58 @@ do
   )
 end
 
-T.section("a keypad bound to a link is told its LED, and the LEDs follow the output")
+T.section("a keypad bound to a link is told its colors and the output's state, and the LEDs follow it")
 do
   drain()
   for _, key in ipairs({ "on", "off", "toggle" }) do
     OnBindingChanged(link(key).bindingId, "BUTTON_LINK", true, 900, 1)
   end
-  T.eq("off: only the Off LED lit", (drain()), { on = { false }, off = { true }, toggle = { false } })
+  local told, _, toldColors = drain()
+  T.eq("its button's colors", toldColors, PROJECT_COLORS)
+  T.eq(
+    "off, on every link: the Off button's colors light it",
+    told,
+    { on = { false }, off = { false }, toggle = { false } }
+  )
   plug.relay = 1
   EC.RefreshNow()
-  T.eq("switched on at the plug", (drain()), { on = { true }, off = { false }, toggle = { true } })
+  told, _, toldColors = drain()
+  T.eq("switched on at the plug: on, on every link", told, { on = { true }, off = { true }, toggle = { true } })
+  T.eq("and no colors again", toldColors, {})
   T.eq("its State property reads On", Properties["Output 1 State"], "On")
   T.eq("while programming reads 1", Variables["Output 1 State"], "1")
   EC.RefreshNow()
   T.eq("a poll with no change tells nothing", (drain()), {})
 end
 
-T.section("a keypad that asks a link for its colors is told the link's LED on it")
+T.section("a keypad that asks a link for its colors is told them and the output's state on it")
 do
   drain()
   ReceivedFromProxy(link("off").bindingId, "REQUEST_BUTTON_COLORS", {})
-  local told, set = drain()
+  local told, set, toldColors = drain()
   T.eq(
-    "the Off link, with the output on: its LED unlit, and nothing switched",
-    { told, set },
-    { { off = { false } }, {} }
+    "the Off link, with the output on: the Bottom colors, on, and nothing switched",
+    { toldColors, told, set },
+    { { off = PROJECT_COLORS.off }, { off = { true } }, {} }
   )
   ReceivedFromProxy(link("toggle").bindingId, "REQUEST_BUTTON_COLORS", {})
-  T.eq("the Toggle link: lit", (drain()), { toggle = { true } })
+  told, set, toldColors = drain()
+  T.eq(
+    "the Toggle link: the Toggle colors, on",
+    { toldColors, told },
+    { { toggle = PROJECT_COLORS.toggle }, { toggle = { true } } }
+  )
+end
+
+T.section("after a driver update each link is told its colors and the output's state at the first poll")
+do
+  ShimUpdateDriver()
+  dofile(HERE .. "/../drivers/tplink_outlet/driver.lua")
+  drain()
+  ShimLateInit()
+  local told, _, toldColors = drain()
+  T.eq("the project's colors for its button", toldColors, PROJECT_COLORS)
+  T.eq("and on, on every link", told, { on = { true }, off = { true }, toggle = { true } })
 end
 
 T.section("a press switches the output once, whichever of push and click a keypad sends")
@@ -211,7 +254,7 @@ do
   ReceivedFromProxy(link("off").bindingId, "DO_CLICK", {})
   local told, set = drain()
   T.eq("Off: a tap switches the output off once", set, { 0 })
-  T.eq("and the LEDs follow", told, { on = { false }, off = { true }, toggle = { false } })
+  T.eq("and the LEDs follow", told, { on = { false }, off = { false }, toggle = { false } })
   ShimFireTimers()
   drain()
   ReceivedFromProxy(link("toggle").bindingId, "DO_CLICK", {})

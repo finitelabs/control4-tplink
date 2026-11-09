@@ -134,6 +134,9 @@ end
 function C4:UpdateProperty(name, value)
   Properties[name] = value
 end
+function C4:GetProjectProperty()
+  return "000000"
+end
 
 Properties = {
   ["Driver Status"] = "",
