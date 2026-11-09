@@ -191,6 +191,20 @@ do
   T.eq("a poll with no change tells nothing", (drain()), {})
 end
 
+T.section("a keypad that asks a link for its colors is told the link's LED on it")
+do
+  drain()
+  ReceivedFromProxy(link("off").bindingId, "REQUEST_BUTTON_COLORS", {})
+  local told, set = drain()
+  T.eq(
+    "the Off link, with the output on: its LED unlit, and nothing switched",
+    { told, set },
+    { { off = { false } }, {} }
+  )
+  ReceivedFromProxy(link("toggle").bindingId, "REQUEST_BUTTON_COLORS", {})
+  T.eq("the Toggle link: lit", (drain()), { toggle = { true } })
+end
+
 T.section("a press switches the output once, whichever of push and click a keypad sends")
 do
   ReceivedFromProxy(link("off").bindingId, "DO_PUSH", {})

@@ -5447,6 +5447,47 @@ do
   T.eq("and is told as one", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { 1 })
 end
 
+T.section("a keypad asks a button link for its colors over the link, and is answered on it")
+do
+  local TOP_LINK, BOTTOM_LINK = 300, 302
+  --- What `binding` was told since the mark, in order: { command, params } each.
+  local function toldOn(binding)
+    local out = {}
+    for _, s in ipairs(sent) do
+      if s.binding == binding then
+        out[#out + 1] = { s.command, s.params }
+      end
+    end
+    return out
+  end
+  persist:delete("button_colors")
+  light()
+  mark()
+  proxy("SET_BUTTON_COLOR", { BUTTON_ID = 1, ON_COLOR = "ff0000", OFF_COLOR = "00ff00" })
+  T.eq(
+    "a color set for the Bottom button goes to its link at once",
+    toldOn(BOTTOM_LINK),
+    { { "BUTTON_COLORS", { ON_COLOR = "ff0000", OFF_COLOR = "00ff00" } } }
+  )
+  T.eq("and to no other link", toldOn(TOP_LINK), {})
+  mark()
+  RFP.REQUEST_BUTTON_COLORS(BOTTOM_LINK, "REQUEST_BUTTON_COLORS", {})
+  T.eq("the Bottom link asked: its colors, then its LED, unlit while the light is on", toldOn(BOTTOM_LINK), {
+    { "BUTTON_COLORS", { ON_COLOR = "ff0000", OFF_COLOR = "00ff00" } },
+    { "MATCH_LED_STATE", { STATE = false } },
+  })
+  T.eq("and the proxy is told nothing", #sent, 2)
+  mark()
+  RFP.REQUEST_BUTTON_COLORS(TOP_LINK, "REQUEST_BUTTON_COLORS", {})
+  T.eq("the Top link asked: its own colors, and its LED lit", toldOn(TOP_LINK), {
+    { "BUTTON_COLORS", { ON_COLOR = "0000ff", OFF_COLOR = "000000" } },
+    { "MATCH_LED_STATE", { STATE = true } },
+  })
+  mark()
+  RFP.REQUEST_BUTTON_COLORS(999, "REQUEST_BUTTON_COLORS", {})
+  T.eq("a binding that is no link is told nothing", sent, {})
+end
+
 T.section("the keypad LEDs show the light off when it goes offline")
 do
   light()

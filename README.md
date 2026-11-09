@@ -157,6 +157,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   a fade on a light without color. Control4 passes that stop only to a light
   that has a color stop, which every light that dims now has. A light already in
   a project takes this at the controller's next restart.
+- Fixed a keypad button bound to a light's or an outlet's Button Link getting no
+  answer when it asks for its colors and LED state. It is now answered on its
+  link, and a light's button colors changed in Composer show on it at once.
 
 ### Changed
 

@@ -353,6 +353,11 @@ local function ensureButtonLinks(n)
     if binding ~= nil then
       RFP[binding.bindingId] = function(idBinding, strCommand)
         log:trace("RFP button output=%s link=%s strCommand=%s", n, link.key, strCommand)
+        -- A keypad asks its link over the link: an output has no button colors, so it is told its LED.
+        if strCommand == "REQUEST_BUTTON_COLORS" then
+          reportButtonLed(idBinding, n, link.key)
+          return
+        end
         if strCommand ~= "DO_PUSH" and strCommand ~= "DO_CLICK" then
           return
         end
