@@ -241,6 +241,19 @@ do
   local told, _, toldColors = drain()
   T.eq("the project's colors for its button", toldColors, PROJECT_COLORS)
   T.eq("and on, on every link", told, { on = { true }, off = { true }, toggle = { true } })
+
+  -- Switched off at the plug while the driver was down: the first poll is a change.
+  ShimUpdateDriver()
+  dofile(HERE .. "/../drivers/tplink_outlet/driver.lua")
+  drain()
+  plug.relay = 0
+  ShimLateInit()
+  told, _, toldColors = drain()
+  T.eq("switched while down: the colors too", toldColors, PROJECT_COLORS)
+  T.eq("and off, on every link", told, { on = { false }, off = { false }, toggle = { false } })
+  plug.relay = 1
+  EC.RefreshNow()
+  drain()
 end
 
 T.section("a press switches the output once, whichever of push and click a keypad sends")
