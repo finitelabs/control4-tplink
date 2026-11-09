@@ -35,9 +35,8 @@ function C4:GetTime()
   return now
 end
 
--- The project's button LED colors, as dev's project has them.
-function C4:GetProjectProperty(name)
-  return ({ TopLEDOn = "0000ff", BottomLEDOff = "0000ff", ToggleLEDOn = "0000ff" })[name] or "000000"
+function C4:GetProjectProperty()
+  return "000000"
 end
 
 function C4:SetTimer(delayMs, callback)

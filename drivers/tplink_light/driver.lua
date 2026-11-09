@@ -3136,7 +3136,6 @@ function RFP.REQUEST_BUTTON_COLORS(idBinding, strCommand, tParams, args)
       OFF_COLOR = offColor,
     }, "NOTIFY")
   end
-  -- MATCH_LED_STATE per button binding, each the light's state.
   local isOn = ledState == true
   SendToProxy(ON_BINDING, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
   SendToProxy(OFF_BINDING, "MATCH_LED_STATE", { STATE = isOn }, "NOTIFY", true)
