@@ -2,13 +2,16 @@
 
 ## Overview
 
+*This software is neither affiliated with nor endorsed by either Control4 or
+TP-Link.*
+
 Control TP-Link Kasa and Tapo smart plugs, power strips and lights from Control4
 over your local network, with no TP-Link cloud. The drivers work out how each
 device connects and keep working when TP-Link updates its firmware.
 
 ## Features
 
-- Local network communication requiring no cloud services
+- Local control over your network, with no cloud service
 - Kasa and Tapo plugs and power strips, with a Control4 relay for each outlet
 - Kasa and Tapo bulbs and light strips as Control4 lights, with dimming, color
   and color temperature where the light has them
@@ -18,7 +21,7 @@ device connects and keep working when TP-Link updates its firmware.
 - Finds a device again when its address changes (OS 4.0+)
 - Events, conditionals and variables for programming
 
-## Included Drivers
+## Included drivers
 
 ### TP-Link Outlet
 
