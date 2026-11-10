@@ -18,6 +18,20 @@ device connects and keep working when TP-Link updates its firmware.
 - Finds a device again when its address changes (OS 4.0+)
 - Events, conditionals and variables for programming
 
+## Included Drivers
+
+### TP-Link Outlet
+
+A Control4 relay for each output of a Kasa or Tapo plug or power strip, with
+power readings where the device has them, In Use and Idle events, and On, Off
+and Toggle keypad button links.
+
+### TP-Link Light
+
+A Control4 light for a Kasa or Tapo bulb or light strip, with Advanced Lighting
+Scenes, and dimming, color and color temperature where the light has them. It
+can also stand in for a lamp on a TP-Link Outlet output, as an on and off light.
+
 ## System requirements
 
 - Control4 OS 3.3+
@@ -25,3 +39,14 @@ device connects and keep working when TP-Link updates its firmware.
   devices on newer firmware
 - Third-Party Compatibility on or off in the Tapo or Kasa app (off needs
   Control4 OS 3.4.1+)
+
+## Compatibility
+
+Kasa devices work on their original firmware and on the firmware TP-Link has
+rolled out since late 2024, alongside Tapo devices and newer Kasa models.
+
+| Devices                                               | Driver         |
+| ----------------------------------------------------- | -------------- |
+| Kasa and Tapo smart plugs and power strips            | TP-Link Outlet |
+| Tapo bulbs, and Tapo L900, L920 and L930 light strips | TP-Link Light  |
+| Kasa KL and LB series bulbs and light strips          | TP-Link Light  |
