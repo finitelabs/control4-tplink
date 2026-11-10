@@ -18,6 +18,16 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+## v20261110 - 2026-11-10
+
+### Added
+
+- Added the TP-Link Outlet and TP-Link Light drivers to DriverCentral.
+
+<!-- #endif -->
+
 ## v20261109 - 2026-11-09
 
 ### Fixed
