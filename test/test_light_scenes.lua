@@ -35,10 +35,6 @@ function C4:GetTime()
   return now
 end
 
-function C4:GetProjectProperty()
-  return "000000"
-end
-
 function C4:SetTimer(delayMs, callback)
   order = order + 1
   local t = { at = now + delayMs, order = order }
