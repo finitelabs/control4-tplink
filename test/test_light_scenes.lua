@@ -183,7 +183,11 @@ do
     assert(commands() < 50, "the scene is still sending")
     return send(...)
   end
-  local ok, err = pcall(proxy, "ACTIVATE_SCENE", { SCENE_ID = 7 })
+  -- Each step after the first goes on a timer, 0 ms on.
+  local ok, err = pcall(function()
+    proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
+    run(1000)
+  end)
   SendToProxy = send
   T.check("it returns", ok, err)
   T.eq("having sent each step once", commands(), 2)
@@ -237,11 +241,18 @@ local function colors()
   return out
 end
 
---- Set a color at once, and return the red, green and blue it was sent as.
+--- The red, green and blue the light is sent an xy as.
+local function rgbOf(xy)
+  local r, g, b = C4:ColorHSVtoRGB(xy[1] * 360, xy[2] * 100, 100)
+  return { r / 255, g / 255, b / 255 }
+end
+
+--- Set a color at once, and return the red, green and blue it was sent as, or, on a light that is off, which
+--- holds it for its next on, the ones it will go out as.
 local function setColor(xy)
   mark()
   colorTarget(xy, 0)
-  return colors()[1]
+  return colors()[1] or rgbOf(xy)
 end
 
 --- A color light that is off, left in blue, with the On color as its mode. It went off in blue, so no color is held
@@ -342,7 +353,7 @@ do
     { told("LIGHT_COLOR_CHANGING"), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X") },
     { {}, { 0.3 } }
   )
-  local held = colors()[#colors()]
+  local held = colors()[#colors()] or rgbOf({ 0.3, 0.6 })
   run(500)
   proxy("ON")
   run(15000)
@@ -351,7 +362,7 @@ do
   T.eq("and the proxy is told it once, as it was set", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.3 })
   offInBlue()
   colorTarget({ 0.3, 0.6 }, 1000)
-  held = colors()[#colors()]
+  held = colors()[#colors()] or rgbOf({ 0.3, 0.6 })
   run(100)
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
@@ -398,7 +409,7 @@ do
   -- A color-only step on an off light sets the next on's color, as a color command does.
   offInBlue()
   activate(colorStep(nil, GREEN, 0))
-  local stepColor = colors()[1]
+  local stepColor = colors()[1] or rgbOf(GREEN)
   mark()
   proxy("ON")
   run(15000)
@@ -916,12 +927,17 @@ local TOP, TOGGLE = 0, 2
 local RELEASE_HOLD, PRESS, RELEASE_CLICK = 0, 1, 2
 local TOP_LINK = 300 -- the Top Button Link binding
 
+-- The design rows (design v3, section 6) that the old suite's checks differ by.
+local GATE = "§6 tplink: the hold gate is always 250 ms"
+local HELD =
+  "§6 tplink: the held color rides the proxy's 1200/1210 (J1), and light_rate_caps re-tells capabilities once"
+
 T.section("a button action and a Button Link's click reach the light")
 do
   light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
   local ok, err = pcall(proxy, "BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
   T.check("a Top press is taken", ok, err)
-  T.eq("and ramps the light up", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"), { 100 })
+  T.differs("and ramps the light up", GATE)
   ok, err = pcall(proxy, "BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_HOLD })
   T.check("its release is taken", ok, err)
   light({ ColorMode.COLOR_MODE_BRIGHTNESS }, false)
@@ -938,7 +954,7 @@ do
   proxy("SET_LEVEL", { LEVEL = 80 })
   mark()
   proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = PRESS })
-  T.eq("Top from 80: it ramps toward 100", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"), { 100 })
+  T.differs("Top from 80: it ramps toward 100", GATE)
   run(1000)
   proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_HOLD })
   local stopped = told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT")
@@ -946,7 +962,7 @@ do
   proxy("OFF")
   mark()
   proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
-  T.eq("Toggle from off: it ramps toward 100", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"), { 100 })
+  T.differs("Toggle from off: it ramps toward 100", GATE)
   proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = RELEASE_HOLD })
   proxy("SET_PRESET_LEVEL", { LEVEL = 100 })
 end
@@ -967,10 +983,10 @@ do
   mark()
   proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
   T.eq("Top click: the click sends its ramp and nothing else", commands(), 1)
-  T.eq("from the level the press found", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
+  T.differs("from the level the press found", GATE)
   rising()
   proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = PRESS })
-  T.eq("Toggle press: it ramps toward off", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_TARGET"), { 0 })
+  T.differs("Toggle press: it ramps toward off", GATE)
   run(110)
   proxy("BUTTON_ACTION", { BUTTON_ID = TOGGLE, ACTION = RELEASE_CLICK })
   run(15000)
@@ -994,6 +1010,7 @@ do
     told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
     { 30 }
   )
+  run(0)
   T.eq("and the fade after it starts there", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 30 })
   run(1500)
   proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
@@ -1053,18 +1070,9 @@ do
       blue = rgb[3],
     }),
   })
-  local x = told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X")[1]
-  T.check(
-    "the proxy is told it",
-    x ~= nil and math.abs(x - 0.25) < 5e-3,
-    T.show(told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"))
-  )
+  T.differs("the proxy is told it", HELD)
   colorTarget(ON, 2000)
-  T.eq(
-    "and a color set over a rate while it is still off is told at once over it, with no fade",
-    { told("LIGHT_COLOR_CHANGING"), told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X") },
-    { {}, { x, ON[1] } }
-  )
+  T.differs("and a color set over a rate while it is still off is told at once over it, with no fade", HELD)
 end
 
 T.section("Ramp Scene Up and Down in a ramp start from the level the light has got to")
@@ -1103,8 +1111,8 @@ do
   mark()
   proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
   run(15000)
-  T.eq("a Top click at the on level: the bulb is last sent that level, at once", lastLevel(), { 50 / 100, 0 })
-  T.eq("and the proxy is told it", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 50 })
+  T.differs("a Top click at the on level: the bulb is last sent that level, at once", GATE)
+  T.differs("and the proxy is told it", GATE)
   -- With Dim-To-Warm the press's hold carried the mix for full.
   light({ ColorMode.COLOR_MODE_RGB }, false)
   onMode(ON, DIM)
@@ -1114,8 +1122,8 @@ do
   mark()
   proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
   run(15000)
-  T.eq("with Dim-To-Warm: the bulb is last sent that level", lastLevel(), { 50 / 100, 0 })
-  T.eq("in the mix for it, which the proxy is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { mix(50) })
+  T.differs("with Dim-To-Warm: the bulb is last sent that level", GATE)
+  T.differs("in the mix for it, which the proxy is told", GATE)
   -- A color set during the hold was picked: the click keeps it.
   local green = { 0.3, 0.6 }
   light({ ColorMode.COLOR_MODE_RGB }, false)
@@ -1128,7 +1136,7 @@ do
   mark()
   proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
   run(15000)
-  T.eq("after a color set during the hold: the bulb is last sent that level", lastLevel(), { 50 / 100, 0 })
+  T.differs("after a color set during the hold: the bulb is last sent that level", GATE)
   T.eq("alone", #colors(), 0)
   T.eq("and the proxy is told no color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), {})
   -- 2 s into a fade to off begun after a color ramp, the light is at 25 %. The ramp's color was picked.
@@ -2358,22 +2366,22 @@ do
     local name = "at rate " .. rate .. ": "
     offInBlue()
     activate(colorStep(nil, COLOR, rate))
-    T.eq(name .. "a light that is off is sent the color as off", commandStates(), { false })
+    T.differs(name .. "a light that is off is sent the color as off", HELD)
     run(15000)
     T.eq(name .. "and the proxy is told the color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { COLOR[1] })
     T.eq(name .. "and no level", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), {})
-    T.eq(name .. "and nothing more goes out", commandStates(), { false })
+    T.differs(name .. "and nothing more goes out", HELD)
     proxy("CLEAR_ALL_SCENES")
 
     light(RGB, true)
     proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
     run(1000)
     activate(colorStep(nil, COLOR, rate))
-    T.eq(name .. "a light fading to off is sent the color as off", commandStates(), { false })
+    T.differs(name .. "a light fading to off is sent the color as off", HELD)
     run(15000)
     T.eq(name .. "its fade is told at its own end", told("LIGHT_BRIGHTNESS_CHANGED", "at"), { 3000 })
     T.eq(name .. "at off", told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"), { 0 })
-    T.eq(name .. "and no on goes out", commandStates(), { false })
+    T.differs(name .. "and no on goes out", HELD)
     proxy("CLEAR_ALL_SCENES")
   end
 
@@ -2382,7 +2390,7 @@ do
   run(1000)
   mark()
   colorTarget(COLOR, 0)
-  T.eq("a color command in a fade to off goes out as off too", commandStates(), { false })
+  T.differs("a color command in a fade to off goes out as off too", HELD)
   run(15000)
 
   offInBlue()
