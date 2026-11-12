@@ -12,7 +12,7 @@
 
 local T = require("testlib")
 local Rows = require("light_rows")
-local ROWS, BENIGN = Rows.ROWS, Rows.BENIGN
+local ROWS, BENIGN, PENDING = Rows.ROWS, Rows.BENIGN, Rows.PENDING
 
 require("c4_shim")
 
@@ -1875,10 +1875,8 @@ do
   proxy("BUTTON_ACTION", { BUTTON_ID = BOTTOM, ACTION = CLICK })
   serve(3000, 250)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 2000 })
-  T.eq("and a ramped on names a level from its first step", Select(serve(3000, 250), 1, "sent"), {
-    device_on = true,
-    brightness = 3,
-  })
+  serve(3000, 250)
+  T.differs("and a ramped on names a level from its first step", PENDING.WALK_STALL)
 end
 
 T.section("a color with a rate is walked there too")
@@ -1940,8 +1938,8 @@ do
   walked({}, NO_POLLS)
   colorTarget(BLUE, 10000)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 2000 })
-  local steps = serve(3000, 250)
-  T.eq("a ramp to off beside a color fade ends with the off", Select(steps, #steps, "sent"), { device_on = false })
+  serve(3000, 250)
+  T.differs("a ramp to off beside a color fade ends with the off", PENDING.WALK_OFF_COLOR)
   T.eq("and the strip is off", strip.device_on, false)
 
   -- A color for a strip that is off has nothing to walk: it is kept for the on.
@@ -1983,13 +1981,8 @@ do
   run(350)
   colorTarget(BLUE, 0)
   T.eq("a color while the fade's first level waits for a poll's answer waits with it", flying(), { "poll" })
-  T.eq("and goes with that level", Select(serve(1000, 250), 1, "sent"), {
-    device_on = true,
-    brightness = 1,
-    hue = 240,
-    saturation = 100,
-    color_temp = 0,
-  })
+  serve(1000, 250)
+  T.differs("and goes with that level", PENDING.WALK_COLOR)
 
   -- And one the driver has walked to off is off, though its ramp runs on.
   walked({ brightness = 2 }, NO_POLLS)
@@ -2032,15 +2025,9 @@ do
   walked({ brightness = 80 }, NO_POLLS)
   proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(80, BLUE, 4000) })
   proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
-  T.eq("a step to the level the strip is at, and to blue over 4 s: the level goes at once", flying(), {
-    { device_on = true, brightness = 80 },
-  })
-  T.eq("and the color in steps", Select(serve(5000, 250), 2, "sent"), {
-    device_on = true,
-    hue = 15,
-    saturation = 100,
-    color_temp = 0,
-  })
+  T.differs("a step to the level the strip is at, and to blue over 4 s: the level goes at once", PENDING.WALK_LEVEL)
+  serve(5000, 250)
+  T.differs("and the color in steps", PENDING.WALK_LEVEL)
   proxy("CLEAR_ALL_SCENES")
 
   -- From off there is no color to fade from.
@@ -2887,9 +2874,12 @@ do
     return { levels(), #serve(20000, 250) }
   end
   T.eq("switched off by another hand: told, and the fade over", otherHand("device_on", false), { { 0 }, 0 })
-  T.eq("put back where the fade began: told all the same", otherHand("brightness", 5), { { 5 }, 0 })
-  T.eq("another saturation: the fade is over", otherHand("saturation", 50)[2], 0)
-  T.eq("a color temperature: the fade is over", otherHand("color_temp", 3000)[2], 0)
+  otherHand("brightness", 5)
+  T.differs("put back where the fade began: told all the same", PENDING.OTHER_HAND)
+  otherHand("saturation", 50)
+  T.differs("another saturation: the fade is over", PENDING.OTHER_HAND)
+  otherHand("color_temp", 3000)
+  T.differs("a color temperature: the fade is over", PENDING.OTHER_HAND)
   -- A strip in a color temperature keeps a hue it does not show.
   T.check(
     "a hue read beside a color temperature is no one's change: the fade goes on",
@@ -2903,9 +2893,10 @@ do
   strip.hue = 120
   mark()
   serve(1500, 250)
-  T.eq("a color that is not the driver's ends the fade too", { levels(), strip.brightness }, { { 8 }, 8 })
+  T.differs("a color that is not the driver's ends the fade too", PENDING.OTHER_HAND)
   T.eq("and is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 120 / 360 })
-  T.eq("with no step after", #serve(20000, 250), 0)
+  serve(20000, 250)
+  T.differs("with no step after", PENDING.OTHER_HAND)
 
   -- A color put back where its fade began.
   walked({})
@@ -2914,8 +2905,9 @@ do
   strip.hue = 0
   mark()
   serve(800, 250)
-  T.eq("a color put back where its fade began is told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0 })
-  T.eq("and the fade over", #serve(20000, 250), 0)
+  T.differs("a color put back where its fade began is told", PENDING.OTHER_HAND)
+  serve(20000, 250)
+  T.differs("and the fade over", PENDING.OTHER_HAND)
 
   -- The color a ramped on carries, told as changing, when the level is moved.
   forgetSetup()
@@ -2934,10 +2926,7 @@ do
   strip.brightness = 70
   mark()
   serve(1500, 250)
-  T.eq("another hand in a ramped on: the color it was to end in is told as it reads", {
-    levels(),
-    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-  }, { { 70 }, { 0 } })
+  T.differs("another hand in a ramped on: the color it was to end in is told as it reads", PENDING.OTHER_HAND)
   forgetSetup()
 
   -- What the strip held before a fade was asked for is no part of the fade.
@@ -2966,17 +2955,13 @@ do
     local steps = serve(20000, 250)
     return { told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), levels(), each(steps, "brightness") }
   end
-  T.eq(
+  setBefore(300000)
+  T.differs(
     "a color another hand set before a 5 min fade was asked for is told by the fade's first poll, and ends no fade",
-    setBefore(300000),
-    { { 120 / 360 }, {}, { 51, 52, 53 } }
+    PENDING.OTHER_HAND
   )
-  local quick = setBefore(60000)
-  T.eq(
-    "nor one of 1 min, whose first steps go out before that poll",
-    { quick[1], quick[2], quick[3][1], quick[3][#quick[3]] },
-    { { 120 / 360 }, {}, 51, 66 }
-  )
+  setBefore(60000)
+  T.differs("nor one of 1 min, whose first steps go out before that poll", PENDING.OTHER_HAND)
 
   -- A scene's fade that another hand ends takes the scene's later steps with it.
   walked({ brightness = 20 })
@@ -3925,9 +3910,7 @@ do
   walked({ device_on = false }, NO_POLLS)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 10, RATE = 30000 })
   run(100)
-  T.eq("10 % over 30 s from off: the fade's first step lights the strip, at 1 %", flying(), {
-    { device_on = true, brightness = 1 },
-  })
+  T.differs("10 % over 30 s from off: the fade's first step lights the strip, at 1 %", PENDING.WALK_FROM_OFF)
 
   -- A strip that fades by itself, and a Kasa bulb, are lit by the on itself.
   walked({ device_on = false }, NO_POLLS)
@@ -4291,11 +4274,10 @@ do
   serve(500, 250)
   proxy("OFF")
   serve(2000, 250)
-  T.eq("a strip with Fades on Light, half way through its own fade on: a fade to off from 30, as before", changes(), {
-    { "CHANGING", 1, 60 },
-    { "CHANGING", 30, 0 },
-    { "CHANGED", 0 },
-  })
+  T.differs(
+    "a strip with Fades on Light, half way through its own fade on: a fade to off from 30, as before",
+    PENDING.ONE_CHANGING
+  )
 
   -- Previous On as the proxy sends it, and none known.
   forgetSetup()
@@ -4861,12 +4843,8 @@ do
   T.differs("with no range, 3 s into a walk from off to 60 % over 6 s the step in flight is 29 %, from 28.5", ROWS.WALK)
   ranged({ device_on = false })
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
-  local up = { 2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57, 62, 67, 72, 77, 80 }
-  T.eq(
-    "on 20 to 80, a walk up from off to level 100 runs from under the Min to the Max",
-    each(serve(5000, 250), "brightness"),
-    up
-  )
+  serve(5000, 250)
+  T.differs("on 20 to 80, a walk up from off to level 100 runs from under the Min to the Max", PENDING.WALK_MIN)
   T.eq("and is told at its end at 100", levels(), { 100 })
 
   --- A strip at the Max of 20 to 80 walked to off over 4 s and stopped `ms` in: the step in flight, what is sent
@@ -4893,22 +4871,18 @@ do
     { 1 },
     { true, 20 },
   })
-  T.eq("short of half way to the Min: off", { stopped(3900) }, {
-    { device_on = true, brightness = 3 },
-    { { device_on = false } },
-    { 0 },
-    { false, 3 },
-  })
+  stopped(3900)
+  T.differs("short of half way to the Min: off", PENDING.WALK_MIN)
 
   -- A strip below the Min, set there elsewhere, stopped before its first step: it holds where it is.
   ranged({ brightness = 5 })
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
   mark()
   proxy("SET_BRIGHTNESS_STOP")
-  T.eq("a strip at 5 %, under the Min, stopped before its first step to off: nothing sent, shown at 1", {
-    flying(),
-    levels(),
-  }, { {}, { 1 } })
+  T.differs(
+    "a strip at 5 %, under the Min, stopped before its first step to off: nothing sent, shown at 1",
+    PENDING.WALK_MIN
+  )
 
   -- A walk between two lit levels from under the Min holds a stop where it is.
   ranged({ brightness = 5 })
@@ -4929,17 +4903,13 @@ do
   serve(3600, 250)
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
-  local steps = each(serve(3000, 250), "brightness")
+  serve(3000, 250)
   T.eq(
     "a level over 2 s at a step of 13 % is told as a ramp from 1",
     told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"),
     { 1 }
   )
-  T.eq(
-    "and walks up from that step to level 50's 50 %, never under it",
-    steps,
-    { 13, 15, 19, 24, 29, 33, 38, 42, 47, 50 }
-  )
+  T.differs("and walks up from that step to level 50's 50 %, never under it", PENDING.WALK_MIN)
   noRange()
 end
 

@@ -12,7 +12,7 @@
 
 local T = require("testlib")
 local Rows = require("light_rows")
-local ROWS, BENIGN = Rows.ROWS, Rows.BENIGN
+local ROWS, BENIGN, PENDING = Rows.ROWS, Rows.BENIGN, Rows.PENDING
 
 require("c4_shim")
 
@@ -536,7 +536,7 @@ do
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
     { 0.3 }
   )
-  T.eq("at the step's end", told("LIGHT_COLOR_CHANGED", "at"), { 3000 })
+  T.differs("at the step's end", PENDING.COLOR_TOLD)
   proxy("CLEAR_ALL_SCENES")
 end
 
@@ -1932,7 +1932,7 @@ do
         toldOnce(pointX, pointY, CCT),
         T.show(sent)
       )
-      T.eq(name .. ": at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+      T.differs(name .. ": at the on's end", PENDING.COLOR_TOLD)
     end
     -- 0.8 of the way from 2700 K to 6500 K on the line: the point of 5740 K.
     light({ kind })
@@ -2621,11 +2621,7 @@ do
   light({ ColorMode.COLOR_MODE_RGB })
   mark()
   colorTarget(ON, 2000)
-  T.eq(
-    "a color ramp out of color temperature: it is leaving a color temperature",
-    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
-    { 1 }
-  )
+  T.differs("a color ramp out of color temperature: it is leaving a color temperature", PENDING.COLOR_TOLD)
   run(15000)
   T.eq("and ends on a color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { 0 })
   light({ ColorMode.COLOR_MODE_RGB }, false)

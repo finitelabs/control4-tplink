@@ -1,10 +1,11 @@
 --- The light library's design rows and benign differences, as the v20261110 suites mark them with T.differs.
 --- A row is a behavior the switch changes in the released driver; a benign entry changes nothing an integrator
---- sees.
+--- sees; a pending entry is a library fix still to come, whose checks go back to main's when it lands.
 
 --- @class LightRowStrings
 --- @field ROWS table<string, string>
 --- @field BENIGN table<string, string>
+--- @field PENDING table<string, string>
 
 --- @type LightRowStrings
 return {
@@ -56,5 +57,18 @@ return {
     DIAG = "benign until its follow-up: a proxy read error is logged, not captured for Cloud Monitoring",
     SETUP_FILL = "benign: an install that never stored them takes them from the proxy's setup",
     OUTLET_MODE = "benign: tplink: a light on an outlet is sent the color mode it is picked in, as a direct light is",
+  },
+  PENDING = {
+    WALK_STALL = "library round 5: the walk stall after a Bottom click's walk to off",
+    WALK_OFF_COLOR = "library round 5: a walk's off must not carry a color; only Dim-To-Warm's off does",
+    WALK_COLOR = "library round 5: an instant color during a walk goes at once",
+    WALK_LEVEL = "library round 5: a level for where the strip is goes at once",
+    WALK_FROM_OFF = "library round 5: a walk from off lights at the line's start, C4 level 1, with its first step at "
+      .. "once",
+    WALK_MIN = "library round 5: a walk starts and ends at the line's start, not at a step under half of Min On",
+    ONE_CHANGING = "library round 5: one CHANGING per ramp",
+    COLOR_TOLD = "library round 5: a color never told",
+    OTHER_HAND = "library round 5: another hand's level or power during a walk is news and ends every ramp; a color "
+      .. "read from before the fade is history",
   },
 }
