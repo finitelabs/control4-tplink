@@ -9,7 +9,7 @@
 
 local T = require("testlib")
 local Rows = require("light_rows")
-local ROWS, PENDING = Rows.ROWS, Rows.PENDING
+local ROWS = Rows.ROWS
 
 require("c4_shim")
 
@@ -147,9 +147,7 @@ T.eq("no callback raised", clock.errors, {})
 -- What a probe sees that differs from v20261110 by a design row: the row, by probe and field.
 --- @type table<string, table<string, string>>
 local DIFFERS = {
-  ["a Top click from off: the click rate up"] = { level = PENDING.TOP_CLICK, shown = PENDING.TOP_CLICK },
-  ["a Bottom click: the click rate down"] = { level = PENDING.TOP_CLICK },
-  ["REQUEST_BUTTON_COLORS: the Top's saved colors"] = { leds = ROWS.LEDS, level = PENDING.TOP_CLICK },
+  ["REQUEST_BUTTON_COLORS: the Top's saved colors"] = { leds = ROWS.LEDS },
 }
 local FIELDS = { "on", "level", "shown", "kelvin", "x", "y", "rates", "leds" }
 

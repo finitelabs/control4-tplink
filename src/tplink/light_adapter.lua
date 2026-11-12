@@ -34,6 +34,11 @@ local DIRECT_ANSWER_MS = 15000
 
 local DIRECT_ANSWER_TIMER = "DirectAnswer"
 
+--- The longest fade the driver walks, in milliseconds: a day, the longest rate
+--- Control4's own bulbs take.
+--- @type integer
+local WALK_MAX_MS = 86400000
+
 --- How long a light takes over its own fade between two states while it is
 --- on, in milliseconds. It reports no length for it: measured on a Tapo strip.
 --- @type number
@@ -258,7 +263,7 @@ function TplinkLightAdapter:fade()
     return { kind = "device", curve = "linear", maxMs = 60000 }
   end
   if self.fades == "Driver" then
-    return { kind = "walk", stepMs = 100 }
+    return { kind = "walk", stepMs = 100, maxMs = WALK_MAX_MS }
   end
   if self.fades == "Light" then
     local own = self.ownFades
@@ -947,7 +952,8 @@ end
 --- with an off.
 --- @param opts TplinkLightOpts
 function TplinkLightAdapter:execute(opts)
-  if not self.busy then
+  -- An answer's handler runs before the queue moves on, so one sent from it waits its turn.
+  if not self.busy and #self.queue == 0 then
     self:sendNow(opts)
     return
   end

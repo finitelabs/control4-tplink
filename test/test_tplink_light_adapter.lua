@@ -367,7 +367,11 @@ do
 
   local _, driverHost = tapo("Driver")
   local walk = driverHost.declared[#driverHost.declared]
-  T.eq("a Tapo light with Fades on Driver: the driver walks its fades", walk.fade, { kind = "walk", stepMs = 100 })
+  T.eq(
+    "a Tapo light with Fades on Driver: the driver walks its fades, for up to a day",
+    walk.fade,
+    { kind = "walk", stepMs = 100, maxMs = 86400000 }
+  )
   T.eq("its white range is the one it reports", walk.cct, { minK = 2500, maxK = 6500 })
 
   local own, ownHost = tapo("Light")
@@ -383,6 +387,7 @@ do
   T.eq("Fades set to Driver declares it walked", ownHost.declared[#ownHost.declared].fade, {
     kind = "walk",
     stepMs = 100,
+    maxMs = 86400000,
   })
 
   local _, outletHost = outlet()
