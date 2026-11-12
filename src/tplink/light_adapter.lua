@@ -1,24 +1,29 @@
---- The TP-Link light's connection, in one of two ways:
+--- The TP-Link light's connection, and its adapter for the light library, in
+--- one of two ways:
 ---   Outlet: bound to a TP-Link Outlet output, the outlet reports the lamp's
 ---     state (UPDATE_STATE) and takes its commands (ENTITY_COMMAND).
 ---   Direct: the IP Address and TP-Link credential properties point at a Kasa
 ---     or Tapo light. light_probe.lua finds which protocol and schema it
 ---     answers; from then on it is polled, and serves one request at a time.
---- What it hears it tells its host, the light driver.
+--- Each light command goes out on that transport, and what the light reports
+--- goes to the host, the light driver, as the light's facts and its state.
 
 local log = require("lib.logging")
-local persist = require("lib.persist")
 local constants = require("constants")
+local Color = require("lib.light.color")
 local Follower = require("tplink.discovery").Follower
 local Klap = require("tplink.klap")
 local Legacy = require("tplink.legacy")
 local Tpap = require("tplink.tpap")
 local SmartBulb = require("tplink.smartbulb")
+local Hsv = require("tplink.hsv")
 local TplinkLightProbe = require("tplink.light_probe")
 
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
 require("lib.utils")
+
+local ColorMode = constants.LightColorMode
 
 local DIRECT_POLL_TIMER = "DirectPoll"
 
@@ -34,29 +39,75 @@ local DIRECT_ANSWER_TIMER = "DirectAnswer"
 --- @type number
 local OWN_CHANGE_MS = 1000
 
---- The color a light was given while off, owed to its next on.
-local PENDING_COLOR = "pending_color"
+--- The color temperature range of a light that reports none, in mireds.
+local DEFAULT_MIN_MIREDS = 153
+local DEFAULT_MAX_MIREDS = 500
 
 --- Driver Status while the light is searched for on the network.
 local LOOKING = "Looking for the device on the network..."
+
+--- @type table<integer, boolean>
+local MODES_WITH_BRIGHTNESS = {
+  [ColorMode.COLOR_MODE_LEGACY_BRIGHTNESS] = true,
+  [ColorMode.COLOR_MODE_BRIGHTNESS] = true,
+  [ColorMode.COLOR_MODE_WHITE] = true,
+  [ColorMode.COLOR_MODE_COLOR_TEMPERATURE] = true,
+  [ColorMode.COLOR_MODE_COLD_WARM_WHITE] = true,
+  [ColorMode.COLOR_MODE_RGB] = true,
+  [ColorMode.COLOR_MODE_RGB_WHITE] = true,
+  [ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE] = true,
+  [ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE] = true,
+}
+
+--- @type table<integer, boolean>
+local MODES_WITH_RGB = {
+  [ColorMode.COLOR_MODE_RGB] = true,
+  [ColorMode.COLOR_MODE_RGB_WHITE] = true,
+  [ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE] = true,
+  [ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE] = true,
+}
+
+--- @type table<integer, boolean>
+local MODES_WITH_CCT = {
+  [ColorMode.COLOR_MODE_COLOR_TEMPERATURE] = true,
+  [ColorMode.COLOR_MODE_COLD_WARM_WHITE] = true,
+  [ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE] = true,
+  [ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE] = true,
+}
+
+--- The color mode a command names for each kind of color, the most specific
+--- first: a light is unambiguous in a mode with one purpose.
+--- @type table<string, integer[]>
+local COLOR_MODE_ORDER = {
+  cct = {
+    ColorMode.COLOR_MODE_COLD_WARM_WHITE,
+    ColorMode.COLOR_MODE_COLOR_TEMPERATURE,
+    ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE,
+    ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE,
+  },
+  rgb = {
+    ColorMode.COLOR_MODE_RGB,
+    ColorMode.COLOR_MODE_RGB_WHITE,
+    ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE,
+    ColorMode.COLOR_MODE_RGB_COLD_WARM_WHITE,
+  },
+}
 
 --- The direct schema found at the light: "smart" (get_device_info and
 --- set_device_info, mapped by smartbulb.lua) or "iot" (sysinfo and
 --- transition_light_state, mapped by an IotBulb).
 --- @alias TplinkLightSchema "smart"|"iot"
 
---- Who makes a light's fades, from the Fades property: "Driver" in steps, or
---- "Light" at the light's own lengths.
+--- Who makes a SMART light's fades, from the Fades property: "Driver" in
+--- steps, or "Light" at the light's own lengths.
 --- @alias TplinkLightFades "Driver"|"Light"
 
 --- What the connection tells the light driver; the driver implements each.
 --- @class TplinkLightHost
---- @field update fun(self: TplinkLightHost, entity: TplinkLightEntity, state: TplinkLightState, news: boolean?) The light's state as it reports it. news: it is not where the driver sent it, as another hand has moved it.
+--- @field declare fun(self: TplinkLightHost, device: LightDevice) The facts of the light connected.
+--- @field report fun(self: TplinkLightHost, report: LightReport) The light's state as it reports it.
 --- @field lost fun(self: TplinkLightHost) The light stopped answering.
---- @field offline fun(self: TplinkLightHost) A start found no light: the proxy is told it is offline.
---- @field step fun(self: TplinkLightHost) The light is free to take a fade's next step.
---- @field fadesRead fun(self: TplinkLightHost) The light's own fades were read, or could not be: the proxy is told the rates.
---- @field restart fun(self: TplinkLightHost, retry: boolean?) Start the connection again, and the light's state with it.
+--- @field restart fun(self: TplinkLightHost, retry: boolean?) Start the connection again. retry: the poll timer trying again after no light was found.
 
 --- The direct-mode transports.
 --- @class TplinkLightLink
@@ -65,15 +116,6 @@ local LOOKING = "Looking for the device on the network..."
 --- @field legacy Legacy Port 9999: KL-series bulbs on original firmware.
 --- @field tpap Tpap TPAP: a light whose account has Third-Party Compatibility off.
 --- @field smart Klap|Tpap The session SMART-schema requests go through.
-
---- What a SMART light holds, as it was sent or read since the last command
---- from Control4.
---- @class TplinkSmartHeld
---- @field device_on boolean?
---- @field brightness number?
---- @field hue number?
---- @field saturation number?
---- @field color_temp number?
 
 --- A light's own fades, in milliseconds, once they are read: on from off,
 --- off, and change, between two states while on. 0 for one it has not.
@@ -99,7 +141,12 @@ local LOOKING = "Looking for the device on the network..."
 --- @field generation integer The start it was made in.
 --- @field over boolean Its answer, its failure or its timeout is in.
 
---- @class TplinkLightAdapter
+--- A light's answer, kept until it can be told.
+--- @class TplinkLightAnswer
+--- @field entity TplinkLightEntity
+--- @field state TplinkLightState
+
+--- @class TplinkLightAdapter : LightAdapter
 --- @field host TplinkLightHost
 --- @field outletBinding integer The binding to a TP-Link Outlet output.
 --- @field link TplinkLightLink
@@ -109,17 +156,16 @@ local LOOKING = "Looking for the device on the network..."
 --- @field schema TplinkLightSchema?
 --- @field bulb IotBulb? The IOT schema's mapping, for "iot".
 --- @field transport string? "Outlet", "SMART", "KLAP", "TPAP" or "Legacy", for Driver Status.
---- @field connected boolean The direct light answers.
+--- @field connected boolean The light has reported since the start.
 --- @field generation integer Counts the starts: an attempt, and the answer to a poll or a command, does nothing once it has moved on.
 --- @field detecting boolean A start is still probing. The poll timer's retry waits for it.
 --- @field busy boolean A request is in flight. The rest wait for it, in an order of their own.
 --- @field waiting TplinkLightOpts? The command waiting for the request in flight, every later one merged in.
 --- @field pollWaiting boolean A poll waits for the request in flight.
 --- @field commands integer Counts the commands made. A poll sent before the latest reads the light as it was before it.
---- @field pendingColor TplinkHeldColor? The color the light was given while off, which it would drop. It is held, and stored, and goes out with the next command that turns the light on.
---- @field smartHeld TplinkSmartHeld?
---- @field entity TplinkLightEntity? What the light last reported it can do, for the Kelvin range it is sent.
---- @field fades TplinkLightFades? Who makes a fade. nil: the light, over the time a command carries.
+--- @field entity TplinkLightEntity? What the light last reported it can do.
+--- @field first TplinkLightAnswer? A SMART light's first answer, waiting for its own fades to be read.
+--- @field fades TplinkLightFades? Who makes a SMART light's fades; nil on any other.
 --- @field ownFades TplinkOwnFades
 local TplinkLightAdapter = {}
 TplinkLightAdapter.__index = TplinkLightAdapter
@@ -166,6 +212,224 @@ function TplinkLightAdapter.new(host, outletBinding)
   self.ownFades = {}
   return self
 end
+
+---------------------------------------------------------------------------
+-- The light's facts and its reports
+---------------------------------------------------------------------------
+
+--- Whether a light lists a color mode of a set.
+--- @param entity TplinkLightEntity?
+--- @param modes table<integer, boolean>
+--- @return boolean
+local function lists(entity, modes)
+  local listed = Select(entity, "supported_color_modes")
+  if not IsList(listed) then
+    return false
+  end
+  for _, mode in ipairs(listed) do
+    if modes[mode] then
+      return true
+    end
+  end
+  return false
+end
+
+--- The color mode a command names for a kind of color, or nil for a light
+--- that lists none for it.
+--- @param entity TplinkLightEntity?
+--- @param kind "cct"|"rgb"
+--- @return integer?
+local function pickColorMode(entity, kind)
+  for _, mode in ipairs(COLOR_MODE_ORDER[kind]) do
+    if lists(entity, { [mode] = true }) then
+      return mode
+    end
+  end
+  return nil
+end
+
+--- How the light moves: a Kasa light fades over the time a command carries; a
+--- SMART light takes none, so the Fades property says who makes its fades.
+--- @return LightFade|nil
+function TplinkLightAdapter:fade()
+  if self.schema == "iot" then
+    return { kind = "device", curve = "linear", maxMs = 60000 }
+  end
+  if self.fades == "Driver" then
+    return { kind = "walk", stepMs = 100 }
+  end
+  if self.fades == "Light" then
+    local own = self.ownFades
+    return { kind = "own", own = { onMs = own.on or 0, offMs = own.off or 0, changeMs = own.change or 0 } }
+  end
+  return nil
+end
+
+--- The facts of the light connected, as its last report names them.
+--- @return LightDevice
+function TplinkLightAdapter:device()
+  local entity = self.entity
+  local cct = nil
+  if lists(entity, MODES_WITH_CCT) then
+    local minMireds = tonumber(Select(entity, "min_mireds")) or 0
+    local maxMireds = tonumber(Select(entity, "max_mireds")) or 0
+    cct = {
+      minK = Color.miredsToKelvin(maxMireds > 0 and maxMireds or DEFAULT_MAX_MIREDS),
+      maxK = Color.miredsToKelvin(minMireds > 0 and minMireds or DEFAULT_MIN_MIREDS),
+    }
+  end
+  return {
+    dims = lists(entity, MODES_WITH_BRIGHTNESS),
+    color = lists(entity, MODES_WITH_RGB),
+    cct = cct,
+    -- A light drops a color sent while it is off.
+    colorWhileOff = "hold",
+    levelSteps = 100,
+    fade = self:fade(),
+    feedback = { shows = "target", waitMs = 2000, refresh = true },
+  }
+end
+
+--- The color a light reports, in the mode it is in.
+--- @param state TplinkLightState
+--- @return LightColor|nil
+local function reportedColor(state)
+  local mode = tointeger(Select(state, "color_mode"))
+  if mode and MODES_WITH_CCT[mode] then
+    local kelvin = Color.miredsToKelvin(tonumber(Select(state, "color_temperature")))
+    if kelvin > 0 then
+      local x, y = Color.kelvinToXY(kelvin)
+      return { x = x, y = y, mode = "cct", kelvin = kelvin }
+    end
+  elseif mode and MODES_WITH_RGB[mode] then
+    local r = tonumber(Select(state, "red")) or 0
+    local g = tonumber(Select(state, "green")) or 0
+    local b = tonumber(Select(state, "blue")) or 0
+    if r > 0 or g > 0 or b > 0 then
+      local h, s = Hsv.fromRGB(r, g, b)
+      local x, y = C4:ColorHSVtoXY(h, s, 100)
+      return { x = x, y = y, mode = "xy" }
+    end
+  end
+  return nil
+end
+
+--- A light's state as a report. Off, a light holds the level and color it
+--- comes on in.
+--- @param entity TplinkLightEntity
+--- @param state TplinkLightState
+--- @return LightReport
+local function report(entity, state)
+  local on = Select(state, "state") == true
+  --- @type LightReport
+  local out = { kind = "push", on = on }
+  if lists(entity, MODES_WITH_BRIGHTNESS) then
+    out.level = tofinite(Select(state, "brightness")) or (on and 1 or nil)
+  end
+  if lists(entity, MODES_WITH_RGB) or lists(entity, MODES_WITH_CCT) then
+    out.color = reportedColor(state)
+  end
+  return out
+end
+
+--- Tell the host the light's facts and its state. The first since the start
+--- shows the light connected.
+--- @param entity TplinkLightEntity
+--- @param state TplinkLightState
+function TplinkLightAdapter:tell(entity, state)
+  self.entity = entity
+  if not self.connected then
+    self.connected = true
+    UpdateProperty("Driver Status", "Connected (" .. tostring(self.transport) .. ")")
+  end
+  self.host:declare(self:device())
+  self.host:report(report(entity, state))
+end
+
+---------------------------------------------------------------------------
+-- The light library's adapter
+---------------------------------------------------------------------------
+
+--- A color as a light command's fields: a white as its color temperature on a
+--- light that has one, any other as RGB on a light with color.
+--- @param entity TplinkLightEntity?
+--- @param color LightColor
+--- @return table<string, boolean|number>|nil
+local function colorFields(entity, color)
+  local fields, mode
+  if color.mode == "cct" and lists(entity, MODES_WITH_CCT) then
+    fields = {
+      has_color_temperature = true,
+      color_temperature = Color.kelvinToMireds(color.kelvin or Color.kelvin(color.x, color.y)),
+    }
+    mode = pickColorMode(entity, "cct")
+  elseif lists(entity, MODES_WITH_RGB) then
+    local h, s = C4:ColorXYtoHSV(color.x, color.y)
+    local r, g, b = Hsv.toRGB(h or 0, s or 100, 100)
+    fields = { has_rgb = true, red = r, green = g, blue = b }
+    mode = pickColorMode(entity, "rgb")
+  else
+    return nil
+  end
+  if mode then
+    fields.has_color_mode, fields.color_mode = true, mode
+  end
+  return fields
+end
+
+--- A light command in the shape both transports take.
+--- @param entity TplinkLightEntity?
+--- @param cmd LightCommand
+--- @return TplinkLightOpts
+local function commandOpts(entity, cmd)
+  --- @type TplinkLightOpts
+  local opts = { has_state = true, state = cmd.on }
+  if not lists(entity, MODES_WITH_BRIGHTNESS) then
+    return opts
+  end
+  if cmd.setsLevel then
+    opts.has_brightness, opts.brightness = true, cmd.on and cmd.level or 0
+  end
+  if cmd.setsColor and cmd.color then
+    for field, value in pairs(colorFields(entity, cmd.color) or {}) do
+      opts[field] = value
+    end
+  end
+  opts.has_transition_length, opts.transition_length = true, cmd.transitionMs
+  return opts
+end
+
+--- Put one command on the light's transport.
+--- @param cmd LightCommand
+--- @return LightRest|nil
+function TplinkLightAdapter:send(cmd)
+  local opts = commandOpts(self.entity, cmd)
+  log:debug("Light command: %s", opts)
+  if self.transport == "Outlet" then
+    self:sendOutlet(opts)
+  else
+    self:execute(opts)
+  end
+  return nil
+end
+
+--- Ask the light for its whole state: the outlet re-pushes it, and a direct
+--- light is polled. One still being found answers when it is.
+function TplinkLightAdapter:refresh()
+  if self.transport == "Outlet" then
+    SendToProxy(self.outletBinding, "REFRESH_STATE", {}, "NOTIFY")
+  elseif self.schema ~= nil then
+    self:poll()
+  end
+end
+
+--- The light has no device page.
+--- @param _shown LightShown
+function TplinkLightAdapter:show(_shown) end
+
+---------------------------------------------------------------------------
+-- The connection
+---------------------------------------------------------------------------
 
 --- Whether the outlet binding is connected.
 --- @return boolean
@@ -215,7 +479,8 @@ function TplinkLightAdapter:stopPolling()
 end
 
 --- Start reaching the light, through the outlet bound or at its address. The
---- bound outlet wins; the network properties are hidden while bound.
+--- bound outlet wins; the network properties are hidden while bound. The
+--- light is asked for its state by refresh().
 --- @param retry boolean? The poll timer trying again after no light was found.
 function TplinkLightAdapter:start(retry)
   self:stopPolling()
@@ -223,14 +488,16 @@ function TplinkLightAdapter:start(retry)
   self.detecting = false
   self.connected = false
   self.transport = nil
-  -- The request in flight and what waited were for the backend as it was.
+  self.schema = nil
+  self.bulb = nil
+  self.entity = nil
+  self.first = nil
+  -- The request in flight and what waited were for the connection as it was.
   self.busy = false
   self.waiting = nil
   self.pollWaiting = false
-  self.pendingColor = persist:get(PENDING_COLOR)
   self.fades = nil
   self.ownFades = {}
-  self.entity = nil
   C4:SetPropertyAttribs("Fades", constants.HIDE_PROPERTY)
 
   if self:bound() then
@@ -238,18 +505,15 @@ function TplinkLightAdapter:start(retry)
     -- The outlet reaches the light: there is no address to follow.
     self.follower:stop()
     setNetworkPropertiesAttribs(constants.HIDE_PROPERTY)
-    SendToProxy(self.outletBinding, "REFRESH_STATE", {}, "NOTIFY")
     return
   end
 
   setNetworkPropertiesAttribs(constants.SHOW_PROPERTY)
-  self.schema = nil
-  self.bulb = nil
 
   local ip = Properties["IP Address"] or ""
   if IsEmpty(ip) then
     self.follower:stop()
-    self:noLight("Bind to an outlet or set the IP Address property", retry)
+    self:noLight("Bind to an outlet or set the IP Address property")
     return
   end
 
@@ -280,15 +544,11 @@ function TplinkLightAdapter:start(retry)
   end, true)
 end
 
---- End a start with no light to reach. A retry says nothing: the proxy was
---- told the light is offline when the attempt before it ended.
+--- End a start with no light to reach. The light stays offline, as the start
+--- told it.
 --- @param status string
---- @param retry boolean?
-function TplinkLightAdapter:noLight(status, retry)
+function TplinkLightAdapter:noLight(status)
   UpdateProperty("Driver Status", status)
-  if not retry then
-    self.host:offline()
-  end
 end
 
 --- Take the schema and transport a probe found, and the light's first answer.
@@ -304,7 +564,6 @@ function TplinkLightAdapter:adopt(schema, bulb, name, entity, state)
   self.schema = schema
   self.bulb = bulb
   self.transport = name
-  self.connected = true
   -- A light on the SMART schema takes no fade time from a command, so who
   -- makes its fades is the installer's choice.
   if schema == "smart" then
@@ -313,18 +572,13 @@ function TplinkLightAdapter:adopt(schema, bulb, name, entity, state)
     C4:SetPropertyAttribs("Fades", constants.SHOW_PROPERTY)
   end
   log:info("Using %s transport for direct control", name)
-  self:report(entity, state)
-  -- Its own fades are read now, where Fades leaves the fades to the light.
+  if self.fades == "Light" then
+    -- Its first answer waits for its own fades, so it is declared with them.
+    self.first = { entity = entity, state = state }
+  else
+    self:tell(entity, state)
+  end
   self:next()
-end
-
---- Tell the host the light's state.
---- @param entity TplinkLightEntity
---- @param state TplinkLightState
---- @param news boolean?
-function TplinkLightAdapter:report(entity, state, news)
-  self.entity = entity
-  self.host:update(entity, state, news)
 end
 
 --- The outlet's report of the lamp's state.
@@ -336,7 +590,7 @@ function TplinkLightAdapter:outletUpdate(tParams)
     log:error("RFP.UPDATE_STATE called with invalid parameters: %s", tParams)
     return
   end
-  self:report(entity, state)
+  self:tell(entity, state)
 end
 
 --- Send a light command to the bound outlet.
@@ -347,12 +601,18 @@ function TplinkLightAdapter:sendOutlet(opts)
   }, "NOTIFY")
 end
 
---- The light no longer answers: the driver shows it offline.
+--- The light is gone: it reads off.
+function TplinkLightAdapter:lost()
+  self.connected = false
+  self.entity = nil
+  UpdateProperty("Driver Status", "Disconnected")
+  self.host:lost()
+end
+
+--- The direct light no longer answers.
 function TplinkLightAdapter:disconnect()
   if self.connected then
-    self.connected = false
-    self.entity = nil
-    self.host:lost()
+    self:lost()
   end
 end
 
@@ -424,70 +684,6 @@ function TplinkLightAdapter:land(flight, handler, value)
   self:next()
 end
 
---- The color held for a light, as a poll finds it: one that is off comes on in
---- it. A light turned on by another hand came on in the color it had, so the
---- hold is let go.
---- @param on boolean Whether the light is on.
---- @return TplinkHeldColor? held
-function TplinkLightAdapter:heldColor(on)
-  if on and self.pendingColor then
-    self.pendingColor = nil
-    persist:delete(PENDING_COLOR)
-  end
-  return self.pendingColor
-end
-
---- Hold the color of a command that does not turn the light on, which the
---- light would drop, and add a held one to an on that names no color. Both
---- schemas name a color's params alike.
---- @param params TplinkHeldColor A request's params; the color is taken out when held.
---- @param on boolean? Whether the command turns the light on.
-function TplinkLightAdapter:holdColor(params, on)
-  local color = params.color_temp ~= nil
-  if color and not on then
-    self.pendingColor = { hue = params.hue, saturation = params.saturation, color_temp = params.color_temp }
-    persist:set(PENDING_COLOR, self.pendingColor)
-    params.hue, params.saturation, params.color_temp = nil, nil, nil
-  elseif self.pendingColor and (color or on) then
-    if not color then
-      for field, value in pairs(self.pendingColor) do
-        params[field] = value
-      end
-    end
-    self.pendingColor = nil
-    persist:delete(PENDING_COLOR)
-  end
-end
-
---- Forget the color held for the light: the light it was for may be gone.
-function TplinkLightAdapter:forgetColor()
-  persist:delete(PENDING_COLOR)
-end
-
---- Take a poll's answer as what the light holds.
---- @param info TplinkSmartInfo
---- @return boolean moved Whether another hand has moved it: it is not what the
----   light held.
-function TplinkLightAdapter:smartRead(info)
-  local held = self.smartHeld or {}
-  local now = {
-    device_on = toboolean(info.device_on),
-    brightness = tonumber_locale(info.brightness),
-    hue = tonumber_locale(info.hue),
-    saturation = tonumber_locale(info.saturation),
-    color_temp = tonumber_locale(info.color_temp),
-  }
-  self.smartHeld = now
-  local function moved(field)
-    return held[field] ~= nil and held[field] ~= now[field]
-  end
-  if moved("device_on") or moved("brightness") or moved("color_temp") then
-    return true
-  end
-  -- In a color temperature the light holds no hue of its own.
-  return now.color_temp == 0 and (moved("hue") or moved("saturation"))
-end
-
 --- Poll the direct-mode light, and tell the host what it holds.
 function TplinkLightAdapter:poll()
   if self.busy then
@@ -497,7 +693,7 @@ function TplinkLightAdapter:poll()
   local asked = self.commands
 
   if self.schema == "iot" and self.bulb ~= nil then
-    self:fly(self.bulb:poll(self.pendingColor), function(result)
+    self:fly(self.bulb:poll(), function(result)
       self:iotPolled(result, asked)
     end, function(err)
       self:pollFailed("IOT bulb poll", err)
@@ -521,10 +717,8 @@ function TplinkLightAdapter:iotPolled(result, asked)
     return
   end
   self:answered()
-  self.connected = true
   if asked == self.commands then
-    self:heldColor(result.state.state)
-    self:report(result.entity, result.state)
+    self:tell(result.entity, result.state)
   end
 end
 
@@ -546,13 +740,8 @@ function TplinkLightAdapter:smartPolled(response, asked)
   self:answered()
   -- A light that is back may be back with other fades of its own.
   self.ownFades.due = self.ownFades.due or not self.connected
-  self.connected = true
   if asked == self.commands then
-    local moved = self:smartRead(info)
-    for field, value in pairs(self:heldColor(toboolean(info.device_on)) or {}) do
-      info[field] = value
-    end
-    self:report(SmartBulb.entity(info), SmartBulb.state(info), moved)
+    self:tell(SmartBulb.entity(info), SmartBulb.state(info))
   end
 end
 
@@ -576,29 +765,16 @@ function TplinkLightAdapter:sendNow(opts)
     return false
   end
   if self.schema == "iot" and self.bulb ~= nil then
-    self:fly(
-      self.bulb:execute(opts, function(params, on)
-        self:holdColor(params, on)
-      end),
-      function() end,
-      function(err)
-        -- Command failures are logged only; the poll loop decides connectivity.
-        log:error("IOT bulb command failed: %s", Select(err, "error") or err)
-      end
-    )
+    self:fly(self.bulb:execute(opts), function() end, function(err)
+      -- Command failures are logged only; the poll loop decides connectivity.
+      log:error("IOT bulb command failed: %s", Select(err, "error") or err)
+    end)
     return true
   end
 
-  -- A color for a light that is off is held, and added to the next on.
   local params = SmartBulb.params(opts, self.entity)
-  -- No on with it: the light is off, or is being turned off.
-  self:holdColor(params, params.device_on)
   if IsEmpty(params) then
     return false
-  end
-  self.smartHeld = self.smartHeld or {}
-  for field, value in pairs(params) do
-    self.smartHeld[field] = value
   end
   self:fly(self.link.smart:request({ method = "set_device_info", params = params }), function(response)
     local code = tointeger(Select(response, "error_code")) or -1
@@ -621,7 +797,7 @@ local function fadeLength(state, ms)
 end
 
 --- Read the light's own fades and switch on each that is off, at the length it
---- has, which is the owner's. Then the proxy is told the rate that is fixed.
+--- has, which is the owner's. Then the light is declared with them.
 function TplinkLightAdapter:readOwnFades()
   self:fly(self.link.smart:request({ method = "get_on_off_gradually_info", params = {} }), function(response)
     self:ownFadesAnswered(response)
@@ -630,12 +806,24 @@ function TplinkLightAdapter:readOwnFades()
   end)
 end
 
---- The light's own fades could not be read or switched on: the proxy is told
---- the rates as they are.
+--- The light's own fades are read, or could not be: a first answer that
+--- waited for them is told now, and otherwise the light is declared again.
+function TplinkLightAdapter:fadesRead()
+  local first = self.first
+  self.first = nil
+  if first then
+    self:tell(first.entity, first.state)
+  else
+    self.host:declare(self:device())
+  end
+end
+
+--- The light's own fades could not be read or switched on: it is declared
+--- with them as they are.
 --- @param err TplinkLinkError|table
 function TplinkLightAdapter:ownFadesFailed(err)
   log:warn("The light's own fades could not be read or switched on: %s", Select(err, "error") or err)
-  self.host:fadesRead()
+  self:fadesRead()
 end
 
 --- The light's answer to get_on_off_gradually_info.
@@ -647,7 +835,7 @@ function TplinkLightAdapter:ownFadesAnswered(response)
     return
   end
   -- An older light answers with one switch for all its fades and no length
-  -- for them: it is switched on as the others are, and told as no fade.
+  -- for them: it is switched on as the others are, and taken as no fade.
   if info.enable ~= nil then
     self:switchOn({ names = { "all" }, info = { all = info }, one = true }, 1)
   else
@@ -671,7 +859,7 @@ function TplinkLightAdapter:switchOn(read, i)
       off = fadeLength(read.info.off_state),
       change = fadeLength(read.info.change_state, OWN_CHANGE_MS),
     }
-    self.host:fadesRead()
+    self:fadesRead()
   elseif type(state) ~= "table" or toboolean(state.enable) then
     self:switchOn(read, i + 1)
   else
@@ -697,16 +885,23 @@ function TplinkLightAdapter:switchedOn(read, i, answer)
   self:switchOn(read, i + 1)
 end
 
---- Take the Fades property's choice, on a light that has one: the light's own
---- fades are due to be read.
+--- Take the Fades property's choice, on a light that has one. For Light, the
+--- light's own fades are read before it is declared with them.
 --- @param fades TplinkLightFades
 function TplinkLightAdapter:setFades(fades)
+  if self.fades == nil or self.fades == fades then
+    return
+  end
   self.fades = fades
   self.ownFades.due = true
+  if fades == "Driver" then
+    self:fadesRead()
+  end
+  self:next()
 end
 
 --- The light's own fades first when due, then the command, then the poll, which
---- so reads the light after it, then a fade's next step.
+--- so reads the light after it.
 function TplinkLightAdapter:next()
   -- An answer's handler may have put a request of its own in flight.
   if self.busy then
@@ -728,16 +923,6 @@ function TplinkLightAdapter:next()
     self.pollWaiting = false
     self:poll()
   end
-  self.host:step()
-end
-
---- A command from Control4. What the light held before it may be another
---- hand's, older than the command: a poll after it is news only against what
---- it holds since.
-function TplinkLightAdapter:commanded()
-  if self.fades then
-    self.smartHeld = nil
-  end
 end
 
 --- Send a light command to the direct-mode light, or hold it while a request
@@ -745,16 +930,9 @@ end
 --- with the later value winning; a later color replaces an earlier one whole.
 --- @param opts TplinkLightOpts
 function TplinkLightAdapter:execute(opts)
-  -- A color for a SMART light that is off is no off: a light turned on since
-  -- is left on. It names no state here, so an off it waits with is still one.
-  if self.schema ~= "iot" and opts.state == false and (opts.has_rgb or opts.has_color_temperature) then
-    opts.has_state, opts.state = nil, nil
-  end
   self.commands = self.commands + 1
   if not self.busy then
     self:sendNow(opts)
-    -- A command that sent nothing has no answer to bring a fade's next step.
-    self.host:step()
     return
   end
   if self.waiting == nil then
@@ -791,6 +969,7 @@ function TplinkLightAdapter:stop()
   self.generation = self.generation + 1
   self:stopPolling()
   self.detecting, self.connected, self.busy = false, false, false
+  self.first = nil
   -- A search for the light holds a listener open.
   self.follower:stop()
 end

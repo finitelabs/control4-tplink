@@ -16,6 +16,8 @@ require("c4_shim")
 
 local deferred = require("deferred")
 local persist = require("lib.persist")
+local Caps = require("lib.light.caps")
+local Light = require("lib.light")
 
 -- From this file: make test runs at the repo root, run_test.sh in test/.
 local HERE = debug.getinfo(1, "S").source:match("^@(.*)/") or "."
@@ -378,9 +380,11 @@ end
 --- Put the modeled proxy on driver.xml's capabilities where it shows none, then take those it is `told`.
 local function showCapabilities(told)
   local caps, lags = {}, shows[6661] and shows.lags or {}
-  local f = assert(io.open(HERE .. "/../drivers/tplink_light/driver.xml", "rb"))
-  local static = f:read("*a"):match("<capabilities>(.-)</capabilities>")
-  f:close()
+  -- driver.xml's capabilities, as the build writes them from the light's profile.
+  local static = ""
+  for _, cap in ipairs(Caps.static(Light.made[#Light.made].profile)) do
+    static = static .. ("<%s>%s</%s>"):format(cap.key, cap.value, cap.key)
+  end
   for _, key in ipairs(CAPABILITY_KEYS) do
     caps[key] = lags[key] or listed(key) or static:match("<" .. key .. ">([^<]*)</" .. key .. ">") or "False"
   end
@@ -431,7 +435,7 @@ local function heard(command, p)
     shows[1001] = tostring(p.LIGHT_BRIGHTNESS_CURRENT)
     shows[1110] = dims and tostring(p.LIGHT_BRIGHTNESS_TARGET or p.LIGHT_BRIGHTNESS_CURRENT) or nil
   elseif command == "ONLINE_CHANGED" and p.STATE and not dims then
-    RFP.GET_LIGHT_LEVEL(PROXY, "GET_LIGHT_LEVEL", {})
+    ReceivedFromProxy(PROXY, "GET_LIGHT_LEVEL", {})
   elseif
     command == "LIGHT_COLOR_CHANGED"
     and p.LIGHT_COLOR_CURRENT_PRESET_ID
@@ -539,7 +543,7 @@ local function bulb(lightState)
 end
 
 local function proxy(command, params)
-  RFP[command](PROXY, command, params or {})
+  ReceivedFromProxy(PROXY, command, params or {})
 end
 
 --- Each `field` the proxy got with `command` since the mark: "at" is the ms,
@@ -3816,9 +3820,9 @@ do
   )
   T.eq("Bottom clicked: the off alone", { each(click(BOTTOM), "device_on"), levels() }, { { false }, { 0 } })
   mark()
-  RFP.DO_PUSH(300, "DO_PUSH", {})
+  ReceivedFromProxy(300, "DO_PUSH", {})
   run(200)
-  RFP.DO_CLICK(300, "DO_CLICK", {})
+  ReceivedFromProxy(300, "DO_CLICK", {})
   T.eq(
     "a keypad's On button clicked from off, held 200 ms: the on level alone",
     { each(serve(1000, 250), "brightness"), levels() },
@@ -4340,9 +4344,9 @@ do
   bulb(OFF)
   proxy("SET_HOLD_RATE_UP", { RATE = 5000 })
   mark()
-  RFP.DO_PUSH(TOGGLE_LINK, "DO_PUSH", {})
+  ReceivedFromProxy(TOGGLE_LINK, "DO_PUSH", {})
   run(20)
-  RFP.DO_RELEASE(TOGGLE_LINK, "DO_RELEASE", {})
+  ReceivedFromProxy(TOGGLE_LINK, "DO_RELEASE", {})
   T.eq("a Toggle Button Link held from off and released 20 ms in", changes(), {
     { "CHANGING", 1, 100 },
     { "CHANGING", 20, 0 },
@@ -4945,7 +4949,7 @@ do
     { 0, 0 },
   })
   fading({}, 0, 3600)
-  RFP.DO_CLICK(301, "DO_CLICK", {})
+  ReceivedFromProxy(301, "DO_CLICK", {})
   T.eq("and a click of a Toggle Button Link", answered(), { on_off = 0 })
 
   -- Under a Max of 50 from 70 %, where the bulb is outside the range.
@@ -5746,20 +5750,20 @@ do
   )
   T.eq("and to no other link", toldOn(TOP_LINK), {})
   mark()
-  RFP.REQUEST_BUTTON_COLORS(BOTTOM_LINK, "REQUEST_BUTTON_COLORS", {})
+  ReceivedFromProxy(BOTTOM_LINK, "REQUEST_BUTTON_COLORS", {})
   T.eq("the Bottom link asked: its colors, then the light's state, on", toldOn(BOTTOM_LINK), {
     { "BUTTON_COLORS", { ON_COLOR = "ff0000", OFF_COLOR = "00ff00" } },
     { "MATCH_LED_STATE", { STATE = true } },
   })
   T.eq("and the proxy is told nothing", #sent, 2)
   mark()
-  RFP.REQUEST_BUTTON_COLORS(TOP_LINK, "REQUEST_BUTTON_COLORS", {})
+  ReceivedFromProxy(TOP_LINK, "REQUEST_BUTTON_COLORS", {})
   T.eq("the Top link asked: its own colors, and its LED lit", toldOn(TOP_LINK), {
     { "BUTTON_COLORS", { ON_COLOR = "0000ff", OFF_COLOR = "000000" } },
     { "MATCH_LED_STATE", { STATE = true } },
   })
   mark()
-  RFP.REQUEST_BUTTON_COLORS(999, "REQUEST_BUTTON_COLORS", {})
+  ReceivedFromProxy(999, "REQUEST_BUTTON_COLORS", {})
   T.eq("a binding that is no link is told nothing", sent, {})
 end
 
@@ -5808,7 +5812,7 @@ do
     { "000000", "0000ff" },
   })
   mark()
-  RFP.REQUEST_BUTTON_COLORS(300, "REQUEST_BUTTON_COLORS", {})
+  ReceivedFromProxy(300, "REQUEST_BUTTON_COLORS", {})
   T.eq("and the Top link is answered with them", linkColors(), { { "00ff00", "000000" } })
 
   started("")

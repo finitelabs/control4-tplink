@@ -57,13 +57,13 @@ local ColorMode = constants.LightColorMode
 
 --- A color in a light request's params. The SMART and IOT schemas name it
 --- alike, all three fields together.
---- @class TplinkHeldColor
+--- @class TplinkColorParams
 --- @field hue integer? 0-359.
 --- @field saturation integer? 0-100.
 --- @field color_temp integer? Kelvin; 0 for a color.
 
 --- set_device_info's params for a light.
---- @class TplinkSmartParams : TplinkHeldColor
+--- @class TplinkSmartParams : TplinkColorParams
 --- @field device_on boolean?
 --- @field brightness integer? 1-100.
 

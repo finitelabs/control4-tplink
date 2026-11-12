@@ -253,52 +253,6 @@ transport:reply({ resolve = { [LIGHT_SERVICE] = { transition_light_state = { err
 outcome = settle(bulb:execute({ has_state = true, state = true }))
 T.check("device rejection rejects", Select(outcome.rejected, "error") ~= nil)
 
-T.section("A color held for a bulb that is off: poll() shows it, execute() lets the hold take it out")
-
--- A held color is the one an off bulb comes on in.
-local held = { hue = 120, saturation = 50, color_temp = 0 }
-local offState = { on_off = 0, dft_on_state = { brightness = 30, color_temp = 2700, hue = 0, saturation = 0 } }
-transport:reply(sysinfoReply({
-  model = "KL130(US)",
-  is_dimmable = 1,
-  is_color = 1,
-  is_variable_color_temp = 1,
-  light_state = offState,
-}))
-state = Select(settle(bulb:poll(held)).resolved, "state")
-T.eq("an off bulb shows the held color's mode", Select(state, "color_mode"), ColorMode.COLOR_MODE_RGB)
-T.check("and its color", approx(Select(state, "green"), 1.0) and approx(Select(state, "red"), 0.5))
-T.check("and the level it holds", approx(Select(state, "brightness"), 0.3))
-T.eq("the bulb's own state is left as it was", offState.dft_on_state.color_temp, 2700)
-transport:reply(sysinfoReply({
-  model = "KL130(US)",
-  is_dimmable = 1,
-  is_color = 1,
-  is_variable_color_temp = 1,
-  light_state = { on_off = 1, color_temp = 3000, brightness = 50 },
-}))
-state = Select(settle(bulb:poll(held)).resolved, "state")
-T.eq("an on bulb shows its own color", Select(state, "color_mode"), ColorMode.COLOR_MODE_COLOR_TEMPERATURE)
-
---- A hold that takes the color out of an off and adds one to an on, as the driver's does.
-local function hold(p, on)
-  if not on then
-    p.hue, p.saturation, p.color_temp = nil, nil, nil
-  else
-    p.hue, p.saturation, p.color_temp = 240, 100, 0
-  end
-end
-transport:reply(okReply)
-settle(bulb:execute({ has_state = true, state = false, has_rgb = true, red = 0, green = 1, blue = 0 }, hold))
-T.eq("a color with an off goes out as the off alone", lastLightParams(), { on_off = 0 })
-transport:reply(okReply)
-settle(bulb:execute({ has_state = true, state = true }, hold))
-T.eq(
-  "an on goes out with the color the hold adds, and ignore_default for it",
-  lastLightParams(),
-  { on_off = 1, hue = 240, saturation = 100, color_temp = 0, ignore_default = 1 }
-)
-
 T.section("Light strips (KL400/KL420/KL430): different command envelope")
 
 local STRIP_SERVICE = "smartlife.iot.lightStrip"

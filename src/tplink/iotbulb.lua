@@ -161,10 +161,9 @@ end
 --- Polls the bulb and maps the result for applyUpdate.
 --- Rejects when the device is unreachable or is not an IOT-schema light
 --- (no light_state in sysinfo), so probes can fall through.
---- @param held TplinkHeldColor? A color held for the bulb while it is off, shown as the one it comes on in.
 --- @return Deferred<TplinkIotPoll, TplinkLinkError>
-function IotBulb:poll(held)
-  log:trace("IotBulb:poll(%s)", held)
+function IotBulb:poll()
+  log:trace("IotBulb:poll()")
   return self._transport:request({ system = { get_sysinfo = {} } }):next(function(response)
     local sysinfo = Select(response, "system", "get_sysinfo")
     if type(sysinfo) ~= "table" or tointeger(sysinfo.err_code) ~= 0 then
@@ -177,20 +176,9 @@ function IotBulb:poll(held)
     -- A length field marks a light strip, which takes commands through a
     -- different module.
     self._isStrip = sysinfo.length ~= nil
-    local lightState = sysinfo.light_state
-    if held and tointeger(lightState.on_off) ~= 1 then
-      local values = {}
-      for field, value in pairs(lightState.dft_on_state or {}) do
-        values[field] = value
-      end
-      for field, value in pairs(held) do
-        values[field] = value
-      end
-      lightState = { on_off = lightState.on_off, dft_on_state = values }
-    end
     return {
       entity = synthesizeEntity(sysinfo, self._kelvinMin, self._kelvinMax),
-      state = synthesizeState(lightState, sysinfo.lighting_effect_state),
+      state = synthesizeState(sysinfo.light_state, sysinfo.lighting_effect_state),
       -- Bulbs name it mic_mac, without separators.
       mac = sysinfo.mac or sysinfo.mic_mac,
     }
@@ -202,12 +190,10 @@ end
 --- transition_period so the device fades the change itself. A bare on/off
 --- leaves ignore_default unset so the device restores its previous light state.
 --- On a strip, any command takes over from a lighting effect started in the
---- Kasa app. A bulb drops a color sent with no on, so `hold` may take it out
---- of the params, or add one held for an on.
+--- Kasa app.
 --- @param opts TplinkLightOpts
---- @param hold (fun(params: TplinkHeldColor, on: boolean?))?
 --- @return Deferred<table, TplinkLinkError>
-function IotBulb:execute(opts, hold)
+function IotBulb:execute(opts)
   log:trace("IotBulb:execute(%s)", opts)
 
   local params = {}
@@ -231,10 +217,6 @@ function IotBulb:execute(opts, hold)
     params.saturation = math.max(0, math.min(100, math.floor((sat or 0) + 0.5)))
     params.color_temp = 0
     params.ignore_default = 1
-  end
-  if hold then
-    hold(params, params.on_off == 1)
-    params.ignore_default = (params.brightness or params.color_temp) and 1 or nil
   end
   if IsEmpty(params) then
     return deferred.new():resolve({})
