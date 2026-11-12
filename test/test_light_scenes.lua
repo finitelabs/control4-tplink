@@ -983,7 +983,8 @@ do
     told("LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT"),
     { 30 }
   )
-  run(0)
+  -- A step with no rate waits 1 ms, the shortest timer Director takes.
+  run(1)
   T.eq("and the fade after it starts there", told("LIGHT_BRIGHTNESS_CHANGING", "LIGHT_BRIGHTNESS_CURRENT"), { 30 })
   run(1500)
   proxy("STOP_SCENE_RAMP", { SCENE_ID = 7 })
