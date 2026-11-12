@@ -184,6 +184,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   with no fade.
 - Turning a TP-Link Light off right after changing its color no longer loses
   that color.
+- A command the TP-Link Light does not take is corrected in Control4 within 2
+  seconds instead of at the next poll.
 - The TP-Link Light reports that it is back online after a reconnect.
 - A color chosen while a TP-Link Light is off is applied when it next turns on.
 - Stopping a fade the driver runs leaves the TP-Link Light exactly where the
