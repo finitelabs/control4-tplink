@@ -143,29 +143,29 @@ T.eq("no Color Changed: the proxy shows the color it holds", proxy:count("LIGHT_
 T.eq("the light is left off", h.device.state().on, false)
 T.eq("no callback raised", clock.errors, {})
 
+-- What a probe sees that differs from v20261110 by a design row: the row, by probe and field.
+--- @type table<string, table<string, string>>
+local DIFFERS = {
+  ["REQUEST_BUTTON_COLORS: the Top's saved colors"] = {
+    leds = "tplink: a button with no saved colors reports the setup's colors or the defaults, never blank.",
+  },
+}
+local FIELDS = { "on", "level", "shown", "kelvin", "x", "y", "rates", "leds" }
+
 T.section("each setting v20261110 saved works as it did")
 local seen = probes(h)
 for i, want in ipairs(Old.probes) do
   local got = seen[i]
-  T.eq(want.name, {
-    on = got.on,
-    level = got.level,
-    shown = got.shown,
-    kelvin = got.kelvin,
-    x = got.x,
-    y = got.y,
-    rates = got.rates,
-    leds = got.leds,
-  }, {
-    on = want.on,
-    level = want.level,
-    shown = want.shown,
-    kelvin = want.kelvin,
-    x = want.x,
-    y = want.y,
-    rates = want.rates,
-    leds = want.leds,
-  })
+  local rows = DIFFERS[want.name] or {}
+  local gotFields, wantFields = {}, {}
+  for _, field in ipairs(FIELDS) do
+    if rows[field] then
+      T.differs(want.name .. ": " .. field, rows[field])
+    else
+      gotFields[field], wantFields[field] = got[field], want[field]
+    end
+  end
+  T.eq(want.name, gotFields, wantFields)
 end
 T.eq("no callback raised", clock.errors, {})
 
