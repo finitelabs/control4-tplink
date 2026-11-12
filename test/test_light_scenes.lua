@@ -1625,32 +1625,50 @@ do
   run(15000)
   mixed("a color set from the app")
   -- Nor is the proxy's follow-up of an on's own color, after an on at once as after a rated one. Another color in the
-  -- same moment is a pick.
+  -- same moment is a pick. A Navigator's On reaches the driver as a target that names the On preset, and the proxy
+  -- follows it 5 ms later with the On color by its preset (dev, 2026-11-08).
   for _, c in ipairs({
     {
       "a Navigator's On",
       function()
-        proxy("DYNAMIC_ON")
+        proxy(
+          "SET_BRIGHTNESS_TARGET",
+          { LIGHT_BRIGHTNESS_TARGET = 100, LIGHT_BRIGHTNESS_TARGET_PRESET_ID = 1, RATE = 750 }
+        )
+        run(5)
+        proxy("SET_COLOR_TARGET", {
+          LIGHT_COLOR_TARGET_X = ON[1],
+          LIGHT_COLOR_TARGET_Y = ON[2],
+          LIGHT_COLOR_TARGET_MODE = 0,
+          LIGHT_COLOR_TARGET_RATE = 750,
+          LIGHT_COLOR_TARGET_PRESET_ID = ON.id,
+          LIGHT_COLOR_TARGET_PRESET_ORIGIN = 1,
+        })
       end,
+      true,
     },
     {
       "a brightness target at once",
       function()
         proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 0 })
       end,
+      false,
     },
     {
       "a rated on",
       function()
         proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 2000 })
       end,
+      false,
     },
   }) do
     for _, color in ipairs({ ON, green }) do
       lit(true)
       c[2]()
       run(20)
-      colorTarget(color, 0)
+      if color ~= ON or not c[3] then
+        colorTarget(color, 0)
+      end
       run(15000)
       if color == ON then
         mixed(c[1] .. ", then the proxy's follow-up of its color")
