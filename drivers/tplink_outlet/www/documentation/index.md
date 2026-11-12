@@ -620,7 +620,8 @@ https://drivercentral.io/platforms/control4-drivers/lighting/tp-link-kasa-and-ta
 
 If you have any questions or issues integrating this driver with Control4 or
 your TP-Link device, you can contact us at
-[driver-support@finitelabs.com](mailto:driver-support@finitelabs.com).
+[driver-support@finitelabs.com](mailto:driver-support@finitelabs.com) or
+call/text us at [%%SUPPORT_PHONE%%](tel:__SUPPORT_PHONE__).
 
 <!-- #else -->
 
