@@ -20,83 +20,62 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
-### Fixed
-
-- Fixed an off sent while a color was still on its way to the TP-Link Light
-  losing that color, so the off now waits for it.
-- Fixed a command the TP-Link Light did not take showing in Control4 until the
-  next poll, so the driver now reads the light back once after such a command.
-- Fixed a Kasa light offering fades longer than the 60 seconds it can take.
-- Fixed a scene step that sets level and color together changing the color
-  picked for the TP-Link Light.
-- Fixed a color held for the TP-Link Light's next on being forgotten when
-  another app turns the light on.
-
 ### Changed
 
-- Changed the TP-Link Light to tell Control4 its state each time the driver
-  starts or reconnects, even when nothing changed.
-- Changed the TP-Link Light to fire no Changed event for a command that leaves
-  it as it was.
-- Changed Get Light Level on the TP-Link Light to answer the level Control4
-  shows, during a fade too.
-- Changed an on from off to fade the TP-Link Light's color from the one it kept
-  to its on color, over the on's time.
-- Changed an off under Dim-To-Warm to fade the TP-Link Light's color to the Dim
-  color as it dims.
-- Changed a Dim-To-Warm white to show in Control4 as the white the TP-Link Light
-  shows.
-- Changed Dim-To-Warm to mix in a straight line between its two colors, whites
-  included.
-- Changed a ramp that replaces another to start from where the TP-Link Light has
-  got to.
-- Changed a keypad hold on the TP-Link Light to start 250 ms after the press,
-  and a command sent in that wait no longer stops the hold from starting.
-- Changed a keypad hold's time to scale to the distance the TP-Link Light has
-  left to go.
-- Changed Ramp Scene Up to take the TP-Link Light to full, not its on level.
-- Changed Stop Scene Ramp to let a scene step's fade finish, while it still
-  stops Ramp Scene Up and Ramp Scene Down where they have got to.
-- Changed a stop just after an on from off to hold the TP-Link Light at its
-  lowest level, on.
-- Changed an off just after an on from off to keep the lowest level that on lit
-  as the TP-Link Light's Previous On level.
-- Changed a Toggle click on a TP-Link Light still fading up from off to turn it
-  on to its Default On level.
-- Changed a Toggle hold during the TP-Link Light's own fade up from off to go
-  up.
-- Changed a keypad click on a TP-Link Light that dims to fade over the click
-  rate.
-- Changed a TP-Link Light turned on again before its fade to off has ended to
-  keep the color it had.
-- Changed a color set while the TP-Link Light fades to off so it is not carried
-  to the next on.
-- Changed a TP-Link Light that does not dim to switch and show in Control4 at
-  once, with no fade.
-- Changed a keypad button with no saved colors to show the button colors set in
-  Composer, then the standard defaults, never blank.
-- Changed an off at once to show in Control4 with no fade.
-- Changed a color fade a later command carries on to show in Control4 at its end
-  alone.
-- Changed a color command for the color the TP-Link Light is already fading to
-  so it is sent and counts as the picked color.
-- Changed a level command that carries the color the TP-Link Light is already
-  fading to so Control4 is told that color fade again, over the new time.
-- Changed a stop of a fade the driver makes to send the TP-Link Light where the
-  fade has got to.
-- Changed a fade the driver makes to step every 100 ms, skipping a step the
-  light has not taken yet.
-- Changed a fade the driver makes from off to send its first step at once, at
-  the Min On level.
-- Changed a color set during a fade the driver makes to go to the TP-Link Light
-  at once, as its own command.
-- Changed a fade the driver makes between off and on to stay between the Min and
-  Max On levels and go dark only at its end.
-- Changed a TP-Link Light whose fades the driver makes to offer ramp rates up to
-  a day.
-- Changed a change of Fades to Light during a ramp to end the ramp once the
-  light's own fades are read.
-- Changed a color sent to a TP-Link Light that is off to wait for its next on.
+- After a driver restart or a reconnect the TP-Link Light reports its brightness
+  and color to Control4 as it finds them, even when they have not changed.
+- A command for the brightness or color the TP-Link Light already shows no
+  longer fires a change event in Control4 programming.
+- The TP-Link Light answers brightness queries with the level it last reported,
+  also during a fade or while the device can't be reached.
+- Keypad buttons with no colors of their own show the TP-Link Light's colors
+  from Composer, then the standard defaults.
+- Turning a TP-Link Light on fades its color to the on color over the same time
+  as its brightness.
+- With Dim-To-Warm, turning the TP-Link Light off fades its color all the way to
+  the Dim color.
+- With Dim-To-Warm, the color blends in a straight line between the Dim and On
+  colors, whites included, and reports the white the TP-Link Light shows.
+- A new fade starts from where the TP-Link Light is, even in the middle of
+  another fade.
+- With Dim-To-Warm, a color set by a scene step gives way to Dim-To-Warm at the
+  next brightness change.
+- Choosing the color a TP-Link Light is already fading to holds that color, as
+  any chosen color does.
+- A color chosen while the TP-Link Light is off is kept when another app turns
+  the light on.
+- A color set while a TP-Link Light fades to off is not saved for the next time
+  it turns on.
+- A TP-Link Light turned back on before its fade to off ends keeps the color it
+  had.
+- A keypad press on a dimmable TP-Link Light waits 250 ms to tell a click from a
+  hold, and a click fades over the click rate.
+- A keypad hold takes time in proportion to the distance it has left, and
+  letting go stops only a hold or a scene ramp.
+- Toggle buttons alternate their hold direction after each ramp, and a Toggle
+  press while the TP-Link Light fades up from off keeps it coming on.
+- Ramp Scene Up ramps to full brightness rather than the on level.
+- Stop Scene Ramp lets a scene step's fade finish and stops Ramp Scene Up or
+  Down where it is.
+- A stop or an off just after a TP-Link Light starts fading on leaves it at its
+  lowest level, and the next on returns there.
+- A brightness change that retimes a color fade already under way reports the
+  fade's new timing.
+- The TP-Link Light reports a setting back to Control4 only when it changes, not
+  at every start.
+- A TP-Link Light that only switches on and off changes and reports at once,
+  with no fade.
+- Turning a TP-Link Light off right after changing its color no longer loses
+  that color.
+- The TP-Link Light reports that it is back online after a reconnect.
+- A color chosen while a TP-Link Light is off is applied when it next turns on.
+- Stopping a fade the driver runs leaves the TP-Link Light exactly where the
+  fade had got to.
+- Fades the driver runs move in steps every 100 ms, can last up to a day, and
+  stay between the TP-Link Light's Min and Max On levels.
+- A fade the driver runs from off lights the TP-Link Light at once at its Min On
+  level, and a color set during the fade goes at once.
+- Kasa lights offer fades of up to 60 seconds.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
