@@ -176,6 +176,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   stops Ramp Scene Up and Ramp Scene Down where they have got to.
 - Changed a stop just after an on from off to hold the TP-Link Light at its
   lowest level, on.
+- Changed an off just after an on from off to keep the lowest level that on lit
+  as the TP-Link Light's Previous On level.
 - Changed a Toggle click on a TP-Link Light still fading up from off to turn it
   on to its Default On level.
 - Changed a Toggle hold during the TP-Link Light's own fade up from off to go
@@ -184,6 +186,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   rate.
 - Changed a TP-Link Light turned on again before its fade to off has ended to
   keep the color it had.
+- Changed a color set while the TP-Link Light fades to off so it is not carried
+  to the next on.
 - Changed a TP-Link Light that does not dim to switch and show in Control4 at
   once, with no fade.
 - Changed a keypad button with no saved colors to show the button colors set in
@@ -191,10 +195,20 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Changed an off at once to show in Control4 with no fade.
 - Changed a color fade a later command carries on to show in Control4 at its end
   alone.
+- Changed a color command for the color the TP-Link Light is already fading to
+  so it is sent and counts as the picked color.
+- Changed a level command that carries the color the TP-Link Light is already
+  fading to so Control4 is told that color fade again, over the new time.
 - Changed a stop of a fade the driver makes to send the TP-Link Light where the
   fade has got to.
 - Changed a fade the driver makes to step every 100 ms, skipping a step the
   light has not taken yet.
+- Changed a fade the driver makes from off to send its first step at once, at
+  the Min On level.
+- Changed a color set during a fade the driver makes to go to the TP-Link Light
+  at once, as its own command.
+- Changed a fade the driver makes between off and on to stay between the Min and
+  Max On levels and go dark only at its end.
 - Changed a TP-Link Light whose fades the driver makes to offer ramp rates up to
   a day.
 - Changed a change of Fades to Light during a ramp to end the ramp once the
