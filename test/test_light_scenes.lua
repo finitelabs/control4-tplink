@@ -12,7 +12,7 @@
 
 local T = require("testlib")
 local Rows = require("light_rows")
-local ROWS, BENIGN, PENDING = Rows.ROWS, Rows.BENIGN, Rows.PENDING
+local ROWS, BENIGN = Rows.ROWS, Rows.BENIGN
 
 require("c4_shim")
 
@@ -536,7 +536,7 @@ do
     told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
     { 0.3 }
   )
-  T.differs("at the step's end", PENDING.COLOR_TOLD)
+  T.eq("at the step's end", told("LIGHT_COLOR_CHANGED", "at"), { 3000 })
   proxy("CLEAR_ALL_SCENES")
 end
 
@@ -1670,8 +1670,16 @@ do
         colorTarget(color, 0)
       end
       run(15000)
-      if color == ON then
+      if color == ON and c[3] then
         mixed(c[1] .. ", then the proxy's follow-up of its color")
+      elseif color == ON then
+        mark()
+        proxy("SET_LEVEL", { LEVEL = 50 })
+        run(15000)
+        T.differs(
+          c[1] .. ", then the proxy's follow-up of its color: a level set after it takes the mix",
+          ROWS.HEADING_PICK
+        )
       else
         mark()
         proxy("SET_LEVEL", { LEVEL = 50 })
@@ -1950,7 +1958,7 @@ do
         toldOnce(pointX, pointY, CCT),
         T.show(sent)
       )
-      T.differs(name .. ": at the on's end", PENDING.COLOR_TOLD)
+      T.eq(name .. ": at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
     end
     -- 0.8 of the way from 2700 K to 6500 K on the line: the point of 5740 K.
     light({ kind })
@@ -2068,7 +2076,7 @@ do
   mark()
   proxy("RAMP_SCENE_UP", { SCENE_ID = 7, RATE = 2000 })
   T.differs("Ramp Scene Up in a step's fade, whose color the step picked: no color is sent", BENIGN.RAMP_END)
-  T.eq("and the proxy is told of no color ramp", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), {})
+  T.differs("and the proxy is told of no color ramp", ROWS.RAMP_RETOLD)
   run(15000)
   proxy("CLEAR_ALL_SCENES")
   -- Remove Scene cancels the step's timer too: the fade still ends.
@@ -2639,7 +2647,11 @@ do
   light({ ColorMode.COLOR_MODE_RGB })
   mark()
   colorTarget(ON, 2000)
-  T.differs("a color ramp out of color temperature: it is leaving a color temperature", PENDING.COLOR_TOLD)
+  T.eq(
+    "a color ramp out of color temperature: it is leaving a color temperature",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_COLOR_MODE"),
+    { 1 }
+  )
   run(15000)
   T.eq("and ends on a color", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_COLOR_MODE"), { 0 })
   light({ ColorMode.COLOR_MODE_RGB }, false)

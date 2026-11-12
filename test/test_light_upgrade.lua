@@ -9,7 +9,7 @@
 
 local T = require("testlib")
 local Rows = require("light_rows")
-local ROWS, PENDING = Rows.ROWS, Rows.PENDING
+local ROWS = Rows.ROWS
 
 require("c4_shim")
 
@@ -144,11 +144,11 @@ T.eq("no Color Changed: the proxy shows the color it holds", proxy:count("LIGHT_
 T.eq("the light is left off", h.device.state().on, false)
 T.eq("no callback raised", clock.errors, {})
 
--- What a probe sees that differs from v20261110 by a design row or a pending library fix, by probe and field.
+-- What a probe sees that differs from v20261110 by a design row: the row, by probe and field.
 --- @type table<string, table<string, string>>
 local DIFFERS = {
-  ["a Bottom click: the click rate down"] = { level = PENDING.WALK_MIN },
-  ["REQUEST_BUTTON_COLORS: the Top's saved colors"] = { leds = ROWS.LEDS, level = PENDING.WALK_MIN },
+  ["a Bottom click: the click rate down"] = { level = ROWS.WALK_MIN_MAX },
+  ["REQUEST_BUTTON_COLORS: the Top's saved colors"] = { leds = ROWS.LEDS, level = ROWS.WALK_MIN_MAX },
 }
 local FIELDS = { "on", "level", "shown", "kelvin", "x", "y", "rates", "leds" }
 

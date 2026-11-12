@@ -1,11 +1,10 @@
 --- The light library's design rows and benign differences, as the v20261110 suites mark them with T.differs.
 --- A row is a behavior the switch changes in the released driver; a benign entry changes nothing an integrator
---- sees; a pending entry is a library fix still to come, whose checks go back to main's when it lands.
+--- sees.
 
 --- @class LightRowStrings
 --- @field ROWS table<string, string>
 --- @field BENIGN table<string, string>
---- @field PENDING table<string, string>
 
 --- @type LightRowStrings
 return {
@@ -33,6 +32,11 @@ return {
     ON_AGAIN = "A light turned on again before its fade to off has ended keeps the color it had.",
     ECHOES = "Setting echoes answer setting commands only, never a start.",
     SWITCH_AT_ONCE = "A light that doesn't dim switches and is told at once.",
+    HEADING_PICK = "A color command for the color the light is heading to is sent, and counts as a picked color.",
+    RAMP_RETOLD = "A level command that sends the color its ramp is already heading to tells that ramp again, over its "
+      .. "new time.",
+    OFF_FADE_COLOR = "A color set during a fade to off is not carried to the next On.",
+    PRELIT_PREVIOUS_ON = "An off just after an on from off keeps the lowest level the on lit as Previous On.",
     OFF_BEHIND = "tplink: an off waits behind a color still to go, which the light would drop with it.",
     READ_FIRST = "tplink: a Fades change to Light ends a running ramp once the light's own fades are read.",
     READ_BACK = "tplink: a command no poll has confirmed by its wait is read back once.",
@@ -47,6 +51,10 @@ return {
       .. "the newest.",
     KASA_MAX = "tplink: a Kasa light's longest fade is 60 s.",
     WALK_DAY = "tplink: a light whose fades the driver makes offers rates up to a day.",
+    WALK_FIRST_STEP = "tplink: a driver-made fade from off sends its first step at once, at the Min On level.",
+    WALK_COLOR = "tplink: a color set during a driver-made fade goes at once as its own command.",
+    WALK_MIN_MAX = "tplink: a driver-made fade between off and on stays on the Min to Max line and goes dark only at "
+      .. "its end.",
   },
   BENIGN = {
     ORDER = "benign: tells and sends in one ms come in another order",
@@ -57,18 +65,5 @@ return {
     DIAG = "benign until its follow-up: a proxy read error is logged, not captured for Cloud Monitoring",
     SETUP_FILL = "benign: an install that never stored them takes them from the proxy's setup",
     OUTLET_MODE = "benign: tplink: a light on an outlet is sent the color mode it is picked in, as a direct light is",
-  },
-  PENDING = {
-    WALK_STALL = "library round 5: the walk stall after a Bottom click's walk to off",
-    WALK_OFF_COLOR = "library round 5: a walk's off must not carry a color; only Dim-To-Warm's off does",
-    WALK_COLOR = "library round 5: an instant color during a walk goes at once",
-    WALK_LEVEL = "library round 5: a level for where the strip is goes at once",
-    WALK_FROM_OFF = "library round 5: a walk from off lights at the line's start, C4 level 1, with its first step at "
-      .. "once",
-    WALK_MIN = "library round 5: a walk starts and ends at the line's start, not at a step under half of Min On",
-    ONE_CHANGING = "library round 5: one CHANGING per ramp",
-    COLOR_TOLD = "library round 5: a color never told",
-    OTHER_HAND = "library round 5: another hand's level or power during a walk is news and ends every ramp; a color "
-      .. "read from before the fade is history",
   },
 }
