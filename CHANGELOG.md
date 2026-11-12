@@ -131,15 +131,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   of the project's button LED colors, which can now be set for each light in
   Composer.
 
-<!-- #ifdef DRIVERCENTRAL -->
-
-### Changed
-
-- Changed Log Level to stop at 4 - Debug unless a Support Code from Finite Labs
-  support has the Lua tab open.
-
-<!-- #endif -->
-
 ## v20261105 - 2026-11-05
 
 ### Added
@@ -158,16 +149,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added address following to the TP-Link Outlet and TP-Link Light drivers, which
   find a device again by its MAC address when its IP address changes, on OS 4.0
   and later.
-  <!-- #ifdef DRIVERCENTRAL -->
-- Added DriverCentral automatic updates, with one Automatic Updates setting
-  shared by every TP-Link driver in the project.
-- Added a Support Code property to the TP-Link Outlet and TP-Link Light drivers,
-  which opens the driver's Lua tab in Composer for an hour with a code from
-  Finite Labs support.
-- Added a Cloud Monitoring property, Enabled by default, that sends Finite Labs
-  an hourly report of each driver's memory use and a report of each error it
-  hits, and a Diagnostics Snapshot action.
-  <!-- #endif -->
 
 ### Fixed
 
