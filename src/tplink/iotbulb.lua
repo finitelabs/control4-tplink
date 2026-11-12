@@ -164,11 +164,17 @@ local function synthesizeState(lightState, effectState)
   return state
 end
 
+--- An IOT light's answer to a poll.
+--- @class TplinkIotPoll
+--- @field entity TplinkLightEntity
+--- @field state TplinkLightState
+--- @field mac string? The MAC address the light reported.
+
 --- Polls the bulb and maps the result for applyUpdate.
 --- Rejects when the device is unreachable or is not an IOT-schema light
 --- (no light_state in sysinfo), so probes can fall through.
---- @param held table? A color held for the bulb while it is off, shown as the one it comes on in.
---- @return Deferred<{ entity: table, state: table, mac: string? }, { error: string }>
+--- @param held TplinkHeldColor? A color held for the bulb while it is off, shown as the one it comes on in.
+--- @return Deferred<TplinkIotPoll, TplinkLinkError>
 function IotBulb:poll(held)
   log:trace("IotBulb:poll(%s)", held)
   return self._transport:request({ system = { get_sysinfo = {} } }):next(function(response)
@@ -210,9 +216,9 @@ end
 --- On a strip, any command takes over from a lighting effect started in the
 --- Kasa app. A bulb drops a color sent with no on, so `hold` may take it out
 --- of the params, or add one held for an on.
---- @param opts table
---- @param hold (fun(params: table, on: boolean?))?
---- @return Deferred<table, { error: string }>
+--- @param opts TplinkLightOpts
+--- @param hold (fun(params: TplinkHeldColor, on: boolean?))?
+--- @return Deferred<table, TplinkLinkError>
 function IotBulb:execute(opts, hold)
   log:trace("IotBulb:execute(%s)", opts)
 

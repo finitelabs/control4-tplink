@@ -28,10 +28,7 @@ local diagnostics = require("lib.diagnostics")
 --#endif
 local persist = require("lib.persist")
 local constants = require("constants")
-local IotBulb = require("tplink.iotbulb")
-local Klap = require("tplink.klap")
-local Legacy = require("tplink.legacy")
-local Tpap = require("tplink.tpap")
+local TplinkLightAdapter = require("tplink.light_adapter")
 
 --- Color mode identifiers shared with tplink_outlet over the TPLINK_LIGHT
 --- binding protocol. The internal proxy logic keys off these in what a light
@@ -51,75 +48,19 @@ local PROXY_BINDING = 5001
 --- driver connects directly to a light device using its properties.
 local OUTLET_BINDING = 1
 
---- Whether the outlet binding is currently connected.
---- @return boolean
-local function isOutletBound()
-  local provider = C4:GetBoundProviderDevice(C4:GetDeviceID(), OUTLET_BINDING)
-  return provider ~= nil and provider ~= 0
-end
-
---- The direct-mode transports, in one table: the main chunk is near Lua's
---- 200 locals.
---- @class LightLink
---- @field klap Klap KLAP v2 hashing: SMART-firmware devices and KL-series bulbs on newer KLAP firmware.
---- @field klapV1 Klap KLAP v1 hashing: KL-series bulbs whose KLAP firmware uses the MD5-based hashes.
---- @field legacy Legacy Port 9999: KL-series bulbs on original firmware.
---- @field tpap Tpap TPAP: a light whose account has Third-Party Compatibility off.
---- @field smart Klap|Tpap The session SMART-schema requests go through.
-local link = {
-  klap = Klap:new(),
-  klapV1 = Klap:new({ authVersion = 1 }),
-  legacy = Legacy:new(),
-  tpap = Tpap:new(),
-}
-link.smart = link.klap
-
---- The direct-mode command schema, set by connect-time detection:
---- "smart" (Tapo-class get_device_info/set_device_info over KLAP) or "iot"
---- (KL-series sysinfo/transition_light_state via the iotBulb adapter). SMART
---- requests go through link.smart.
---- @type string?
-local directSchema = nil
-
---- IOT bulb adapter over the adopted transport, when directSchema is "iot".
---- @type IotBulb?
-local iotBulb = nil
-
 -- Forward declarations; assigned in the Backends section near the end.
 local backendStart, backendSendCommand, backendFade
 --#ifdef DRIVERCENTRAL
 local licenseChanged
 --#endif
 
--- Following the light to a new address or protocol: in one table, as this
--- chunk is near Lua's 200 locals.
-local follow = {}
+--- What the light's connection tells the driver: its methods are set in the
+--- Backends section.
+--- @type TplinkLightHost
+local host = {}
 
---- Driver Status while the light is searched for on the network.
-follow.LOOKING = "Looking for the device on the network..."
-
---- Follows the light to a new address by its MAC. A light bound to an outlet
---- has no address of its own.
-follow.device = require("tplink.discovery").Follower:new(function(address)
-  if address == Properties["IP Address"] or isOutletBound() then
-    return
-  end
-  log:info("The light moved to %s", address)
-  UpdateProperty("IP Address", address)
-  backendStart()
-end, function(looking)
-  if looking then
-    follow.statusBefore = Properties["Driver Status"]
-    UpdateProperty("Driver Status", follow.LOOKING)
-  elseif Properties["Driver Status"] == follow.LOOKING then
-    UpdateProperty("Driver Status", follow.statusBefore or "")
-  end
-end)
-
---- Human-readable name of the active transport ("Outlet", "SMART", "KLAP", or
---- "Legacy"), for Driver Status.
---- @type string?
-local transportName = nil
+--- The light's connection: through the bound outlet, or direct to the light.
+local adapter = TplinkLightAdapter.new(host, OUTLET_BINDING)
 
 ---------------------------------------------------------------------------
 -- Color modes that include brightness control
@@ -181,8 +122,6 @@ local P = {
   -- rates apart from 6661 across a driver update too. Not stored before it
   -- is told any.
   FADES_TOLD = "fades_told",
-  -- The color a SMART light was given while off, owed to its next on.
-  PENDING_COLOR = "pending_color",
 }
 
 -- Color on-mode kinds. The proxy assigns presets with these origins/IDs to
@@ -240,14 +179,6 @@ local dynamicCapsSent = false
 -- precision).
 local rampingBrightness = false
 local rampingColor = false
-
--- Who makes a fade. nil: the light, over the time a command carries. Otherwise
--- the Fades property: "Driver" in steps, or "Light" at the light's own lengths.
-local fades = nil
-
--- A light's own fades, in milliseconds, once they are read: on from off, off,
--- and change, between two states while on. 0 for one it has not.
-local ownFades = {}
 
 -- Ramp metadata: { startTime, startLevel, targetLevel, durationMs } and, for
 -- a ramp a scene step primed, that step. A brightness ramp also keeps the
@@ -582,7 +513,9 @@ OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
 
 function OnDriverDestroyed()
   log:trace("OnDriverDestroyed()")
-  follow.shutdown()
+  -- No probe or poll answered after it does anything, and no timer fires.
+  adapter:stop()
+  KillAllTimers()
 end
 
 ---------------------------------------------------------------------------
@@ -669,9 +602,9 @@ end
 --- Whose a fade's length is: a light that fades by itself has one, its own, and
 --- nothing to stop. The proxy holds the rate range and the stops at run time.
 local function rateCapabilities()
-  local own = fades == "Light"
+  local own = adapter.fades == "Light"
   -- A light with no fade between two states has no fixed rate to tell.
-  local fixed = own and (ownFades.change or 0) > 0 and ownFades.change or nil
+  local fixed = own and (adapter.ownFades.change or 0) > 0 and adapter.ownFades.change or nil
   local caps = {
     supports_brightness_stop = supportsDimming and not own,
     has_fixed_ramp_rate = fixed ~= nil,
@@ -790,13 +723,13 @@ local function updateDynamicCapabilities(entity)
     log:debug("The proxy shows the light's capabilities")
     -- The proxy holds its rates apart from 6661: one last told the light's
     -- own fades is told them as they are now.
-    if persist:get(P.FADES_TOLD) and fades ~= "Light" then
+    if persist:get(P.FADES_TOLD) and adapter.fades ~= "Light" then
       SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", rateCapabilities(), "NOTIFY", true)
       persist:set(P.FADES_TOLD, false)
     end
   else
     SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", caps, "NOTIFY", true)
-    persist:set(P.FADES_TOLD, fades == "Light")
+    persist:set(P.FADES_TOLD, adapter.fades == "Light")
   end
   -- A new light's setup lists no colors until the proxy hears it has color,
   -- so its color on mode is read again now.
@@ -1207,7 +1140,7 @@ end
 -- other would switch a light off in a fade up, or send an on to one fading to
 -- off. A light the driver walks stays on until the walk's last step.
 local function isLogicallyOn()
-  if rampingBrightness and brightnessRamp and (fades ~= "Driver" or (brightnessRamp.targetLevel or 0) > 0) then
+  if rampingBrightness and brightnessRamp and (adapter.fades ~= "Driver" or (brightnessRamp.targetLevel or 0) > 0) then
     return (brightnessRamp.targetLevel or 0) > 0
   end
   return currentBrightness > 0
@@ -1289,7 +1222,7 @@ end
 local function endOnCycle()
   -- A color the driver walks goes on to its end while the light is off, so the
   -- proxy hears it ahead of the level, where it takes its Previous On.
-  if fades == "Driver" and rampingColor then
+  if adapter.fades == "Driver" and rampingColor then
     colorRamp.told = true
     notifyColorChanged(colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode)
   end
@@ -1548,7 +1481,7 @@ local function interpolatedBrightness(toggle)
     return currentBrightness
   end
   -- A light the driver walks is where its last step put it, behind the line.
-  if fades == "Driver" then
+  if adapter.fades == "Driver" then
     if ramp.sentBrightness == nil then
       return ramp.startLevel, ramp.startAt
     end
@@ -1568,14 +1501,14 @@ end
 --- How long a change takes: the time asked for, or on a light that fades by
 --- itself its own time for that change, whatever was asked.
 local function fadeTime(rate, from, to)
-  if fades ~= "Light" then
+  if adapter.fades ~= "Light" then
     return rate
   end
-  local own = ownFades.change
+  local own = adapter.ownFades.change
   if to == 0 then
-    own = from ~= 0 and ownFades.off
+    own = from ~= 0 and adapter.ownFades.off
   elseif from == 0 then
-    own = ownFades.on
+    own = adapter.ownFades.on
   end
   return own or 0
 end
@@ -1583,7 +1516,7 @@ end
 local function brightnessRampFinished(targetLevel)
   -- A press at its gate is not this ramp's to end.
   CancelTimer("BrightnessRampFinish")
-  if fades == "Driver" and rampingBrightness then
+  if adapter.fades == "Driver" and rampingBrightness then
     -- The last step. The ramp is at its end from here, whenever this is.
     brightnessRamp.startTime = C4:GetTime() - brightnessRamp.durationMs
     backendFade(true)
@@ -1603,7 +1536,7 @@ end
 -- Halt the in-flight transition at the interpolated current level.
 local function brightnessRampStopped()
   -- A light that fades by itself is on its way: it has no stop to be sent.
-  if fades == "Light" then
+  if adapter.fades == "Light" then
     return
   end
   cancelBrightnessRampTimers()
@@ -1616,7 +1549,7 @@ local function brightnessRampStopped()
   local ramp = brightnessRamp
   rampingBrightness = false
   brightnessRamp = nil
-  if fades == "Driver" then
+  if adapter.fades == "Driver" then
     -- A color a replaced fade carried moves with this ramp: it stops with it.
     if rampingColor and colorRamp.carried then
       leaveColorRamp()
@@ -1664,14 +1597,14 @@ local function leaveMergedColor()
   if merged then
     local x, y, mode = carriedColor(brightnessRamp)
     mode = carry.pointMode(x, y, currentColorMode, mode)
-    if fades == "Driver" then
+    if adapter.fades == "Driver" then
       -- The light is in the color its last step carried, or still in its own.
       local sent = brightnessRamp.sentColor or { x = currentColorX, y = currentColorY, mode = currentColorMode }
       x, y, mode = sent.x, sent.y, sent.mode
     end
     currentColorX, currentColorY, currentColorMode = x, y, mode
     brightnessRamp.mergedColor = nil
-    if fades == "Driver" then
+    if adapter.fades == "Driver" then
       -- A walk goes on to its color, but one up from off has it with its levels.
       if brightnessRamp.startLevel > 0 then
         x, y, mode = merged.x, merged.y, merged.mode
@@ -1824,7 +1757,7 @@ local function interpolatedColor(line)
     return currentColorX, currentColorY, currentColorMode
   end
   local x, y
-  if fades == "Driver" and not line then
+  if adapter.fades == "Driver" and not line then
     x, y = colorRamp.sentX or colorRamp.startX, colorRamp.sentY or colorRamp.startY
   else
     local elapsed = C4:GetTime() - colorRamp.startTime
@@ -1850,7 +1783,7 @@ local function colorRampFinished(targetX, targetY, targetMode)
   cancelColorRampTimers()
   -- One told at an off went out with the preset id the off then dropped.
   local told = colorRamp and colorRamp.told
-  if fades == "Driver" and rampingColor then
+  if adapter.fades == "Driver" and rampingColor then
     -- The last step, as a level ramp's.
     colorRamp.startTime = C4:GetTime() - colorRamp.durationMs
     backendFade(true)
@@ -1863,7 +1796,7 @@ local function colorRampFinished(targetX, targetY, targetMode)
 end
 
 local function colorRampStopped()
-  if fades == "Light" then
+  if adapter.fades == "Light" then
     return
   end
   cancelColorRampTimers()
@@ -1874,7 +1807,7 @@ local function colorRampStopped()
   rampingColor = false
   colorRamp = nil
   -- A light the driver walks is in the color of its last step: nothing to cancel.
-  if fades ~= "Driver" then
+  if adapter.fades ~= "Driver" then
     sendColor(x, y, mode, 0)
   end
   currentColorX = x
@@ -2619,7 +2552,7 @@ local function applySceneStep(step)
       or mode ~= currentColorMode
     -- A light the driver walks up from off has no color to fade from: it
     -- comes on in the step's.
-    local fromOff = fades == "Driver" and currentBrightness == 0
+    local fromOff = adapter.fades == "Driver" and currentBrightness == 0
     if fade > 0 and colorChanged and not fromOff then
       rampingColor = true
       colorRamp = {
@@ -3376,6 +3309,8 @@ function RFP.UPDATE_DISCONNECT(idBinding, strCommand)
   handleDisconnect()
 end
 
+--- @param entity TplinkLightEntity
+--- @param state TplinkLightState
 --- @param news boolean? The light is not where the driver sent it: another
 ---   hand has moved it, so a ramp in flight is over and this is where it is.
 local function applyUpdate(entity, state, news)
@@ -3400,7 +3335,7 @@ local function applyUpdate(entity, state, news)
 
   -- Connection state must be sent BEFORE dynamic capabilities
   if not wasConnected then
-    UpdateProperty("Driver Status", transportName and ("Connected (" .. transportName .. ")") or "Connected")
+    UpdateProperty("Driver Status", adapter.transport and ("Connected (" .. adapter.transport .. ")") or "Connected")
     SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = true }, "NOTIFY")
   end
 
@@ -3525,13 +3460,7 @@ function RFP.UPDATE_STATE(idBinding, strCommand, tParams)
     return
   end
   --#endif
-  local entity = DeserializeSafe(Select(tParams, "entity"))
-  local state = DeserializeSafe(Select(tParams, "state"))
-  if IsEmpty(entity) or IsEmpty(state) then
-    log:error("RFP.UPDATE_STATE called with invalid parameters: %s", tParams)
-    return
-  end
-  applyUpdate(entity, state)
+  adapter:outletUpdate(tParams)
 end
 
 ---------------------------------------------------------------------------
@@ -3571,7 +3500,7 @@ OBC[OUTLET_BINDING] = function(_, _, bIsBound)
     SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
   end
   if gInitialized then
-    persist:delete(P.PENDING_COLOR)
+    adapter:forgetColor()
     backendStart()
   end
 end
@@ -3579,149 +3508,9 @@ end
 ---------------------------------------------------------------------------
 -- Backends
 ---------------------------------------------------------------------------
--- Two ways to reach a light:
---   Proxy mode: the OUTLET_BINDING is bound to a tplink_outlet output. The
---     outlet driver pushes UPDATE_STATE / UPDATE_DISCONNECT and executes
---     ENTITY_COMMAND, using the same message contract as the internal
---     applyUpdate path.
---   Direct mode: the IP Address and TP-Link credential properties point at
---     a light device (e.g. Tapo L930) speaking the SMART schema over KLAP.
--- The bound outlet wins; network properties are hidden while bound.
-
-local DIRECT_POLL_TIMER = "DirectPoll"
-
---- Whether the direct-mode session believes the device is online.
---- @type boolean
-local directConnected = false
-
---- Counts backendStart, as sceneGeneration counts scenes: a connect attempt,
---- and the answer to a poll or a command, does nothing once it has moved on.
---- @type number
-local backendGeneration = 0
-
---- Whether a connect attempt is still probing. The poll timer's retry waits
---- for it: a start would replace it before it had found or failed to find.
---- @type boolean
-local directDetecting = false
-
---- Map a SMART get_device_info result to the entity shape applyUpdate expects.
---- @param info table
---- @return table entity
-local function synthesizeEntity(info)
-  local hasBrightness = info.brightness ~= nil
-  local hasColor = info.hue ~= nil and info.saturation ~= nil
-  local kelvinMin = tointeger(Select(info, "color_temp_range", 1)) or 0
-  local kelvinMax = tointeger(Select(info, "color_temp_range", 2)) or 0
-  local hasCCT = info.color_temp ~= nil and kelvinMin > 0 and kelvinMax > kelvinMin
-
-  local modes = {}
-  if hasColor and hasCCT then
-    table.insert(modes, ColorMode.COLOR_MODE_RGB_COLOR_TEMPERATURE)
-  elseif hasColor then
-    table.insert(modes, ColorMode.COLOR_MODE_RGB)
-  elseif hasCCT then
-    table.insert(modes, ColorMode.COLOR_MODE_COLOR_TEMPERATURE)
-  elseif hasBrightness then
-    table.insert(modes, ColorMode.COLOR_MODE_BRIGHTNESS)
-  else
-    table.insert(modes, ColorMode.COLOR_MODE_ON_OFF)
-  end
-
-  local entity = { supported_color_modes = modes }
-  if hasCCT then
-    -- Kelvin range inverts when converted to mireds.
-    entity.min_mireds = 1e6 / kelvinMax
-    entity.max_mireds = 1e6 / kelvinMin
-  end
-  return entity
-end
-
---- Map a SMART get_device_info result to the state shape applyUpdate expects.
---- @param info table
---- @return table state
-local function synthesizeState(info)
-  local state = { state = toboolean(info.device_on) }
-  if info.brightness ~= nil then
-    state.brightness = (tofinite(tonumber_locale(info.brightness)) or 100) / 100
-  end
-  local colorTemp = tonumber_locale(info.color_temp) or 0
-  if colorTemp > 0 then
-    state.color_mode = ColorMode.COLOR_MODE_COLOR_TEMPERATURE
-    state.color_temperature = 1e6 / colorTemp
-  elseif info.hue ~= nil then
-    state.color_mode = ColorMode.COLOR_MODE_RGB
-    local r, g, b = hsvToRGB(tonumber_locale(info.hue) or 0, tonumber_locale(info.saturation) or 0, 100)
-    state.red, state.green, state.blue = r, g, b
-  end
-  return state
-end
-
---- A direct-mode light serves one request at a time, and those in flight
---- together in an order of its own: one goes out, and the rest wait for it.
---- @type boolean
-local directBusy = false
-
---- The command waiting for the request in flight, every later one merged in.
---- @type table?
-local directWaiting = nil
-
---- Whether a poll waits for the request in flight.
---- @type boolean
-local directPollWaiting = false
-
---- Counts the commands made. A poll sent before the latest reads the light as
---- it was before that command.
---- @type number
-local directCommands = 0
-
---- The color a light was given while off, which it would drop. It is held
---- here, and stored, and goes out with the next command that turns the light
---- on.
---- @type table?
-local pendingColor = nil
-
---- The color held for a light, as a poll finds it: one that is off comes on in
---- it. A light turned on by another hand came on in the color it had, so the
---- hold is let go.
---- @param on boolean Whether the light is on.
---- @return table? held
-local function heldColor(on)
-  if on and pendingColor then
-    pendingColor = nil
-    persist:delete(P.PENDING_COLOR)
-  end
-  return pendingColor
-end
-
---- What a SMART light holds, as it was sent or read since the last command
---- from Control4: its state, its level and its color.
---- @type table?
-local smartHeld = nil
-
---- Take a poll's answer as what the light holds.
---- @param info table
---- @return boolean moved Whether another hand has moved it: it is not what the
----   light held.
-local function smartRead(info)
-  local held = smartHeld or {}
-  smartHeld = {
-    device_on = toboolean(info.device_on),
-    brightness = tonumber_locale(info.brightness),
-    hue = tonumber_locale(info.hue),
-    saturation = tonumber_locale(info.saturation),
-    color_temp = tonumber_locale(info.color_temp),
-  }
-  local function moved(field)
-    return held[field] ~= nil and held[field] ~= smartHeld[field]
-  end
-  if moved("device_on") or moved("brightness") or moved("color_temp") then
-    return true
-  end
-  -- In a color temperature the light holds no hue of its own.
-  return smartHeld.color_temp == 0 and (moved("hue") or moved("saturation"))
-end
-
-local directNext -- defined below, after what it sends
+-- The connection, through the bound outlet or direct to the light, is the
+-- adapter's (tplink.light_adapter). The driver's part is what a command and a
+-- fade the driver makes leave to send, and the license gate.
 
 --- The least time between two steps of a fade, however fast the light answers,
 --- and the wait to look again while nothing has moved on, in milliseconds.
@@ -3733,333 +3522,6 @@ local FADE_STEP_TIMER = "FadeStep"
 --- When the last step of a fade went out, by C4:GetTime().
 --- @type number
 local fadeStepAt = 0
-
---- How long a request in flight is waited for, in milliseconds: past the
---- transports' own timeouts, 10 s for a KLAP post and 5 s on the legacy port.
---- @type number
-local DIRECT_ANSWER_MS = 15000
-
-local DIRECT_ANSWER_TIMER = "DirectAnswer"
-
---- Put a request in flight, and send what waited for it once its answer or
---- its failure is in. One with neither after DIRECT_ANSWER_MS has failed: a
---- request its transport never settled would hold every later one.
---- @param request Deferred
---- @param onAnswer fun(response: table)
---- @param onFail fun(err: table)
-local function directFlight(request, onAnswer, onFail)
-  local generation = backendGeneration
-  local over = false
-  directBusy = true
-  local function landed(handler)
-    return function(value)
-      if over or generation ~= backendGeneration then
-        return
-      end
-      over = true
-      CancelTimer(DIRECT_ANSWER_TIMER)
-      directBusy = false
-      handler(value)
-      directNext()
-    end
-  end
-  -- Set first: a request settled already lands inside next().
-  SetTimer(DIRECT_ANSWER_TIMER, DIRECT_ANSWER_MS, function()
-    landed(onFail)({ error = "no answer from the light" })
-  end)
-  request:next(landed(onAnswer), landed(onFail))
-end
-
---- Polls in a row the light has not answered.
-follow.misses = 0
-
---- A poll the light did not answer. From the third in a row the next poll
---- detects its protocol again, as a firmware update, a rollback or a reset
---- can change it; one slow answer keeps the session.
-function follow.missed()
-  follow.misses = follow.misses + 1
-  if directConnected then
-    directConnected = false
-    handleDisconnect()
-  end
-  if follow.misses >= 3 then
-    directSchema = nil
-    iotBulb = nil
-  end
-end
-
---- A poll the light answered.
-function follow.answered()
-  follow.misses = 0
-  follow.device:found()
-end
-
---- Another device answers at the light's address: control nothing there, and
---- look for the light on the network.
-function follow.another()
-  follow.misses = 0
-  directSchema = nil
-  iotBulb = nil
-  if directConnected then
-    directConnected = false
-    handleDisconnect()
-  end
-  local ip = Properties["IP Address"] or ""
-  log:warn("A device other than this light answers at %s", ip)
-  UpdateProperty("Driver Status", "Disconnected: a different device is at " .. ip .. "; looking for this one")
-  follow.device:lost()
-end
-
---- Poll the direct-mode device and feed the result into applyUpdate.
-local function directPoll()
-  if directBusy then
-    directPollWaiting = true
-    return
-  end
-  local asked = directCommands
-
-  if directSchema == "iot" and iotBulb ~= nil then
-    directFlight(iotBulb:poll(pendingColor), function(result)
-      if not follow.device:accepts(result.mac) then
-        follow.another()
-        return
-      end
-      follow.answered()
-      directConnected = true
-      if asked == directCommands then
-        heldColor(result.state.state)
-        applyUpdate(result.entity, result.state)
-      end
-    end, function(err)
-      log:warn("IOT bulb poll failed: %s", Select(err, "error") or err)
-      follow.missed()
-      if Select(err, "code") == 403 then
-        UpdateProperty("Driver Status", "Disconnected: " .. Select(err, "error"))
-      end
-    end)
-    return
-  end
-
-  directFlight(link.smart:request({ method = "get_device_info", params = {} }), function(response)
-    if tointeger(Select(response, "error_code")) ~= 0 then
-      log:warn("get_device_info failed: %s", response)
-      follow.missed()
-      return
-    end
-    local info = Select(response, "result") or {}
-    if not follow.device:accepts(info.mac) then
-      follow.another()
-      return
-    end
-    follow.answered()
-    -- A light that is back may be back with other fades of its own.
-    ownFades.due = ownFades.due or not directConnected
-    directConnected = true
-    if asked == directCommands then
-      local moved = smartRead(info)
-      for field, value in pairs(heldColor(toboolean(info.device_on)) or {}) do
-        info[field] = value
-      end
-      applyUpdate(synthesizeEntity(info), synthesizeState(info), moved)
-    end
-  end, function(err)
-    log:warn("get_device_info failed: %s", Select(err, "error") or err)
-    follow.missed()
-    if Select(err, "code") == 403 then
-      UpdateProperty("Driver Status", "Disconnected: " .. Select(err, "error"))
-    end
-  end)
-end
-
---- Hold the color of a command that does not turn the light on, which the
---- light would drop, and add a held one to an on that names no color. Both
---- schemas name a color's params alike.
---- @param params table A request's params; the color is taken out when held.
---- @param on boolean? Whether the command turns the light on.
-local function holdColor(params, on)
-  local color = params.color_temp ~= nil
-  if color and not on then
-    pendingColor = { hue = params.hue, saturation = params.saturation, color_temp = params.color_temp }
-    persist:set(P.PENDING_COLOR, pendingColor)
-    params.hue, params.saturation, params.color_temp = nil, nil, nil
-  elseif pendingColor and (color or on) then
-    if not color then
-      for field, value in pairs(pendingColor) do
-        params[field] = value
-      end
-    end
-    pendingColor = nil
-    persist:delete(P.PENDING_COLOR)
-  end
-end
-
---- Translate an internal light command to the params of a SMART
---- set_device_info request. A ramp rate the command carries is not sent: the
---- light takes no fade time from a command. A color for a light that is off is
---- held (holdColor), and added to the next on.
---- @param opts table
---- @return table? params nil when the command names nothing to send.
-local function smartParams(opts)
-  local params = {}
-  if opts.has_state then
-    params.device_on = opts.state and true or false
-  end
-  if opts.has_brightness and opts.state ~= false then
-    local level = math.floor((tonumber(opts.brightness) or 0) * 100 + 0.5)
-    if level >= 1 then
-      params.brightness = math.min(100, level)
-    end
-  end
-  if opts.has_color_temperature and (tonumber(opts.color_temperature) or 0) > 0 then
-    local kelvin = math.floor(1e6 / opts.color_temperature + 0.5)
-    local maxMireds = tonumber(Select(ENTITY or {}, "max_mireds"))
-    local minMireds = tonumber(Select(ENTITY or {}, "min_mireds"))
-    local kelvinMin = (maxMireds and maxMireds > 0) and math.floor(1e6 / maxMireds + 0.5) or 2500
-    local kelvinMax = (minMireds and minMireds > 0) and math.floor(1e6 / minMireds + 0.5) or 6500
-    params.color_temp = math.max(kelvinMin, math.min(kelvinMax, kelvin))
-  elseif opts.has_rgb then
-    local h, sat = rgbToHSV(tonumber(opts.red) or 0, tonumber(opts.green) or 0, tonumber(opts.blue) or 0)
-    params.hue = math.floor((h or 0) + 0.5) % 360
-    params.saturation = math.max(0, math.min(100, math.floor((sat or 0) + 0.5)))
-    params.color_temp = 0
-  end
-  -- No on with it: the light is off, or is being turned off.
-  holdColor(params, params.device_on)
-  if IsEmpty(params) then
-    return nil
-  end
-  return params
-end
-
---- Send a light command to the direct-mode device now.
---- @param opts table
---- @return boolean sent false when the command names nothing to send.
-local function directSend(opts)
-  if directSchema == nil then
-    log:debug("Light command dropped: the light is not connected")
-    return false
-  end
-  if directSchema == "iot" and iotBulb ~= nil then
-    directFlight(iotBulb:execute(opts, holdColor), function() end, function(err)
-      -- Command failures are logged only; the poll loop decides connectivity.
-      log:error("IOT bulb command failed: %s", Select(err, "error") or err)
-    end)
-    return true
-  end
-
-  local params = smartParams(opts)
-  if params == nil then
-    return false
-  end
-  smartHeld = smartHeld or {}
-  for field, value in pairs(params) do
-    smartHeld[field] = value
-  end
-  directFlight(link.smart:request({ method = "set_device_info", params = params }), function(response)
-    local code = tointeger(Select(response, "error_code")) or -1
-    if code ~= 0 then
-      log:error("set_device_info failed: %s", response)
-    end
-  end, function(err)
-    log:error("set_device_info failed: %s", Select(err, "error") or err)
-    if directConnected then
-      directConnected = false
-      handleDisconnect()
-    end
-  end)
-  return true
-end
-
---- How long a light takes over its own fade between two states while it is
---- on, in milliseconds. It reports no length for it: measured on a Tapo strip.
---- @type number
-local OWN_CHANGE_MS = 1000
-
---- Read the light's own fades and switch on each that is off, at the length it
---- has, which is the owner's. Then the proxy is told the rate that is fixed.
-local function readOwnFades()
-  local function tell()
-    SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", rateCapabilities(), "NOTIFY", true)
-    persist:set(P.FADES_TOLD, fades == "Light")
-  end
-  local function failed(err)
-    log:warn("The light's own fades could not be read or switched on: %s", Select(err, "error") or err)
-    tell()
-  end
-  --- A fade's length in milliseconds, 0 for one that is off or not there.
-  local function length(state, ms)
-    return type(state) == "table" and toboolean(state.enable) and (ms or (tointeger(state.duration) or 0) * 1000) or 0
-  end
-  directFlight(link.smart:request({ method = "get_on_off_gradually_info", params = {} }), function(response)
-    local info = Select(response, "result")
-    if tointeger(Select(response, "error_code")) ~= 0 or type(info) ~= "table" then
-      failed(response)
-      return
-    end
-    -- An older light answers with one switch for all its fades and no length
-    -- for them: it is switched on as the others are, and told as no fade.
-    local one = info.enable ~= nil
-    local names = one and { "all" } or { "on_state", "off_state", "change_state" }
-    if one then
-      info = { all = info }
-    end
-    --- Switch on the fades that are off, from the `i`th, a request each, and
-    --- then take them all as they are.
-    local function switchOn(i)
-      local name = names[i]
-      local state = info[name]
-      if fades ~= "Light" then
-        return
-      end
-      if name == nil then
-        ownFades = {
-          on = length(info.on_state),
-          off = length(info.off_state),
-          change = length(info.change_state, OWN_CHANGE_MS),
-        }
-        tell()
-      elseif type(state) ~= "table" or toboolean(state.enable) then
-        switchOn(i + 1)
-      else
-        local params = one and { enable = true } or { [name] = { enable = true, duration = state.duration } }
-        directFlight(link.smart:request({ method = "set_on_off_gradually_info", params = params }), function(answer)
-          state.enable = tointeger(Select(answer, "error_code")) == 0
-          if not state.enable then
-            failed(answer)
-          end
-          switchOn(i + 1)
-        end, failed)
-      end
-    end
-    switchOn(1)
-  end, failed)
-end
-
---- The light's own fades first when due, then the command, then the poll, which
---- so reads the light after it, then a fade's next step.
-function directNext()
-  -- An answer's handler may have put a request of its own in flight.
-  if directBusy then
-    return
-  end
-  if ownFades.due then
-    ownFades.due = false
-    if fades == "Light" then
-      readOwnFades()
-      return
-    end
-  end
-  local waiting = directWaiting
-  directWaiting = nil
-  if waiting ~= nil and directSend(waiting) then
-    return
-  end
-  if directPollWaiting then
-    directPollWaiting = false
-    directPoll()
-  end
-  backendFade()
-end
 
 --- The fields of a light command that name its color.
 local COLOR_FIELDS = {
@@ -4073,10 +3535,9 @@ local COLOR_FIELDS = {
   "color_mode",
 }
 
---- Send a light command to the direct-mode device, or hold it while a request
---- is in flight. Commands held together go out as one, merged field by field
---- with the later value winning; a later color replaces an earlier one whole.
---- @param opts table
+--- Send a light command to the direct-mode light, less what a fade the driver
+--- makes brings in its steps.
+--- @param opts TplinkLightOpts
 --- @param step boolean? A step of a fade the driver makes, not a new command.
 local function directExecute(opts, step)
   -- An on at under 1 % would go out as a bare on: the light would come up at
@@ -4085,14 +3546,12 @@ local function directExecute(opts, step)
   if level and level < 1 and not (opts.has_rgb or opts.has_color_temperature) then
     return
   end
-  -- What the light held before a command may be another hand's, older than
-  -- the command: a poll after it is news only against what it holds since.
-  if fades and not step then
-    smartHeld = nil
+  if not step then
+    adapter:commanded()
   end
   -- A fade the driver makes: the command is where it ends, and is not sent.
   -- The steps bring what a ramp walks, and only what is left goes at once.
-  if fades == "Driver" and (tointeger(opts.transition_length) or 0) > 0 then
+  if adapter.fades == "Driver" and (tointeger(opts.transition_length) or 0) > 0 then
     if rampingBrightness then
       opts.has_brightness, opts.brightness = nil, nil
     end
@@ -4110,33 +3569,10 @@ local function directExecute(opts, step)
   -- A color with no level turns on no light the driver has not. One it walks
   -- is as its last step left it, and one that fades by itself as it was sent.
   local color = opts.has_rgb or opts.has_color_temperature
-  if fades and rampingBrightness and color and not opts.has_brightness then
-    opts.state = (fades == "Driver" and interpolatedBrightness() or brightnessRamp.targetLevel) > 0
+  if adapter.fades and rampingBrightness and color and not opts.has_brightness then
+    opts.state = (adapter.fades == "Driver" and interpolatedBrightness() or brightnessRamp.targetLevel) > 0
   end
-  -- A color for a SMART light that is off is no off: a light turned on since
-  -- is left on. It names no state here, so an off it waits with is still one.
-  if directSchema ~= "iot" and opts.state == false and (opts.has_rgb or opts.has_color_temperature) then
-    opts.has_state, opts.state = nil, nil
-  end
-  directCommands = directCommands + 1
-  if not directBusy then
-    directSend(opts)
-    -- A command that sent nothing has no answer to bring a fade's next step.
-    backendFade()
-    return
-  end
-  if directWaiting == nil then
-    directWaiting = opts
-    return
-  end
-  if opts.has_rgb or opts.has_color_temperature then
-    for _, field in ipairs(COLOR_FIELDS) do
-      directWaiting[field] = nil
-    end
-  end
-  for field, value in pairs(opts) do
-    directWaiting[field] = value
-  end
+  adapter:execute(opts)
 end
 
 --- Send a fade's next step to a light free to take it. Its answer brings the
@@ -4144,7 +3580,7 @@ end
 --- @param last boolean? The step is a ramp's last: it goes at the ramp's end,
 ---   and waits its turn if it must.
 backendFade = function(last)
-  if fades ~= "Driver" or (directBusy and not last) then
+  if adapter.fades ~= "Driver" or (adapter.busy and not last) then
     return
   end
   local wait = last and 0 or fadeStepAt + FADE_STEP_MS - C4:GetTime()
@@ -4153,7 +3589,7 @@ backendFade = function(last)
     fadeStepAt = C4:GetTime()
     directExecute(step, true)
   end
-  if not directBusy and (rampingBrightness or rampingColor) then
+  if not adapter.busy and (rampingBrightness or rampingColor) then
     SetTimer(FADE_STEP_TIMER, wait > 0 and wait or FADE_STEP_MS, function()
       backendFade()
     end)
@@ -4161,7 +3597,7 @@ backendFade = function(last)
 end
 
 --- Dispatch an internal light command to the active backend.
---- @param opts table
+--- @param opts TplinkLightOpts
 backendSendCommand = function(opts)
   --#ifdef DRIVERCENTRAL
   if not drivercentral:licensed() then
@@ -4169,10 +3605,8 @@ backendSendCommand = function(opts)
     return
   end
   --#endif
-  if isOutletBound() then
-    SendToProxy(OUTLET_BINDING, "ENTITY_COMMAND", {
-      body = SerializeSafe(opts),
-    }, "NOTIFY")
+  if adapter:bound() then
+    adapter:sendOutlet(opts)
   elseif not IsEmpty(Properties["IP Address"]) then
     directExecute(opts)
   else
@@ -4180,50 +3614,25 @@ backendSendCommand = function(opts)
   end
 end
 
---- Show or hide the direct-mode network properties.
---- @param attrib number constants.SHOW_PROPERTY or constants.HIDE_PROPERTY
-local function setNetworkPropertiesAttribs(attrib)
-  C4:SetPropertyAttribs("TP-Link Settings", attrib)
-  C4:SetPropertyAttribs("IP Address", attrib)
-  C4:SetPropertyAttribs("MAC Address", attrib)
-  C4:SetPropertyAttribs("Protocol", attrib)
-  C4:SetPropertyAttribs("TP-Link Username", attrib)
-  C4:SetPropertyAttribs("TP-Link Password", attrib)
-  C4:SetPropertyAttribs("Poll Rate (Seconds)", attrib)
-end
-
 --- Select and start the appropriate backend from current bindings/properties.
 --- @param retry boolean? The poll timer trying again after no light was found.
 backendStart = function(retry)
-  CancelTimer(DIRECT_POLL_TIMER)
   --#ifdef DRIVERCENTRAL
   if not drivercentral:licensed() then
+    adapter:stopPolling()
     UpdateProperty("Driver Status", drivercentral.UNLICENSED_STATUS)
     return
   end
   --#endif
   -- A fade the driver makes ends where its last step left the light, and is not
   -- taken up again: the first read after this tells the proxy where that is.
-  if fades == "Driver" and (rampingBrightness or rampingColor) then
+  if adapter.fades == "Driver" and (rampingBrightness or rampingColor) then
     leaveBrightnessRamp()
     leaveColorRamp()
     stopSceneSteps()
   end
   -- A press at its gate was for the light as it was.
   cancelPressGate()
-  backendGeneration = backendGeneration + 1
-  local generation = backendGeneration
-  directDetecting = false
-  directConnected = false
-  transportName = nil
-  -- The request in flight and what waited were for the backend as it was.
-  directBusy = false
-  directWaiting = nil
-  directPollWaiting = false
-  pendingColor = persist:get(P.PENDING_COLOR)
-  fades = nil
-  ownFades = {}
-  C4:SetPropertyAttribs("Fades", constants.HIDE_PROPERTY)
 
   -- Force a fresh capability discovery on every (re)connect. The light_v2
   -- proxy resets to the static baseline whenever the driver reloads, so the
@@ -4237,304 +3646,32 @@ backendStart = function(retry)
   supportsCCT = false
   supportedColorModes = {}
 
-  if isOutletBound() then
-    transportName = "Outlet"
-    -- The outlet reaches the light: there is no address to follow.
-    follow.device:stop()
-    setNetworkPropertiesAttribs(constants.HIDE_PROPERTY)
-    SendToProxy(OUTLET_BINDING, "REFRESH_STATE", {}, "NOTIFY")
-    return
-  end
-
-  setNetworkPropertiesAttribs(constants.SHOW_PROPERTY)
-  directSchema = nil
-  iotBulb = nil
-
-  --- End a start with no light to reach. A retry says nothing: the proxy was
-  --- told the light is offline when the attempt before it ended.
-  --- @param status string
-  local function noLight(status)
-    UpdateProperty("Driver Status", status)
-    if not retry then
-      SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
-    end
-  end
-
-  local ip = Properties["IP Address"] or ""
-  if IsEmpty(ip) then
-    follow.device:stop()
-    noLight("Bind to an outlet or set the IP Address property")
-    return
-  end
-
-  local config = {
-    ip = ip,
-    username = Properties["TP-Link Username"] or "",
-    password = Properties["TP-Link Password"] or "",
-  }
-  link.klap:configure(config)
-  link.klapV1:configure(config)
-  link.tpap:configure(config)
-  link.legacy:configure({ ip = ip })
-  -- A probe the last attempt left on the legacy port would hold this one's.
-  link.legacy:reset()
-
-  local mode = Properties["Protocol"] or "Auto"
-  local hasCredentials = not IsEmpty(Properties["TP-Link Username"]) and not IsEmpty(Properties["TP-Link Password"])
-
-  --- A continuation of this attempt: one that comes in after the backend has
-  --- been started again does nothing.
-  --- @param continuation function
-  --- @return function
-  local function live(continuation)
-    return function(...)
-      if generation == backendGeneration then
-        continuation(...)
-      end
-    end
-  end
-
-  --- Say which transport is being tried. A retry says nothing: the reason the
-  --- last attempt failed for stays up until this one ends another way.
-  --- @param name string
-  local function connecting(name)
-    if not retry then
-      UpdateProperty("Driver Status", "Connecting (" .. name .. ")...")
-    end
-  end
-
-  --- End this attempt with no light found. The poll timer tries again.
-  --- @param reason string
-  local function failed(reason)
-    directDetecting = false
-    noLight("Disconnected: " .. reason)
-    -- No protocol reached the light at its address: it may have moved.
-    follow.device:lost()
-  end
-
-  --- Adopt a probed schema/transport and apply its first poll result.
-  --- @param schema string "smart" or "iot"
-  --- @param bulb IotBulb? The adapter, for the "iot" schema.
-  --- @param name string Transport name for Driver Status.
-  --- @param entity table
-  --- @param state table
-  --- @param mac string? The MAC address the light reported.
-  local function adopt(schema, bulb, name, entity, state, mac)
-    if not follow.device:accepts(mac) then
-      log:warn("A device other than this light answers at %s", ip)
-      failed("a different device is at " .. ip .. "; looking for this one")
-      return
-    end
-    follow.answered()
-    UpdateProperty("MAC Address", follow.device:mac() or "")
-    directDetecting = false
-    directSchema = schema
-    iotBulb = bulb
-    transportName = name
-    directConnected = true
-    -- A light on the SMART schema takes no fade time from a command, so who
-    -- makes its fades is the installer's choice.
-    if schema == "smart" then
-      fades = Properties["Fades"] or "Driver"
-      ownFades.due = true
-      C4:SetPropertyAttribs("Fades", constants.SHOW_PROPERTY)
-    end
-    log:info("Using %s transport for direct control", name)
-    applyUpdate(entity, state)
-    -- Its own fades are read now, where Fades leaves the fades to the light.
-    directNext()
-  end
-
-  --- Probe a transport with the IOT bulb schema.
-  --- @param transport Legacy|Klap|Tpap
-  --- @param name string
-  --- @param onFail fun(reason: string)
-  local function tryIotBulb(transport, name, onFail)
-    local bulb = IotBulb:new(transport)
-    bulb:poll():next(
-      live(function(result)
-        adopt("iot", bulb, name, result.entity, result.state, result.mac)
-      end),
-      live(function(err)
-        onFail(Select(err, "error") or "no response")
-      end)
-    )
-  end
-
-  --- Probe an established KLAP v2 or TPAP session with the SMART schema.
-  --- @param transport Klap|Tpap
-  --- @param name string Transport name for Driver Status.
-  --- @param onFail fun(reason: string)
-  local function trySmart(transport, name, onFail)
-    transport:request({ method = "get_device_info", params = {} }):next(
-      live(function(response)
-        if tointeger(Select(response, "error_code")) == 0 then
-          local info = Select(response, "result") or {}
-          link.smart = transport
-          adopt("smart", nil, name, synthesizeEntity(info), synthesizeState(info), info.mac)
-        else
-          onFail("device rejected get_device_info over " .. name)
-        end
-      end),
-      live(function(err)
-        onFail(Select(err, "error") or "SMART request failed")
-      end)
-    )
-  end
-
-  --- Probe the legacy port 9999 transport, the last resort in Auto mode.
-  --- @param klapReason string? The KLAP failure that led here, for the status.
-  --- @param klapCode number? HTTP status of a refused KLAP handshake, if any.
-  local function tryLegacy(klapReason, klapCode)
-    connecting("Legacy")
-    tryIotBulb(link.legacy, "Legacy", function(legacyReason)
-      if klapCode == 403 then
-        log:info("Legacy probe failed: %s", legacyReason)
-        failed(klapReason)
-        return
-      end
-      if mode == "Auto" and not hasCredentials then
-        legacyReason = legacyReason .. " (set TP-Link credentials if this device is on KLAP firmware)"
-      end
-      failed(klapReason and ("KLAP: " .. klapReason .. " / Legacy: " .. legacyReason) or legacyReason)
-    end)
-  end
-
-  --- Probe TPAP: ask the light whether it uses it, log in, then the SMART
-  --- schema and the IOT bulb schema over the session.
-  --- @param onFail fun(reason: string, final: boolean?) final is set when TPAP
-  ---   answered for the light and its reason is the one to show.
-  local function tryTpap(onFail)
-    connecting("TPAP")
-    Tpap.discover(ip):next(
-      live(function(info)
-        if info == nil then
-          onFail("the light does not use TPAP")
-          return
-        end
-        if not Tpap.supports(info) then
-          onFail(
-            "the light asks for a login this driver does not support yet; turn on Third-Party Compatibility in the Tapo or Kasa app",
-            true
-          )
-          return
-        end
-        link.tpap:configure({ port = info.port })
-        link.tpap:connect():next(
-          live(function()
-            trySmart(link.tpap, "TPAP", function(smartReason)
-              log:info("SMART probe failed (%s); trying IOT bulb schema over TPAP", smartReason)
-              tryIotBulb(link.tpap, "TPAP", function(reason)
-                onFail(reason, true)
-              end)
-            end)
-          end),
-          live(function(err)
-            onFail(Select(err, "error") or "TPAP login failed", true)
-          end)
-        )
-      end),
-      live(function(err)
-        onFail(Select(err, "error") or "no answer to TPAP discover", Select(err, "locked") ~= nil)
-      end)
-    )
-  end
-
-  --- Route a KLAP-side failure to TPAP, legacy fallback or a final status. A
-  --- light whose account has Third-Party Compatibility off refuses KLAP (403,
-  --- or 500 on some light strips) and takes TPAP instead.
-  --- @param reason string
-  --- @param code number? HTTP status of a refused handshake, if any.
-  local function onKlapFail(reason, code)
-    if mode == "KLAP" then
-      failed(reason)
-    elseif code == 403 or code == 500 then
-      log:info("KLAP refused (%s); trying TPAP", reason)
-      tryTpap(function(tpapReason, final)
-        if final then
-          failed(tpapReason)
-        else
-          log:info("TPAP probe failed (%s); trying legacy protocol", tpapReason)
-          tryLegacy(reason, code)
-        end
-      end)
-    else
-      log:info("KLAP probe failed (%s); trying legacy protocol", reason)
-      tryLegacy(reason, code)
-    end
-  end
-
-  --- Probe the KLAP transports: v2 handshake, then the SMART schema (Tapo,
-  --- newer Kasa), then the IOT bulb schema over the same session (KL-series
-  --- on KLAP firmware). A v2 auth mismatch retries the handshake with v1
-  --- hashing before falling back.
-  local function tryKlap()
-    connecting("KLAP")
-    link.klap:connect():next(
-      live(function()
-        trySmart(link.klap, "SMART", function(smartReason)
-          log:info("SMART probe failed (%s); trying IOT bulb schema over KLAP", smartReason)
-          tryIotBulb(link.klap, "KLAP", onKlapFail)
-        end)
-      end),
-      live(function(err)
-        local reason = Select(err, "error") or "KLAP connection failed"
-        if string.find(reason, "auth mismatch", 1, true) == nil then
-          onKlapFail(reason, Select(err, "code"))
-          return
-        end
-        log:info("KLAP v2 handshake failed (%s); retrying with v1 hashing", reason)
-        link.klapV1:connect():next(
-          live(function()
-            tryIotBulb(link.klapV1, "KLAP", onKlapFail)
-          end),
-          live(function(v1Err)
-            onKlapFail(Select(v1Err, "error") or "KLAP connection failed", Select(v1Err, "code"))
-          end)
-        )
-      end)
-    )
-  end
-
-  if mode == "TPAP" then
-    if not hasCredentials then
-      noLight("Set the TP-Link Username and Password properties (required for TPAP)")
-      return
-    end
-    directDetecting = true
-    tryTpap(failed)
-  elseif mode == "KLAP" or (mode == "Auto" and hasCredentials) then
-    if not hasCredentials then
-      noLight("Set the TP-Link Username and Password properties (required for KLAP)")
-      return
-    end
-    directDetecting = true
-    tryKlap()
-  else
-    -- Legacy mode, or Auto without credentials (KL-series bulbs on original
-    -- firmware need none).
-    directDetecting = true
-    tryLegacy(nil)
-  end
-
-  local pollSeconds = tointeger(Properties["Poll Rate (Seconds)"]) or 5
-  SetTimer(DIRECT_POLL_TIMER, pollSeconds * ONE_SECOND, function()
-    if directSchema ~= nil then
-      directPoll()
-    elseif not directDetecting then
-      -- Detection found no light; keep retrying until the device answers.
-      backendStart(true)
-    end
-  end, true)
+  adapter:start(retry)
 end
 
---- Stops the driver at its destroy: no timer fires after it, and a probe or
---- poll answered after it does nothing.
-follow.shutdown = function()
-  backendGeneration = backendGeneration + 1
-  KillAllTimers()
-  -- A search for the light holds a listener open.
-  follow.device:stop()
+function host:update(entity, state, news)
+  applyUpdate(entity, state, news)
+end
+
+function host:lost()
+  handleDisconnect()
+end
+
+function host:offline()
+  SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
+end
+
+function host:step()
+  backendFade()
+end
+
+function host:fadesRead()
+  SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", rateCapabilities(), "NOTIFY", true)
+  persist:set(P.FADES_TOLD, adapter.fades == "Light")
+end
+
+function host:restart(retry)
+  backendStart(retry)
 end
 
 --#ifdef DRIVERCENTRAL
@@ -4549,8 +3686,7 @@ licenseChanged = function(licensed)
     return
   end
   log:warn("No active license; stopping the light")
-  backendGeneration = backendGeneration + 1
-  CancelTimer(DIRECT_POLL_TIMER)
+  adapter:stop()
   stopSceneSteps()
   cancelBrightnessRampTimers()
   cancelColorRampTimers()
@@ -4559,8 +3695,6 @@ licenseChanged = function(licensed)
   -- With no state the proxy's commands are ignored, as an offline light's
   -- are, so none is shown done; the level shown stays as it was.
   STATE = nil
-  directDetecting, directConnected, directBusy = false, false, false
-  follow.device:stop()
   UpdateProperty("Driver Status", drivercentral.UNLICENSED_STATUS)
   SendToProxy(PROXY_BINDING, "ONLINE_CHANGED", { STATE = false }, "NOTIFY")
 end
@@ -4576,8 +3710,8 @@ function OPC.IP_Address(propertyValue)
   -- An address set by hand may be another device's, as a replacement's is. The
   -- follower's own write never reaches here; late init replays every property.
   if gInitialized then
-    follow.device:forget()
-    persist:delete(P.PENDING_COLOR)
+    adapter:forgetDevice()
+    adapter:forgetColor()
     backendStart()
   end
 end
@@ -4593,10 +3727,7 @@ end
 --- Reconnect action: discard any established sessions and re-detect.
 function EC.Reconnect()
   log:info("Action: Reconnect")
-  link.klap:reset()
-  link.klapV1:reset()
-  link.tpap:reset()
-  link.legacy:reset()
+  adapter:resetLinks()
   backendStart()
 end
 
@@ -4641,7 +3772,7 @@ end
 function OPC.Fades(propertyValue)
   log:trace("OPC.Fades('%s')", propertyValue)
   -- The choice is a connected light's, one on the SMART schema.
-  if fades == nil or fades == propertyValue then
+  if adapter.fades == nil or adapter.fades == propertyValue then
     return
   end
   -- A ramp in flight ends here, at its target.
@@ -4651,12 +3782,11 @@ function OPC.Fades(propertyValue)
   if rampingColor then
     colorRampFinished(colorRamp.targetX, colorRamp.targetY, colorRamp.targetMode)
   end
-  fades = propertyValue
+  adapter:setFades(propertyValue)
   -- For Light the proxy is told once the light's own fades are read.
-  if fades == "Driver" and dynamicCapsSent then
+  if adapter.fades == "Driver" and dynamicCapsSent then
     SendToProxy(PROXY_BINDING, "DYNAMIC_CAPABILITIES_CHANGED", rateCapabilities(), "NOTIFY", true)
     persist:set(P.FADES_TOLD, false)
   end
-  ownFades.due = true
-  directNext()
+  adapter:next()
 end
