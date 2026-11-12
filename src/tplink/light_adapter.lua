@@ -40,18 +40,6 @@ local PENDING_COLOR = "pending_color"
 --- Driver Status while the light is searched for on the network.
 local LOOKING = "Looking for the device on the network..."
 
---- The fields of a light command that name its color.
-local COLOR_FIELDS = {
-  "has_rgb",
-  "red",
-  "green",
-  "blue",
-  "has_color_temperature",
-  "color_temperature",
-  "has_color_mode",
-  "color_mode",
-}
-
 --- The direct schema found at the light: "smart" (get_device_info and
 --- set_device_info, mapped by smartbulb.lua) or "iot" (sysinfo and
 --- transition_light_state, mapped by an IotBulb).
@@ -135,6 +123,19 @@ local COLOR_FIELDS = {
 --- @field ownFades TplinkOwnFades
 local TplinkLightAdapter = {}
 TplinkLightAdapter.__index = TplinkLightAdapter
+
+--- The fields of a light command that name its color.
+--- @type string[]
+TplinkLightAdapter.COLOR_FIELDS = {
+  "has_rgb",
+  "red",
+  "green",
+  "blue",
+  "has_color_temperature",
+  "color_temperature",
+  "has_color_mode",
+  "color_mode",
+}
 
 --- @param host TplinkLightHost
 --- @param outletBinding integer
@@ -696,8 +697,8 @@ function TplinkLightAdapter:switchedOn(read, i, answer)
   self:switchOn(read, i + 1)
 end
 
---- The Fades property changed on a light that has the choice: the proxy is
---- told, then the light's own fades are read where they are its.
+--- Take the Fades property's choice, on a light that has one: the light's own
+--- fades are due to be read.
 --- @param fades TplinkLightFades
 function TplinkLightAdapter:setFades(fades)
   self.fades = fades
@@ -761,7 +762,7 @@ function TplinkLightAdapter:execute(opts)
     return
   end
   if opts.has_rgb or opts.has_color_temperature then
-    for _, field in ipairs(COLOR_FIELDS) do
+    for _, field in ipairs(TplinkLightAdapter.COLOR_FIELDS) do
       self.waiting[field] = nil
     end
   end

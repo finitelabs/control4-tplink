@@ -5521,6 +5521,40 @@ do
   T.truthy("over the legacy port", held[1] and held[1].transport == legacy)
 end
 
+T.section("a legacy probe after TPAP fails with the KLAP refusal's reason: a 403's alone, a 500's with its own")
+do
+  startDriver()
+  refuseKlap(403)
+  discovers[#discovers]:resolve(nil)
+  fail()
+  T.truthy(
+    "after a 403, the KLAP refusal is shown",
+    wrote("Disconnected: Klap: device refused the handshake (HTTP 403)")
+  )
+
+  startDriver()
+  refuseKlap(500)
+  discovers[#discovers]:resolve(nil)
+  fail()
+  T.truthy(
+    "after a 500, both reasons are shown",
+    wrote("Disconnected: KLAP: Klap: device refused the handshake (HTTP 500) / Legacy: " .. TIMED_OUT)
+  )
+end
+
+T.section("a light that answers neither schema over TPAP ends the attempt with no legacy probe")
+do
+  startDriver()
+  refuseKlap()
+  discovers[#discovers]:resolve(OFFERED)
+  tpap.handshakes[#tpap.handshakes]:resolve(tpap)
+  fail("TPAP: no answer to get_device_info")
+  T.truthy("the IOT schema is asked over TPAP", held[1] and held[1].transport == tpap and asks(held[1]) == "poll")
+  fail("TPAP: no answer to get_sysinfo")
+  T.truthy("its reason is shown", wrote("Disconnected: TPAP: no answer to get_sysinfo"))
+  T.eq("and no legacy probe goes out", flying(), {})
+end
+
 T.section("a login TPAP cannot make, a refused password or a lock ends the attempt with TPAP's reason")
 do
   local refused = "TPAP: the TP-Link account password was refused; change TP-Link Password to try again"

@@ -29,6 +29,7 @@ local diagnostics = require("lib.diagnostics")
 local persist = require("lib.persist")
 local constants = require("constants")
 local TplinkLightAdapter = require("tplink.light_adapter")
+local Hsv = require("tplink.hsv")
 
 --- Color mode identifiers shared with tplink_outlet over the TPLINK_LIGHT
 --- binding protocol. The internal proxy logic keys off these in what a light
@@ -59,7 +60,6 @@ local licenseChanged
 --- @type TplinkLightHost
 local host = {}
 
---- The light's connection: through the bound outlet, or direct to the light.
 local adapter = TplinkLightAdapter.new(host, OUTLET_BINDING)
 
 ---------------------------------------------------------------------------
@@ -513,7 +513,6 @@ OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
 
 function OnDriverDestroyed()
   log:trace("OnDriverDestroyed()")
-  -- No probe or poll answered after it does anything, and no timer fires.
   adapter:stop()
   KillAllTimers()
 end
@@ -772,24 +771,11 @@ end
 -- Helpers: color conversions
 ---------------------------------------------------------------------------
 
--- HSV (h: 0-360, s: 0-100, v: 0-100) -> normalized RGB (each 0-1).
--- C4:ColorHSVtoRGB works on the 0-255 RGB scale.
-local function hsvToRGB(h, s, v)
-  local r, g, b = C4:ColorHSVtoRGB(h or 0, s or 0, v or 0)
-  return (r or 0) / 255, (g or 0) / 255, (b or 0) / 255
-end
-
--- normalized RGB (0-1) -> HSV (h: 0-360, s: 0-100, v: 0-100).
--- C4:ColorRGBtoHSV works on the 0-255 RGB scale.
-local function rgbToHSV(r, g, b)
-  return C4:ColorRGBtoHSV((r or 0) * 255, (g or 0) * 255, (b or 0) * 255)
-end
-
 -- CIE 1931 xy chromaticity -> normalized RGB at full intensity.
 -- Brightness is handled separately via the LIGHT_V2 brightness path.
 local function xyToRGB(x, y)
   local h, s = C4:ColorXYtoHSV(x, y)
-  local r, g, b = hsvToRGB(h or 0, s or 100, 100)
+  local r, g, b = Hsv.toRGB(h or 0, s or 100, 100)
   return r, g, b
 end
 
@@ -3419,7 +3405,7 @@ local function applyUpdate(entity, state, news)
       local g = tonumber(Select(state, "green")) or 0
       local b = tonumber(Select(state, "blue")) or 0
       if r > 0 or g > 0 or b > 0 then
-        local h, s = rgbToHSV(r, g, b)
+        local h, s = Hsv.fromRGB(r, g, b)
         newX, newY = C4:ColorHSVtoXY(h, s, 100)
         newColorMode = LIGHT_COLOR_MODE_FULL
       end
@@ -3508,9 +3494,6 @@ end
 ---------------------------------------------------------------------------
 -- Backends
 ---------------------------------------------------------------------------
--- The connection, through the bound outlet or direct to the light, is the
--- adapter's (tplink.light_adapter). The driver's part is what a command and a
--- fade the driver makes leave to send, and the license gate.
 
 --- The least time between two steps of a fade, however fast the light answers,
 --- and the wait to look again while nothing has moved on, in milliseconds.
@@ -3522,18 +3505,6 @@ local FADE_STEP_TIMER = "FadeStep"
 --- When the last step of a fade went out, by C4:GetTime().
 --- @type number
 local fadeStepAt = 0
-
---- The fields of a light command that name its color.
-local COLOR_FIELDS = {
-  "has_rgb",
-  "red",
-  "green",
-  "blue",
-  "has_color_temperature",
-  "color_temperature",
-  "has_color_mode",
-  "color_mode",
-}
 
 --- Send a light command to the direct-mode light, less what a fade the driver
 --- makes brings in its steps.
@@ -3556,7 +3527,7 @@ local function directExecute(opts, step)
       opts.has_brightness, opts.brightness = nil, nil
     end
     if rampingColor or (rampingBrightness and brightnessRamp.mergedColor) then
-      for _, field in ipairs(COLOR_FIELDS) do
+      for _, field in ipairs(TplinkLightAdapter.COLOR_FIELDS) do
         opts[field] = nil
       end
     end

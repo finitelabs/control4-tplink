@@ -4,6 +4,7 @@
 --- light's IOT-schema counterpart is iotbulb.lua.
 
 local constants = require("constants")
+local Hsv = require("tplink.hsv")
 
 require("drivers-common-public.global.lib")
 require("lib.utils")
@@ -68,19 +69,6 @@ local ColorMode = constants.LightColorMode
 
 local SmartBulb = {}
 
--- HSV (h: 0-360, s: 0-100, v: 0-100) -> normalized RGB (each 0-1).
--- C4:ColorHSVtoRGB works on the 0-255 RGB scale.
-local function hsvToRGB(h, s, v)
-  local r, g, b = C4:ColorHSVtoRGB(h or 0, s or 0, v or 0)
-  return (r or 0) / 255, (g or 0) / 255, (b or 0) / 255
-end
-
--- normalized RGB (0-1) -> HSV (h: 0-360, s: 0-100, v: 0-100).
--- C4:ColorRGBtoHSV works on the 0-255 RGB scale.
-local function rgbToHSV(r, g, b)
-  return C4:ColorRGBtoHSV((r or 0) * 255, (g or 0) * 255, (b or 0) * 255)
-end
-
 --- Map a get_device_info result to the entity shape the light driver reads.
 --- @param info TplinkSmartInfo
 --- @return TplinkLightEntity entity
@@ -127,7 +115,7 @@ function SmartBulb.state(info)
     state.color_temperature = 1e6 / colorTemp
   elseif info.hue ~= nil then
     state.color_mode = ColorMode.COLOR_MODE_RGB
-    local r, g, b = hsvToRGB(tonumber_locale(info.hue) or 0, tonumber_locale(info.saturation) or 0, 100)
+    local r, g, b = Hsv.toRGB(tonumber_locale(info.hue) or 0, tonumber_locale(info.saturation) or 0, 100)
     state.red, state.green, state.blue = r, g, b
   end
   return state
@@ -158,7 +146,7 @@ function SmartBulb.params(opts, entity)
     local kelvinMax = (minMireds and minMireds > 0) and math.floor(1e6 / minMireds + 0.5) or 6500
     params.color_temp = math.max(kelvinMin, math.min(kelvinMax, kelvin))
   elseif opts.has_rgb then
-    local h, sat = rgbToHSV(tonumber(opts.red) or 0, tonumber(opts.green) or 0, tonumber(opts.blue) or 0)
+    local h, sat = Hsv.fromRGB(tonumber(opts.red) or 0, tonumber(opts.green) or 0, tonumber(opts.blue) or 0)
     params.hue = math.floor((h or 0) + 0.5) % 360
     params.saturation = math.max(0, math.min(100, math.floor((sat or 0) + 0.5)))
     params.color_temp = 0
