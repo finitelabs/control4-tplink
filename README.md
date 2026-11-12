@@ -135,6 +135,72 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed an off sent while a color was still on its way to the TP-Link Light
+  losing that color, so the off now waits for it.
+- Fixed a command the TP-Link Light did not take showing in Control4 until the
+  next poll, so the driver now reads the light back once after such a command.
+- Fixed a Kasa light offering fades longer than the 60 seconds it can take.
+- Fixed a scene step that sets level and color together changing the color
+  picked for the TP-Link Light.
+- Fixed a color held for the TP-Link Light's next on being forgotten when
+  another app turns the light on.
+
+### Changed
+
+- Changed the TP-Link Light to tell Control4 its state each time the driver
+  starts or reconnects, even when nothing changed.
+- Changed the TP-Link Light to fire no Changed event for a command that leaves
+  it as it was.
+- Changed Get Light Level on the TP-Link Light to answer the level Control4
+  shows, during a fade too.
+- Changed an on from off to fade the TP-Link Light's color from the one it kept
+  to its on color, over the on's time.
+- Changed an off under Dim-To-Warm to fade the TP-Link Light's color to the Dim
+  color as it dims.
+- Changed a Dim-To-Warm white to show in Control4 as the white the TP-Link Light
+  shows.
+- Changed Dim-To-Warm to mix in a straight line between its two colors, whites
+  included.
+- Changed a ramp that replaces another to start from where the TP-Link Light has
+  got to.
+- Changed a keypad hold on the TP-Link Light to start 250 ms after the press,
+  and a command sent in that wait no longer stops the hold from starting.
+- Changed a keypad hold's time to scale to the distance the TP-Link Light has
+  left to go.
+- Changed Ramp Scene Up to take the TP-Link Light to full, not its on level.
+- Changed Stop Scene Ramp to let a scene step's fade finish, while it still
+  stops Ramp Scene Up and Ramp Scene Down where they have got to.
+- Changed a stop just after an on from off to hold the TP-Link Light at its
+  lowest level, on.
+- Changed a Toggle click on a TP-Link Light still fading up from off to turn it
+  on to its Default On level.
+- Changed a Toggle hold during the TP-Link Light's own fade up from off to go
+  up.
+- Changed a keypad click on a TP-Link Light that dims to fade over the click
+  rate.
+- Changed a TP-Link Light turned on again before its fade to off has ended to
+  keep the color it had.
+- Changed a TP-Link Light that does not dim to switch and show in Control4 at
+  once, with no fade.
+- Changed a keypad button with no saved colors to show the button colors set in
+  Composer, then the standard defaults, never blank.
+- Changed an off at once to show in Control4 with no fade.
+- Changed a color fade a later command carries on to show in Control4 at its end
+  alone.
+- Changed a stop of a fade the driver makes to send the TP-Link Light where the
+  fade has got to.
+- Changed a fade the driver makes to step every 100 ms, skipping a step the
+  light has not taken yet.
+- Changed a TP-Link Light whose fades the driver makes to offer ramp rates up to
+  a day.
+- Changed a change of Fades to Light during a ramp to end the ramp once the
+  light's own fades are read.
+- Changed a color sent to a TP-Link Light that is off to wait for its next on.
+
 ## v20261109 - 2026-11-09
 
 ### Fixed
