@@ -4906,7 +4906,7 @@ do
     ROWS.STOP_STEP
   )
 
-  -- A command at a step under the Min starts from the strip's place: no dip toward off.
+  -- A level command during a walk to off, at a step under the Min.
   ranged({ brightness = 80 })
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 4000 })
   serve(3600, 250)
