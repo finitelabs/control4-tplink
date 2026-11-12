@@ -11,6 +11,8 @@
 ---   ./test/run_test.sh test_light_direct.lua
 
 local T = require("testlib")
+local Rows = require("light_rows")
+local ROWS, BENIGN, PENDING = Rows.ROWS, Rows.BENIGN, Rows.PENDING
 
 require("c4_shim")
 

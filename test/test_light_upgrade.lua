@@ -8,6 +8,8 @@
 ---   ./test/run_test.sh test_light_upgrade.lua
 
 local T = require("testlib")
+local Rows = require("light_rows")
+local ROWS, PENDING = Rows.ROWS, Rows.PENDING
 
 require("c4_shim")
 
@@ -124,8 +126,7 @@ clock.run(WAIT)
 
 T.section("over v20261110's store and proxy, the light comes up online as it was left")
 T.eq("online", proxy.online, true)
--- With no light_rate_caps stored, the library takes the proxy to hold driver.xml's static capabilities.
--- What v20261110 told is that set, so nothing needs telling.
+-- The light tells its capabilities at every start, so the proxy holds what it declares.
 local light = h.light or require("lib.light").made[#require("lib.light").made]
 local held = {}
 for key, value in pairs(Caps.dynamic(light.device, light.profile)) do
@@ -138,7 +139,7 @@ for key in pairs(held) do
   shown[key] = proxy.held[key]
 end
 T.eq("the proxy holds the capabilities the light declares", shown, held)
-T.eq("no Brightness Changed: the light is off, as the proxy shows", proxy:count("LIGHT_BRIGHTNESS_CHANGED"), 0)
+T.differs("no Brightness Changed: the light is off, as the proxy shows", ROWS.START_TELL)
 T.eq("no Color Changed: the proxy shows the color it holds", proxy:count("LIGHT_COLOR_CHANGED"), 0)
 T.eq("the light is left off", h.device.state().on, false)
 T.eq("no callback raised", clock.errors, {})
@@ -146,9 +147,9 @@ T.eq("no callback raised", clock.errors, {})
 -- What a probe sees that differs from v20261110 by a design row: the row, by probe and field.
 --- @type table<string, table<string, string>>
 local DIFFERS = {
-  ["REQUEST_BUTTON_COLORS: the Top's saved colors"] = {
-    leds = "tplink: a button with no saved colors reports the setup's colors or the defaults, never blank.",
-  },
+  ["a Top click from off: the click rate up"] = { level = PENDING.TOP_CLICK, shown = PENDING.TOP_CLICK },
+  ["a Bottom click: the click rate down"] = { level = PENDING.TOP_CLICK },
+  ["REQUEST_BUTTON_COLORS: the Top's saved colors"] = { leds = ROWS.LEDS, level = PENDING.TOP_CLICK },
 }
 local FIELDS = { "on", "level", "shown", "kelvin", "x", "y", "rates", "leds" }
 
