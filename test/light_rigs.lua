@@ -1,7 +1,8 @@
 --- The tplink_light conformance rigs: the driver as it ships, behind fakes of its transports alone. A
 --- Kasa bulb on the legacy port fades over the time a command carries; a Tapo bulb over KLAP takes none,
 --- and fades on its own only with its own fades on; a light bound to a TP-Link outlet is a relay. Each
---- fake answers a request after ANSWER_MS, and a bulb reports the values it heads to while it fades.
+--- fake answers a request after ANSWER_MS, and a bulb reports the values it heads to while it fades. Each
+--- request to the Kasa bulb takes the controller 2 ms, as dev's KL135 measured.
 
 local Rig = require("light_rig")
 local F = require("c4_fixtures")
@@ -54,6 +55,7 @@ local CHANGE_MS = 1000
 --- @field schema "iot"|"smart"|"outlet"
 --- @field fades "Driver"|"Light"|nil The Fades property, on a SMART light.
 --- @field gradual TplinkRigGradualSet|nil The SMART light's own fades at the start.
+--- @field writeMs integer|nil The controller's time each request to the light takes, as C4:GetTime reads it.
 
 --- @param bulb TplinkRigBulb
 --- @param now integer
@@ -355,12 +357,20 @@ local function bulbDevice(h, kind, state)
     put(bulb, state)
   end
   local answer = smart and smartAnswer or iotAnswer
+  -- Time a controller spends writing: C4:GetTime moves on, while the clock's timers keep their places.
+  local spent = 0
+  if kind.writeMs then
+    ShimSetClock(function()
+      return h.clock.now() + spent
+    end)
+  end
   local route = {
     at = h.clock.at,
     reachable = function()
       return bulb.reachable
     end,
     answer = function(payload)
+      spent = spent + (kind.writeMs or 0)
       if bulb.reachable then
         return answer(bulb, payload, h.clock.now())
       end
@@ -498,7 +508,7 @@ return {
   version = Rig.VERSION,
   rigs = {
     tplink_light = {
-      rig("Kasa bulb on the legacy port", { schema = "iot" }),
+      rig("Kasa bulb on the legacy port", { schema = "iot", writeMs = 2 }),
       rig("Tapo bulb, the driver fades it", {
         schema = "smart",
         fades = "Driver",
