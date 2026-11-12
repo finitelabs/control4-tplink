@@ -1275,6 +1275,7 @@ do
       LIGHT_COLOR_TARGET_PRESET_ID = preset.id,
       LIGHT_COLOR_TARGET_PRESET_ORIGIN = preset.origin,
     })
+    local inPreset = flying()[1]
     reply()
     run(5000)
     T.eq(name .. ": told in it, by id and origin", {
@@ -1291,7 +1292,8 @@ do
       LIGHT_COLOR_TARGET_PRESET_ID = 8,
       LIGHT_COLOR_TARGET_PRESET_ORIGIN = 2,
     })
-    reply()
+    -- The poll in flight reads the light in the preset it was sent.
+    reply(info(inPreset))
     run(5000)
     T.eq(name .. ", then another over a rate: its ramp names it by id and origin, start and end", {
       told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_PRESET_ID"),
