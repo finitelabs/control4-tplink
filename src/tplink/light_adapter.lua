@@ -146,6 +146,9 @@ local COLOR_MODE_ORDER = {
 --- @field entity TplinkLightEntity
 --- @field state TplinkLightState
 
+--- What waits for the request in flight: a command, or a poll.
+--- @alias TplinkLightQueued TplinkLightOpts|"poll"
+
 --- @class TplinkLightAdapter : LightAdapter
 --- @field host TplinkLightHost
 --- @field outletBinding integer The binding to a TP-Link Outlet output.
@@ -159,10 +162,9 @@ local COLOR_MODE_ORDER = {
 --- @field connected boolean The light has reported since the start.
 --- @field generation integer Counts the starts: an attempt, and the answer to a poll or a command, does nothing once it has moved on.
 --- @field detecting boolean A start is still probing. The poll timer's retry waits for it.
---- @field busy boolean A request is in flight. The rest wait for it, in an order of their own.
---- @field waiting TplinkLightOpts? The command waiting for the request in flight, every later one merged in.
---- @field pollWaiting boolean A poll waits for the request in flight.
---- @field commands integer Counts the commands made. A poll sent before the latest reads the light as it was before it.
+--- @field busy boolean A request is in flight. The rest wait for it in queue.
+--- @field queue TplinkLightQueued[] What waits for the request in flight, in the order it came.
+--- @field pollPassed boolean A command has gone ahead of the poll waiting.
 --- @field entity TplinkLightEntity? What the light last reported it can do.
 --- @field first TplinkLightAnswer? A SMART light's first answer, waiting for its own fades to be read.
 --- @field fades TplinkLightFades? Who makes a SMART light's fades; nil on any other.
@@ -207,8 +209,8 @@ function TplinkLightAdapter.new(host, outletBinding)
   self.generation = 0
   self.detecting = false
   self.busy = false
-  self.pollWaiting = false
-  self.commands = 0
+  self.queue = {}
+  self.pollPassed = false
   self.ownFades = {}
   return self
 end
@@ -494,8 +496,8 @@ function TplinkLightAdapter:start(retry)
   self.first = nil
   -- The request in flight and what waited were for the connection as it was.
   self.busy = false
-  self.waiting = nil
-  self.pollWaiting = false
+  self.queue = {}
+  self.pollPassed = false
   self.fades = nil
   self.ownFades = {}
   C4:SetPropertyAttribs("Fades", constants.HIDE_PROPERTY)
@@ -687,14 +689,18 @@ end
 --- Poll the direct-mode light, and tell the host what it holds.
 function TplinkLightAdapter:poll()
   if self.busy then
-    self.pollWaiting = true
+    for _, queued in ipairs(self.queue) do
+      if queued == "poll" then
+        return
+      end
+    end
+    self.queue[#self.queue + 1] = "poll"
     return
   end
-  local asked = self.commands
 
   if self.schema == "iot" and self.bulb ~= nil then
     self:fly(self.bulb:poll(), function(result)
-      self:iotPolled(result, asked)
+      self:iotPolled(result)
     end, function(err)
       self:pollFailed("IOT bulb poll", err)
     end)
@@ -702,7 +708,7 @@ function TplinkLightAdapter:poll()
   end
 
   self:fly(self.link.smart:request({ method = "get_device_info", params = {} }), function(response)
-    self:smartPolled(response, asked)
+    self:smartPolled(response)
   end, function(err)
     self:pollFailed("get_device_info", err)
   end)
@@ -710,22 +716,18 @@ end
 
 --- An IOT light's answer to a poll.
 --- @param result TplinkIotPoll
---- @param asked integer The commands made when the poll went out.
-function TplinkLightAdapter:iotPolled(result, asked)
+function TplinkLightAdapter:iotPolled(result)
   if not self.follower:accepts(result.mac) then
     self:another()
     return
   end
   self:answered()
-  if asked == self.commands then
-    self:tell(result.entity, result.state)
-  end
+  self:tell(result.entity, result.state)
 end
 
 --- A SMART light's answer to a poll.
 --- @param response table get_device_info's answer.
---- @param asked integer The commands made when the poll went out.
-function TplinkLightAdapter:smartPolled(response, asked)
+function TplinkLightAdapter:smartPolled(response)
   if tointeger(Select(response, "error_code")) ~= 0 then
     log:warn("get_device_info failed: %s", response)
     self:missed()
@@ -740,9 +742,7 @@ function TplinkLightAdapter:smartPolled(response, asked)
   self:answered()
   -- A light that is back may be back with other fades of its own.
   self.ownFades.due = self.ownFades.due or not self.connected
-  if asked == self.commands then
-    self:tell(SmartBulb.entity(info), SmartBulb.state(info))
-  end
+  self:tell(SmartBulb.entity(info), SmartBulb.state(info))
 end
 
 --- A poll that failed on its transport.
@@ -900,8 +900,9 @@ function TplinkLightAdapter:setFades(fades)
   self:next()
 end
 
---- The light's own fades first when due, then the command, then the poll, which
---- so reads the light after it.
+--- The light's own fades first when due, then what waits, in the order it came,
+--- but for a command behind a poll, which goes ahead of it once: the poll then
+--- reads the light after it, and waits for one command at most.
 function TplinkLightAdapter:next()
   -- An answer's handler may have put a request of its own in flight.
   if self.busy then
@@ -914,38 +915,54 @@ function TplinkLightAdapter:next()
       return
     end
   end
-  local waiting = self.waiting
-  self.waiting = nil
-  if waiting ~= nil and self:sendNow(waiting) then
-    return
-  end
-  if self.pollWaiting then
-    self.pollWaiting = false
-    self:poll()
+  while #self.queue > 0 do
+    local queued
+    if self.queue[1] == "poll" and self.queue[2] ~= nil and not self.pollPassed then
+      self.pollPassed = true
+      queued = table.remove(self.queue, 2)
+    else
+      queued = table.remove(self.queue, 1)
+    end
+    if queued == "poll" then
+      self.pollPassed = false
+      self:poll()
+      return
+    end
+    if self:sendNow(queued) then
+      return
+    end
   end
 end
 
---- Send a light command to the direct-mode light, or hold it while a request
---- is in flight. Commands held together go out as one, merged field by field
---- with the later value winning; a later color replaces an earlier one whole.
+--- @param opts TplinkLightOpts
+--- @return boolean
+local function hasColor(opts)
+  return opts.has_rgb or opts.has_color_temperature or false
+end
+
+--- Send a light command to the direct-mode light, or queue it while a request
+--- is in flight. One queued behind a command merges into it, field by field
+--- with the later value winning, and a later color replaces an earlier one
+--- whole. An off waits behind a color instead: the light drops a color sent
+--- with an off.
 --- @param opts TplinkLightOpts
 function TplinkLightAdapter:execute(opts)
-  self.commands = self.commands + 1
   if not self.busy then
     self:sendNow(opts)
     return
   end
-  if self.waiting == nil then
-    self.waiting = opts
+  local last = self.queue[#self.queue]
+  if type(last) ~= "table" or (opts.state == false and last.state ~= false and hasColor(last)) then
+    self.queue[#self.queue + 1] = opts
     return
   end
-  if opts.has_rgb or opts.has_color_temperature then
+  if hasColor(opts) then
     for _, field in ipairs(TplinkLightAdapter.COLOR_FIELDS) do
-      self.waiting[field] = nil
+      last[field] = nil
     end
   end
   for field, value in pairs(opts) do
-    self.waiting[field] = value
+    last[field] = value
   end
 end
 

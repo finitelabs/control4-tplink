@@ -132,11 +132,10 @@ function SmartBulb.params(opts, entity)
   if opts.has_state then
     params.device_on = opts.state and true or false
   end
-  if opts.has_brightness and opts.state ~= false then
-    local level = math.floor((tonumber(opts.brightness) or 0) * 100 + 0.5)
-    if level >= 1 then
-      params.brightness = math.min(100, level)
-    end
+  -- A level that rounds to 0 goes as 1 %: an on with no brightness lights at the last one.
+  local brightness = tonumber(opts.brightness) or 0
+  if opts.has_brightness and opts.state ~= false and brightness > 0 then
+    params.brightness = math.max(1, math.min(100, math.floor(brightness * 100 + 0.5)))
   end
   if opts.has_color_temperature and (tonumber(opts.color_temperature) or 0) > 0 then
     local kelvin = math.floor(1e6 / opts.color_temperature + 0.5)
