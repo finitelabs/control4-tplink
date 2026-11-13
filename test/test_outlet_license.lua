@@ -52,9 +52,6 @@ end
 function C4:UpdateProperty(name, value)
   Properties[name] = value
 end
-function C4:GetProjectProperty()
-  return "000000"
-end
 local fired = {}
 function C4:FireEventByID(id)
   fired[#fired + 1] = id
