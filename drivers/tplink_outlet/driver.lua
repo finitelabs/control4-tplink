@@ -1335,7 +1335,7 @@ function OPC.Energy_Poll_Rate_Seconds(propertyValue)
   end
 end
 
---- A changed button color reaches every bound keypad at once.
+--- @param propertyValue string
 function OPC.Button_Lit_Color(propertyValue)
   log:trace("OPC.Button_Lit_Color('%s')", propertyValue)
   if gInitialized then
@@ -1343,6 +1343,7 @@ function OPC.Button_Lit_Color(propertyValue)
   end
 end
 
+--- @param propertyValue string
 function OPC.Button_Unlit_Color(propertyValue)
   log:trace("OPC.Button_Unlit_Color('%s')", propertyValue)
   if gInitialized then
@@ -1410,7 +1411,6 @@ function EC.Reconnect()
   reconnect()
 end
 
---- Reset Button Colors action handler: the project's button LED colors again.
 function EC.ResetButtonColors()
   log:info("Action: Reset Button Colors")
   takeProjectButtonColors()
@@ -1512,7 +1512,6 @@ function OnDriverLateInit()
     return
   end
 
-  -- The first start takes the project's button colors; later ones keep what Composer has.
   if not persist:get(BUTTON_COLORS_SEEDED) then
     takeProjectButtonColors()
     persist:set(BUTTON_COLORS_SEEDED, true)
