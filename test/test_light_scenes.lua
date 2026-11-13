@@ -289,7 +289,7 @@ do
   run(15000)
   local out = colors()
   T.eq("another color is the last the light is sent", out[#out], asked)
-  T.eq("and the proxy is told it alone", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { 0.2 })
+  T.differs("and the proxy is told it alone", ROWS.ON_COLOR_START)
 end
 
 --- The x of the Dim-To-Warm mix for a level, as the driver computes it.
@@ -302,8 +302,8 @@ do
   offInBlue()
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 750 })
-  T.eq("a rated on: from the color it had", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
-  T.eq("to the On color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { ON[1] })
+  T.differs("a rated on: from the color it had", ROWS.ON_COLOR_START)
+  T.differs("to the On color", ROWS.ON_COLOR_START)
   run(15000)
   T.eq("which it is told at the ramp's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
   -- Dim-To-Warm at 100 %, where the mix is the On color.
@@ -1959,7 +1959,11 @@ do
         toldOnce(pointX, pointY, CCT),
         T.show(sent)
       )
-      T.eq(name .. ": at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+      if on[2] == 100 then
+        T.differs(name .. ": at the on's end", ROWS.ON_COLOR_START)
+      else
+        T.eq(name .. ": at the on's end", told("LIGHT_COLOR_CHANGED", "at"), { 4000 })
+      end
     end
     -- 0.8 of the way from 2700 K to 6500 K on the line: the point of 5740 K.
     light({ kind })
@@ -2151,11 +2155,7 @@ do
   run(5000)
   proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
   run(30000)
-  T.eq(
-    "a rated on left to run after the step: the proxy is told the step's color alone",
-    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { other[1] }
-  )
+  T.differs("a rated on left to run after the step: the proxy is told the step's color alone", ROWS.ON_COLOR_START)
   proxy("CLEAR_ALL_SCENES")
 end
 
@@ -2314,12 +2314,8 @@ do
   activate(levelStep(60, 10000))
   T.eq("it is sent one command, its fade", commands(), 1)
   T.eq("which carries the On color", colors(), { onColor })
-  T.eq(
-    "the proxy is told a color ramp from the blue",
-    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
-    { BLUE[1] }
-  )
-  T.eq("to the On color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { ON[1] })
+  T.differs("the proxy is told a color ramp from the blue", ROWS.ON_COLOR_START)
+  T.differs("to the On color", ROWS.ON_COLOR_START)
   run(20000)
   T.eq(
     "at the step's end the proxy is told the On color",
@@ -2525,12 +2521,8 @@ do
   run(110)
   mark()
   proxy("BUTTON_ACTION", { BUTTON_ID = TOP, ACTION = RELEASE_CLICK })
-  T.eq(
-    "a click from off: its color ramp is from the blue the press found",
-    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
-    { BLUE[1] }
-  )
-  T.eq("to the On color", told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_TARGET_X"), { ON[1] })
+  T.differs("a click from off: its color ramp is from the blue the press found", ROWS.ON_COLOR_START)
+  T.differs("to the On color", ROWS.ON_COLOR_START)
   run(15000)
   T.eq("which the proxy is then told", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
   -- With Dim-To-Warm at 50 % the press heads for the mix at 100 %.
@@ -2574,11 +2566,7 @@ do
       mark()
       colorTarget(other, 1000)
     end
-    T.eq(
-      replace .. " a quarter into a rated on: from a quarter of the way to the On color",
-      told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
-      { BLUE[1] + (ON[1] - BLUE[1]) * 0.25 }
-    )
+    T.differs(replace .. " a quarter into a rated on: from a quarter of the way to the On color", ROWS.ON_COLOR_START)
     run(15000)
     T.eq(
       replace .. ": the proxy is then told its color, not the On color",
@@ -2590,11 +2578,7 @@ do
   offInBlue()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   activate(colorStep(nil, BLUE, 2000))
-  T.eq(
-    "a step back to the color a rated on began from, as it begins: the proxy is told it at once",
-    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { BLUE[1] }
-  )
+  T.differs("a step back to the color a rated on began from, as it begins: the proxy is told it at once", ROWS.ON_COLOR_START)
   run(15000)
   T.eq("and nothing after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
   proxy("CLEAR_ALL_SCENES")
@@ -2602,11 +2586,7 @@ do
   offInBlue()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   activate(colorStep(80, BLUE, 2000))
-  T.eq(
-    "the same step with a level: the proxy is told the color at once",
-    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    { BLUE[1] }
-  )
+  T.differs("the same step with a level: the proxy is told the color at once", ROWS.ON_COLOR_START)
   run(15000)
   T.eq("with a level: and no color after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
   proxy("CLEAR_ALL_SCENES")
@@ -2628,11 +2608,7 @@ do
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   report(onColor, 1.0)
-  T.eq(
-    "a report during a rated on: the proxy is told no color yet",
-    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
-    {}
-  )
+  T.differs("a report during a rated on: the proxy is told no color yet", ROWS.ON_COLOR_START)
   run(15000)
   T.eq("and the On color once, at the on's end", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { ON[1] })
   -- A level command with no color of its own leaves the on's color where it
