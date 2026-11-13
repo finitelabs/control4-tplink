@@ -47,7 +47,8 @@ return {
     RECONNECT = "tplink: a reconnect tells ONLINE_CHANGED.",
     CARRIED_COLOR = "tplink: a color ramp a replacing command carries on is not told again; its end is.",
     OFF_HOLD = "tplink: a color for a light that's off is held for the next on, not sent.",
-    DIM_OFF = "tplink: an off under Dim-To-Warm fades to its Dim color.",
+    DIM_OFF = "tplink: under Dim-To-Warm a light turned off is shown in its Dim color, the color it next comes on in, "
+      .. "and one that takes a color with an off fades to it.",
     LEDS = "tplink: a button with no saved colors reports the setup's colors or the defaults, never blank.",
     STOP_STEP = "tplink: a stop of a driver-made fade sends one last step at where the fade has got to.",
     WALK = "tplink: a driver-made fade steps every 100 ms, and a step waiting behind one in flight is replaced by "
