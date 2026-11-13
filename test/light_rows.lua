@@ -13,10 +13,10 @@ return {
     DIFF = "A command for the level or color the proxy shows tells nothing.",
     GETLEVEL = "Get Light Level answers the level last told, during a ramp and a lapse too.",
     BUTTON_COLORS = "A button with no saved colors takes the setup's colors, then the standard defaults.",
-    ON_COLOR_FADE = "A light that runs its own fades fades an on's color from the one it kept to its on color, over the "
-      .. "on's time.",
     ON_COLOR_START = "An on from off starts in its on color, and under Dim-To-Warm at its Dim color, so the color is "
       .. "told at once and a stop part way is in the on color for its level.",
+    SCENE_FROM_OFF = "A scene step in a color that turns the light on from off starts in the color the light kept and "
+      .. "fades to the step's color. A library bug, its fix due in template v0.9.99.",
     DTW_WHITE = "A Dim-To-Warm white is told at the point on the line of whites the light shows.",
     RAMP_FROM = "A ramp starts from where the light has got to.",
     STEP_PICK = "A scene step that sets level and color together is not a picked color.",

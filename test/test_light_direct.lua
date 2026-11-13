@@ -2036,11 +2036,11 @@ do
   proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(60, BLUE, 3000) })
   mark()
   proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
-  T.differs("a step that fades the strip up from off: the proxy is told its color at once", ROWS.ON_COLOR_FADE)
+  T.differs("a step that fades the strip up from off: the proxy is told its color at once", ROWS.SCENE_FROM_OFF)
   serve(4000, 250)
-  T.differs("the strip comes on in it, at the fade's first level", ROWS.ON_COLOR_FADE)
-  T.differs("and the steps after name the level alone", ROWS.ON_COLOR_FADE)
-  T.differs("up to the step's level", ROWS.ON_COLOR_FADE)
+  T.differs("the strip comes on in it, at the fade's first level", ROWS.SCENE_FROM_OFF)
+  T.differs("and the steps after name the level alone", ROWS.SCENE_FROM_OFF)
+  T.differs("up to the step's level", ROWS.SCENE_FROM_OFF)
   proxy("CLEAR_ALL_SCENES")
 
   -- A strip that only switches has nothing to walk.
@@ -2830,7 +2830,7 @@ do
     proxy("PUSH_SCENE", { SCENE_ID = 7, ELEMENTS = colorStep(100, cyan, 2000) })
     proxy("ACTIVATE_SCENE", { SCENE_ID = 7 })
   end)
-  T.differs("a scene step on in a color of its own: the proxy is told that color, and no fade", ROWS.ON_COLOR_FADE)
+  T.differs("a scene step on in a color of its own: the proxy is told that color, and no fade", ROWS.SCENE_FROM_OFF)
   proxy("CLEAR_ALL_SCENES")
 
   halfWay()
