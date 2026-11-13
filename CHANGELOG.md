@@ -30,8 +30,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   also during a fade or while the device can't be reached.
 - Keypad buttons with no colors of their own show the TP-Link Light's colors
   from Composer, then the standard defaults.
-- Turning a TP-Link Light on fades its color to the on color over the same time
-  as its brightness.
+- A TP-Link Light turned on is in its on color wherever its brightness stops,
+  and under Dim-To-Warm its color follows its brightness.
 - With Dim-To-Warm, turning the TP-Link Light off fades its color all the way to
   the Dim color.
 - With Dim-To-Warm, the color blends in a straight line between the Dim and On
