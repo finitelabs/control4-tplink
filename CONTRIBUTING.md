@@ -51,7 +51,8 @@ then pull the change in with `copier update`.
   [Log Level](#log-level))
 - `lru.lua`: LRU cache utility
 - `persist.lua`: persistent storage abstraction
-- `redact.lua`: masks credentials in log lines and diagnostics reports
+- `redact.lua`: masks credentials in log lines below Ultra and in diagnostics
+  reports
 - `support-code.lua`: the Support Code that opens a DriverCentral build's Lua
   window (see [The Support Code](#the-support-code))
 - `update-settings.lua`: keeps Automatic Updates and Update Channel the same on
@@ -105,6 +106,11 @@ then pull the change in with `copier update`.
 - `drivers/*/www/`: documentation and icons
 - `CHANGELOG.md`, seeded by the template on first render and left alone after
   that
+- `resources/drivercentral/`: the DriverCentral listing, seeded once. Besides
+  the banners and photos it holds `description.md`, the listing's description.
+  It starts from the docs' Overview and Features, written to sell the driver
+  rather than document it. Its first image is the facts strip, uploaded through
+  DriverCentral's description editor, which gives the URL for its `src`
 - Any additional `src/` modules specific to this driver
 - Any additional `vendor/` libraries specific to this driver
 - `test/` suites written for this driver, and the local support files they
@@ -225,6 +231,7 @@ make build-nodocs  # Build without generating docs
 make verify        # After a build, check what CI checks after one
 make test          # Run the Lua test suite (test/test_*.lua) and tools/test_*.py
 make support-code  # Print today's Support Code (see The Support Code)
+make dc-release    # Download the newest release's DriverCentral upload (TAG=v... for another)
 make fmt           # Format all code (Lua, Python, Markdown)
 make check         # Assert formatting and build secrets without rewriting, as CI does
 make clean         # Remove build artifacts and dist/ (including driverpackager)
@@ -247,7 +254,8 @@ on a clean tree until something has populated `build/`.
 1. **Preprocess**: resolve `#ifdef`/`#ifndef` directives per distribution
 1. **Generate squishy**: create squish manifests from .c4zproj files
 1. **Update driver.xml**: stamp version date and modified timestamp
-1. **Generate docs**: Markdown -> HTML -> PDF, plus README
+1. **Generate docs**: Markdown -> HTML -> PDF, plus README and DriverCentral's
+   Revisions
 1. **Package**: run driverpackager to create .c4z files
 1. **Zip**: bundle the c4z and docs folders per distribution
 
@@ -263,6 +271,23 @@ Each distribution's outputs are grouped by type under `dist/<distribution>/`:
 per-driver Lua). `<repo>.zip` sits alongside them and contains `c4z/` and
 `docs/` only: `source/` is the driver's unencrypted Lua, which an encrypted
 driver must not ship.
+
+`dist/drivercentral/listing/` holds what a DriverCentral upload needs beyond the
+zip and the PDFs. `description.html` is the listing's description, made from
+`description.md` in `resources/drivercentral/`. `revisions.html` is the
+Revisions tab, every released `CHANGELOG.md` section as the DriverCentral build
+shows it. The product card, the banners and the listing photos are copied from
+`resources/drivercentral/`. A tag build's drivercentral CI artifact is the whole
+upload. `make dc-release` downloads the newest release's into
+`dist/release/<tag>/`, or another's with `TAG=v20261111`, and stops if any
+`.c4z` in it is not encrypted. It needs the GitHub CLI, signed in. When the
+artifact has expired, run the Build workflow on the tag again from the Actions
+tab.
+
+While `description.md` still has `FACTS-STRIP-URL` for the facts strip,
+`description.html` leaves the strip out and the build prints a warning. Upload
+`banners/facts-strip-2400x136.png` through DriverCentral's description editor
+and put the URL it gives in its place.
 
 Step 1 rewrites tracked files in place. Formatting covers `tools/*.py`, all Lua
 under `drivers/`, `src/`, `test/`, `tools/` and `vendor/`, and every Markdown
@@ -614,8 +639,10 @@ end
 The library clears the property at once, keeps its value out of the dispatcher's
 Trace output, and prints its answer to the Lua output whatever Log Mode is.
 While the window is open, Log Level also offers Trace and Ultra (see
-[Log Level](#log-level)). A driver that shows more while the window is open
-(extra properties) passes `supportCode:onChange(function(open) ... end)`.
+[Log Level](#log-level)). A web tab's properties card follows the window by
+itself, once the driver calls `lib.ui.tab-properties`' `serve()`. A driver that
+shows more elsewhere while the window is open passes
+`supportCode:onChange(function(open) ... end)`.
 
 ### Log Level
 
@@ -653,6 +680,13 @@ otherwise. Nothing else sets them. The Support Code calls
 `log:allowTraceAndUltra(allowed)` as the window opens and closes, which widens
 and narrows the list. A page that sets Log Level offers
 `log:getLogLevelNames()`.
+
+Below Ultra, a log line of ours masks credentials through `redact.forLog`, as
+`lib.http`'s request line does. At Ultra it prints them as they are, as the
+dumps do. Anything that leaves the controller, a Cloud Monitoring report among
+them, masks through `redact.value` at every level. The Support Code and what
+`SendSecretToDevice` and `SendSecretToProxy` send stay out of the log at every
+level.
 
 ### Cloud Monitoring
 

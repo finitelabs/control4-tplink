@@ -17,6 +17,7 @@
 ---                   (light_command shape in)
 
 local deferred = require("deferred")
+local Hsv = require("tplink.hsv")
 
 local log = require("lib.logging")
 local constants = require("constants")
@@ -89,19 +90,6 @@ local function kelvinRangeForModel(model)
   return 2700, 5000
 end
 
--- HSV (h: 0-360, s: 0-100, v: 0-100) -> normalized RGB (each 0-1).
--- C4:ColorHSVtoRGB works on the 0-255 RGB scale.
-local function hsvToRGB(h, s, v)
-  local r, g, b = C4:ColorHSVtoRGB(h or 0, s or 0, v or 0)
-  return (r or 0) / 255, (g or 0) / 255, (b or 0) / 255
-end
-
--- normalized RGB (0-1) -> HSV (h: 0-360, s: 0-100, v: 0-100).
--- C4:ColorRGBtoHSV works on the 0-255 RGB scale.
-local function rgbToHSV(r, g, b)
-  return C4:ColorRGBtoHSV((r or 0) * 255, (g or 0) * 255, (b or 0) * 255)
-end
-
 --- Maps sysinfo capability flags to the entity shape applyUpdate expects.
 --- @param sysinfo table
 --- @param kelvinMin number
@@ -158,17 +146,23 @@ local function synthesizeState(lightState, effectState)
     state.color_temperature = 1e6 / colorTemp
   elseif values.hue ~= nil then
     state.color_mode = ColorMode.COLOR_MODE_RGB
-    local r, g, b = hsvToRGB(tonumber(values.hue) or 0, tonumber(values.saturation) or 0, 100)
+    local r, g, b = Hsv.toRGB(tonumber(values.hue) or 0, tonumber(values.saturation) or 0, 100)
     state.red, state.green, state.blue = r, g, b
   end
   return state
 end
 
+--- An IOT light's answer to a poll.
+--- @class TplinkIotPoll
+--- @field entity TplinkLightEntity
+--- @field state TplinkLightState
+--- @field mac string? The MAC address the light reported.
+
 --- Polls the bulb and maps the result for applyUpdate.
 --- Rejects when the device is unreachable or is not an IOT-schema light
 --- (no light_state in sysinfo), so probes can fall through.
---- @param held table? A color held for the bulb while it is off, shown as the one it comes on in.
---- @return Deferred<{ entity: table, state: table, mac: string? }, { error: string }>
+--- @param held TplinkHeldColor? A color held for the bulb while it is off, shown as the one it comes on in.
+--- @return Deferred<TplinkIotPoll, TplinkLinkError>
 function IotBulb:poll(held)
   log:trace("IotBulb:poll(%s)", held)
   return self._transport:request({ system = { get_sysinfo = {} } }):next(function(response)
@@ -210,9 +204,9 @@ end
 --- On a strip, any command takes over from a lighting effect started in the
 --- Kasa app. A bulb drops a color sent with no on, so `hold` may take it out
 --- of the params, or add one held for an on.
---- @param opts table
---- @param hold (fun(params: table, on: boolean?))?
---- @return Deferred<table, { error: string }>
+--- @param opts TplinkLightOpts
+--- @param hold (fun(params: TplinkHeldColor, on: boolean?))?
+--- @return Deferred<table, TplinkLinkError>
 function IotBulb:execute(opts, hold)
   log:trace("IotBulb:execute(%s)", opts)
 
@@ -232,7 +226,7 @@ function IotBulb:execute(opts, hold)
     params.color_temp = math.max(self._kelvinMin, math.min(self._kelvinMax, kelvin))
     params.ignore_default = 1
   elseif opts.has_rgb then
-    local h, sat = rgbToHSV(tonumber(opts.red) or 0, tonumber(opts.green) or 0, tonumber(opts.blue) or 0)
+    local h, sat = Hsv.fromRGB(tonumber(opts.red) or 0, tonumber(opts.green) or 0, tonumber(opts.blue) or 0)
     params.hue = math.floor((h or 0) + 0.5) % 360
     params.saturation = math.max(0, math.min(100, math.floor((sat or 0) + 0.5)))
     params.color_temp = 0
