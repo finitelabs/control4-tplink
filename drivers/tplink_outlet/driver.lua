@@ -27,6 +27,7 @@ local diagnostics = require("lib.diagnostics")
 --#endif
 local constants = require("constants")
 local bindings = require("lib.bindings")
+local persist = require("lib.persist")
 local values = require("lib.values")
 local Klap = require("tplink.klap")
 local Legacy = require("tplink.legacy")
@@ -308,17 +309,58 @@ local BUTTON_LINK_COALESCE_MS = 500
 --- @type table<integer, boolean>
 local buttonCoalescing = {}
 
---- Each output's keypad links, by the key of their binding, with the project
---- properties that hold their button's LED colors, on and off.
+--- Each output's keypad links, by the key of their binding. The Off link's
+--- button is lit while the output is off, the others' while it is on.
 local BUTTON_LINKS = {
-  { key = "on", name = "On", colors = { "TopLEDOn", "TopLEDOff" } },
-  { key = "off", name = "Off", colors = { "BottomLEDOn", "BottomLEDOff" } },
-  { key = "toggle", name = "Toggle", colors = { "ToggleLEDOn", "ToggleLEDOff" } },
+  { key = "on", name = "On" },
+  { key = "off", name = "Off", litWhenOff = true },
+  { key = "toggle", name = "Toggle" },
 }
 
---- Tell a keypad link the output's state. Every link is told the same: the Off
---- button's colors are what light its LED while the output is off. Sends
---- nothing while the state is unknown.
+--- The properties holding every keypad link's LED colors, as "r,g,b".
+local LIT_COLOR, UNLIT_COLOR = "Button Lit Color", "Button Unlit Color"
+
+--- Set once the button colors have taken the project's, so a later start or
+--- update keeps the colors set in Composer.
+local BUTTON_COLORS_SEEDED = "ButtonColorsSeeded"
+
+--- A color property's "r,g,b" as a keypad's hex color.
+--- @param value string?
+--- @return string?
+local function hexColor(value)
+  local r, g, b = string.match(tostring(value), "^%s*(%d+)%s*,%s*(%d+)%s*,%s*(%d+)%s*$")
+  if r == nil then
+    return nil
+  end
+  return string.format("%02x%02x%02x", tonumber(r), tonumber(g), tonumber(b))
+end
+
+--- A project's hex LED color as a color property's "r,g,b"; nil for anything else.
+--- @param hex string?
+--- @return string?
+local function rgbColor(hex)
+  local r, g, b = string.match(tostring(hex), "^#?(%x%x)(%x%x)(%x%x)$")
+  if r == nil then
+    return nil
+  end
+  return string.format("%d,%d,%d", tonumber(r, 16), tonumber(g, 16), tonumber(b, 16))
+end
+
+--- Set the button colors to the project's Top button LED colors. A project
+--- that answers without a color leaves that property as it is.
+local function takeProjectButtonColors()
+  local lit, unlit = rgbColor(C4:GetProjectProperty("TopLEDOn")), rgbColor(C4:GetProjectProperty("TopLEDOff"))
+  if lit ~= nil then
+    UpdateProperty(LIT_COLOR, lit)
+  end
+  if unlit ~= nil then
+    UpdateProperty(UNLIT_COLOR, unlit)
+  end
+end
+
+--- Tell a keypad link the output's state. Every link is told the same, and
+--- the Off link's colors are swapped so its button is lit while the output is
+--- off. Sends nothing while the state is unknown.
 --- @param idBinding integer
 --- @param n number Output number (1-based).
 local function reportButtonLed(idBinding, n)
@@ -328,14 +370,15 @@ local function reportButtonLed(idBinding, n)
   end
 end
 
---- Tell a keypad link its button's colors, the project's.
+--- Tell a keypad link its button's colors, from the button color properties.
 --- @param idBinding integer
 --- @param link table An entry of BUTTON_LINKS.
 local function reportButtonColors(idBinding, link)
-  SendToProxy(idBinding, "BUTTON_COLORS", {
-    ON_COLOR = C4:GetProjectProperty(link.colors[1]),
-    OFF_COLOR = C4:GetProjectProperty(link.colors[2]),
-  }, "NOTIFY")
+  local lit, unlit = hexColor(Properties[LIT_COLOR]), hexColor(Properties[UNLIT_COLOR])
+  if link.litWhenOff then
+    lit, unlit = unlit, lit
+  end
+  SendToProxy(idBinding, "BUTTON_COLORS", { ON_COLOR = lit, OFF_COLOR = unlit }, "NOTIFY")
 end
 
 --- Tell each of an output's keypad links its LED state, and its colors first
@@ -351,6 +394,13 @@ local function reportButtonLeds(n, withColors)
       end
       reportButtonLed(binding.bindingId, n)
     end
+  end
+end
+
+--- Tell every output's keypad links their colors and the output's state.
+local function reportAllButtonColors()
+  for n, _ in pairs(outputs) do
+    reportButtonLeds(n, true)
   end
 end
 
@@ -1285,6 +1335,21 @@ function OPC.Energy_Poll_Rate_Seconds(propertyValue)
   end
 end
 
+--- A changed button color reaches every bound keypad at once.
+function OPC.Button_Lit_Color(propertyValue)
+  log:trace("OPC.Button_Lit_Color('%s')", propertyValue)
+  if gInitialized then
+    reportAllButtonColors()
+  end
+end
+
+function OPC.Button_Unlit_Color(propertyValue)
+  log:trace("OPC.Button_Unlit_Color('%s')", propertyValue)
+  if gInitialized then
+    reportAllButtonColors()
+  end
+end
+
 -- A changed level takes the next reading as the output's state, not a change.
 for n = 1, constants.MAX_OUTPUTS do
   local function rebaseline()
@@ -1343,6 +1408,13 @@ function EC.Reconnect()
   -- No transport reset first: it would fail requests whose callbacks are still
   -- live and mark a working device offline.
   reconnect()
+end
+
+--- Reset Button Colors action handler: the project's button LED colors again.
+function EC.ResetButtonColors()
+  log:info("Action: Reset Button Colors")
+  takeProjectButtonColors()
+  reportAllButtonColors()
 end
 
 --#ifndef DRIVERCENTRAL
@@ -1438,6 +1510,12 @@ function OnDriverLateInit()
   log:trace("OnDriverLateInit()")
   if not CheckMinimumVersion("Driver Status") then
     return
+  end
+
+  -- The first start takes the project's button colors; later ones keep what Composer has.
+  if not persist:get(BUTTON_COLORS_SEEDED) then
+    takeProjectButtonColors()
+    persist:set(BUTTON_COLORS_SEEDED, true)
   end
 
   -- Fire OnPropertyChanged once per property to set initial globals. The router runs each

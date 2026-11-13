@@ -53,6 +53,7 @@ programming.
       - [TP-Link Settings](#tp-link-settings)
       - [Device Information](#device-information)
       - [Outputs](#outputs)
+      - [Button Links](#button-links)
     - [Driver Actions](#driver-actions)
   - [Connections](#connections)
   - [Programming](#programming)
@@ -93,7 +94,7 @@ programming.
 - **Real-time energy monitoring** per outlet with configurable poll rate
 - **Programming commands**: Turn Output On / Turn Output Off / Toggle Output
 - **Keypad buttons**: On, Off and Toggle button links for each output, with LEDs
-  that follow it
+  that follow it in colors you choose
 - **In Use / Idle events** for each output, from its power, two levels and a
   hold time you set, on devices with energy monitoring
 - Reconnects automatically when the device restarts or drops the connection
@@ -411,6 +412,19 @@ back between the levels starts the wait again. The power is read at the
 `Energy Poll Rate`, so the event comes with the first reading after the hold has
 passed. At 0 (the default) the first reading past a level fires it.
 
+#### Button Links
+
+##### Button Lit Color / Button Unlit Color
+
+Sets the LED colors of keypad buttons bound to the outputs' button links. A
+button shows the lit color while it is lit, On and Toggle while the output is on
+and Off while it is off, and the unlit color the rest of the time. When the
+driver is added, they take the project's Top button LED colors. After that they
+are the driver's own: a driver update keeps them, and a change to the project's
+colors doesn't reach them. A change here reaches every bound keypad at once. Run
+[`Reset Button Colors`](#reset-button-colors) to take the project's colors
+again.
+
 ### Driver Actions
 
 <!-- #ifndef DRIVERCENTRAL -->
@@ -430,6 +444,11 @@ Reads the output states and power readings from the device now.
 
 Drops the connection to the device and connects again, working out its protocol
 again when Protocol is `Auto`.
+
+#### Reset Button Colors
+
+Sets Button Lit Color and Button Unlit Color to the project's Top button LED
+colors again, and tells every bound keypad.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
@@ -467,7 +486,8 @@ Light documentation for the full walkthrough.
 Each output also has keypad **button links** (`Output 1 On Button Link`,
 `Output 1 Off Button Link`, `Output 1 Toggle Button Link`, ...). Bind a keypad
 button to one to switch the output from that button. The button's LED follows
-the output: On and Toggle are lit while it is on, Off while it is off.
+the output: On and Toggle are lit while it is on, Off while it is off, in the
+colors set in [Button Links](#button-links).
 
 ## Programming
 

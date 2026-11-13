@@ -1,7 +1,8 @@
 --- The TP-Link Outlet driver's keypad links and power events for each output.
 ---
 --- An output's On, Off and Toggle Button Links switch it from a keypad, and
---- their LEDs follow it. Its In Use and Idle events fire when its power rises
+--- their LEDs follow it in the driver's button colors, which the first start
+--- takes from the project. Its In Use and Idle events fire when its power rises
 --- above one level and falls below another; a reading the device has when the
 --- driver starts or reconnects, or when a level changes, fires neither.
 ---
@@ -83,14 +84,14 @@ function C4:UpdateProperty(name, value)
   Properties[name] = value
 end
 
--- The project's button LED colors: dev's, with Toggle's changed so each button's pair is its own.
+-- The project's button LED colors: dev's, with Top's changed so the first start's are not the driver's defaults.
 local project = {
-  TopLEDOn = "0000ff",
-  TopLEDOff = "000000",
+  TopLEDOn = "ff8800",
+  TopLEDOff = "112233",
   BottomLEDOn = "000000",
   BottomLEDOff = "0000ff",
-  ToggleLEDOn = "ff8800",
-  ToggleLEDOff = "112233",
+  ToggleLEDOn = "0000ff",
+  ToggleLEDOff = "000000",
 }
 function C4:GetProjectProperty(name)
   return project[name]
@@ -118,6 +119,8 @@ Properties = {
   ["Output 1 In Use Above (W)"] = "0",
   ["Output 1 Idle Below (W)"] = "0",
   ["Output 1 Hold (s)"] = "0",
+  ["Button Lit Color"] = "0,0,255",
+  ["Button Unlit Color"] = "0,0,0",
 }
 
 dofile(HERE .. "/../drivers/tplink_outlet/driver.lua")
@@ -151,8 +154,13 @@ local function drain()
   return told, set, toldColors
 end
 
---- Each link's colors, as the project has them for its button.
-local PROJECT_COLORS = { on = { "0000ff", "000000" }, off = { "000000", "0000ff" }, toggle = { "ff8800", "112233" } }
+--- Each link's colors, on and off, for a lit and an unlit color: the Off link's are swapped.
+local function linkColors(lit, unlit)
+  return { on = { lit, unlit }, off = { unlit, lit }, toggle = { lit, unlit } }
+end
+
+--- Each link's colors from the project's Top button colors.
+local PROJECT_COLORS = linkColors("ff8800", "112233")
 
 --- Set a property as Composer does: the value, then the driver's handler.
 local function setProperty(name, value)
@@ -174,6 +182,13 @@ local function draw(watts)
   end
   return power
 end
+
+T.section("the first start takes the project's Top button colors into the button color properties")
+T.eq(
+  "lit and unlit, as Composer shows them",
+  { Properties["Button Lit Color"], Properties["Button Unlit Color"] },
+  { "255,136,0", "17,34,51" }
+)
 
 T.section("each output gets On, Off and Toggle keypad links")
 do
@@ -219,14 +234,14 @@ do
   ReceivedFromProxy(link("off").bindingId, "REQUEST_BUTTON_COLORS", {})
   local told, set, toldColors = drain()
   T.eq(
-    "the Off link, with the output on: the Bottom colors, on, and nothing switched",
+    "the Off link, with the output on: the colors swapped, on, and nothing switched",
     { toldColors, told, set },
     { { off = PROJECT_COLORS.off }, { off = { true } }, {} }
   )
   ReceivedFromProxy(link("toggle").bindingId, "REQUEST_BUTTON_COLORS", {})
   told, set, toldColors = drain()
   T.eq(
-    "the Toggle link: the Toggle colors, on",
+    "the Toggle link: the colors, on",
     { toldColors, told },
     { { toggle = PROJECT_COLORS.toggle }, { toggle = { true } } }
   )
@@ -239,7 +254,7 @@ do
   drain()
   ShimLateInit()
   local told, _, toldColors = drain()
-  T.eq("the project's colors for its button", toldColors, PROJECT_COLORS)
+  T.eq("the button colors for its button", toldColors, PROJECT_COLORS)
   T.eq("and on, on every link", told, { on = { true }, off = { true }, toggle = { true } })
 
   -- Switched off at the plug while the driver was down: the first poll is a change.
@@ -254,6 +269,55 @@ do
   plug.relay = 1
   EC.RefreshNow()
   drain()
+end
+
+T.section("a changed button color reaches every bound keypad at once, and an update keeps it")
+do
+  drain()
+  setProperty("Button Lit Color", "0,255,0")
+  local told, set, toldColors = drain()
+  T.eq("each link is told its colors with the new lit color", toldColors, linkColors("00ff00", "112233"))
+  T.eq(
+    "and the output's state, with nothing switched",
+    { told, set },
+    { { on = { true }, off = { true }, toggle = { true } }, {} }
+  )
+  setProperty("Button Unlit Color", "64,0,64")
+  told, set, toldColors = drain()
+  T.eq("the unlit color too", toldColors, linkColors("00ff00", "400040"))
+
+  -- The project's colors change, then the driver is updated: the first start's are not taken again.
+  project.TopLEDOn, project.TopLEDOff = "abcdef", "010203"
+  ShimUpdateDriver()
+  dofile(HERE .. "/../drivers/tplink_outlet/driver.lua")
+  drain()
+  ShimLateInit()
+  told, set, toldColors = drain()
+  T.eq(
+    "after an update the properties keep the colors set",
+    { Properties["Button Lit Color"], Properties["Button Unlit Color"] },
+    { "0,255,0", "64,0,64" }
+  )
+  T.eq("and each link is told them at the first poll", toldColors, linkColors("00ff00", "400040"))
+end
+
+T.section("Reset Button Colors takes the project's colors again and tells every keypad")
+do
+  drain()
+  EC.ResetButtonColors()
+  local told, set, toldColors = drain()
+  T.eq(
+    "the properties take the project's Top button colors",
+    { Properties["Button Lit Color"], Properties["Button Unlit Color"] },
+    { "171,205,239", "1,2,3" }
+  )
+  T.eq("each link is told them", toldColors, linkColors("abcdef", "010203"))
+  T.eq(
+    "and the output's state, with nothing switched",
+    { told, set },
+    { { on = { true }, off = { true }, toggle = { true } }, {} }
+  )
+  project.TopLEDOn, project.TopLEDOff = "ff8800", "112233"
 end
 
 T.section("a press switches the output once, whichever of push and click a keypad sends")
