@@ -2087,13 +2087,15 @@ do
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   serve(5000, 250)
-  T.differs("a ramped on with a preset On color: the strip comes on in it", ROWS.ON_COLOR_FADE)
-  T.differs("and the steps after name the level alone", ROWS.ON_COLOR_FADE)
+  T.differs("a ramped on with a preset On color: the strip comes on in it", ROWS.WALK_FIRST_STEP)
+  T.differs("and the steps after name the level alone", ROWS.WALK)
   T.differs("the proxy is told the color at the ramp's end", ROWS.ON_COLOR_START)
   offIn(BLUE)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 10, RATE = 30000 })
   run(100)
-  T.differs("off in blue, a slow on's first step, at 1 %, carries it too", ROWS.ON_COLOR_FADE)
+  T.eq("off in blue, a slow on's first step, at 1 %, carries it too", flying(), {
+    { device_on = true, brightness = 1, hue = 60, saturation = 20, color_temp = 0 },
+  })
   serve(31000, 250)
   proxy("OFF")
   serve(1000, 250)
@@ -2102,7 +2104,11 @@ do
   run(90)
   proxy("SET_BRIGHTNESS_STOP")
   T.differs("a stop before the on's first step: the strip, sent nothing, is told as off", ROWS.STOP_STEP)
-  T.differs("and in the color it has, to end the change to the On color it was told of", ROWS.ON_COLOR_FADE)
+  T.eq(
+    "and in the color it has, to end the change to the On color it was told of",
+    told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
   -- Off in blue, a ramped on in the On color, and a color before its first step.
   offIn(BLUE)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
@@ -2121,7 +2127,11 @@ do
   serve(1000, 250)
   mark()
   colorTarget(xy(120, 50), 2000)
-  T.differs("a level command a second into the on leaves the strip in the On color it came on in", ROWS.ON_COLOR_FADE)
+  T.eq(
+    "a level command a second into the on leaves the strip in the On color it came on in",
+    told("LIGHT_COLOR_CHANGING", "LIGHT_COLOR_CURRENT_X"),
+    { ON[1] }
+  )
 
   forgetSetup()
   walked({ device_on = false }, NO_POLLS)
@@ -2129,8 +2139,8 @@ do
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   serve(2000, 250)
-  T.differs("with Dim-To-Warm it comes on in the color for its first level", ROWS.ON_COLOR_FADE)
-  T.differs("and each step is in the color for its own", ROWS.ON_COLOR_FADE)
+  T.differs("with Dim-To-Warm it comes on in the color for its first level", ROWS.WALK_FIRST_STEP)
+  T.differs("and each step is in the color for its own", ROWS.WALK)
   mark()
   proxy("SET_BRIGHTNESS_STOP")
   T.differs("a stop tells the level of the step last sent", ROWS.STOP_STEP)
@@ -2197,7 +2207,7 @@ do
   serve(3000, 20)
   T.differs(
     "from off, a step names the color only once it has moved on from the last sent, and the last is the target's",
-    ROWS.ON_COLOR_FADE
+    ROWS.WALK_FIRST_STEP
   )
   forgetSetup()
 end
@@ -2739,19 +2749,21 @@ do
   proxy("SET_LEVEL", { LEVEL = 50 })
   T.differs(
     "a level a second into a ramped on: the proxy is told the On color the strip came on in, at once",
-    ROWS.ON_COLOR_FADE
+    ROWS.ON_COLOR_START
   )
-  serve(1000, 250)
-  T.differs("and the strip is sent the level alone", ROWS.ON_COLOR_FADE)
+  T.eq(
+    "and the strip is sent the level alone",
+    Select(serve(1000, 250), 2, "sent"),
+    { device_on = true, brightness = 50 }
+  )
   proxy("OFF")
   serve(1000, 250)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   serve(1000, 250)
   mark()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 50, RATE = 2000 })
-  T.differs("a ramped level a second in: the same, with no color fade told", ROWS.ON_COLOR_FADE)
-  serve(3000, 250)
-  T.differs("and its steps name no color", ROWS.ON_COLOR_FADE)
+  T.differs("a ramped level a second in: the same, with no color fade told", ROWS.ON_COLOR_START)
+  T.eq("and its steps name no color", #each(serve(3000, 250), "hue"), 0)
   forgetSetup()
 
   walked({}, NO_POLLS)
@@ -2921,7 +2933,7 @@ do
   strip.brightness = 70
   mark()
   serve(1500, 250)
-  T.differs("another hand in a ramped on: the color it was to end in is told as it reads", ROWS.ON_COLOR_FADE)
+  T.differs("another hand in a ramped on: the color it was to end in is told as it reads", ROWS.ON_COLOR_START)
   forgetSetup()
 
   -- What the strip held before a fade was asked for is no part of the fade.
@@ -4271,7 +4283,6 @@ do
   proxy("SET_BRIGHTNESS_TARGET", ON)
   serve(3000, 250)
   T.differs("a strip the driver walks, 3 s in: its step in flight", ROWS.WALK)
-  T.differs("a strip the driver walks, 3 s in: its step in flight", ROWS.ON_COLOR_FADE)
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 0 })
   T.differs("turned off then, Previous On is that step", BENIGN.PRECISION)
   walked({ device_on = false }, NO_POLLS)
