@@ -162,6 +162,10 @@ local function iotAnswer(bulb, payload, now)
   if params.brightness ~= nil then
     bulb.brightness = params.brightness
   end
+  -- A set that turns the bulb off drops its color: dev's KL135 kept the color it was lit in.
+  if params.on_off == 0 then
+    params.color_temp, params.hue = nil, nil
+  end
   if params.color_temp ~= nil and params.color_temp > 0 then
     bulb.colorTemp = clampKelvin(bulb, params.color_temp)
   elseif params.hue ~= nil then
