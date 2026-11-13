@@ -18,6 +18,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed keypad buttons on an outlet's Button Links showing their own colors in
+  place of the project's button LED colors.
+
 <!-- #ifdef DRIVERCENTRAL -->
 
 ## v20261110 - 2026-11-10
@@ -50,8 +57,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed keypad buttons on a light's Button Links showing default colors in place
   of the project's button LED colors, which can now be set for each light in
   Composer.
-- Fixed keypad buttons on an outlet's Button Links showing their own colors in
-  place of the project's button LED colors.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
