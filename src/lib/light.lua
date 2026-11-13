@@ -18,6 +18,7 @@
 
 local log = require("lib.logging")
 local Types = require("lib.light.types")
+local Color = require("lib.light.color")
 local Caps = require("lib.light.caps")
 local OnColor = require("lib.light.oncolor")
 local Settings = require("lib.light.settings")
@@ -192,6 +193,25 @@ local function unfit(report)
   return nil
 end
 
+--- A report in the forms the light declares: a light with color and no color temperature shows a white as the full
+--- color at its point, the form the library sends it in.
+--- @param report LightReport
+--- @param device LightDevice
+--- @return LightReport
+local function inForms(report, device)
+  local color = report.color
+  if not (color and color.mode == Color.CCT and device.color and not device.cct) then
+    return report
+  end
+  local out = {}
+  for k, v in pairs(report) do
+    out[k] = v
+  end
+  local x, y, mode = Color.taken(color.x, color.y, Color.CCT, true, false)
+  out.color = { x = x, y = y, mode = mode }
+  return out
+end
+
 --- One device state.
 --- @param report LightReport
 function Light:report(report)
@@ -217,7 +237,7 @@ function Light:report(report)
     -- A new light's setup lists no colors until the proxy has heard its capabilities.
     self.settings:readSetup(self.proxy:readSetup())
   end
-  self:_heard(self.ledger:heard(report, self.motion:now()))
+  self:_heard(self.ledger:heard(inForms(report, self.device), self.motion:now()))
 end
 
 --- The connection is gone. true: stopped on purpose, the proxy keeps the level. false: a loss.
@@ -379,6 +399,9 @@ function Light:_heard(heard)
     self.motion:haltAll()
   end
   self.motion:settle(heard.settle)
+  if heard.form then
+    self.motion:reform(heard.form)
+  end
   if #heard.foreign > 0 then
     self.scenes:foreign(rampsEnded(before, heard.foreign))
     self.picks:foreign(heard.foreign)
@@ -399,6 +422,9 @@ end
 --- @param cmds LightCommand[]
 function Light:_followUp(cmds)
   self.inside = true
+  -- The proxy is told the light as of the follow-up's start: on a controller C4:GetTime moves on while a command
+  -- is sent, and a ramp it starts is told from where it starts.
+  local t = C4:GetTime()
   for _, cmd in ipairs(cmds) do
     local ok, rest = pcall(self.adapter.send, self.adapter, cmd)
     if not ok then
@@ -412,8 +438,11 @@ function Light:_followUp(cmds)
       color = self.motion:landing("color"),
     })
   end
+  -- A command of ours that sets the power ends another hand's on waiting for its level: the walk's next step
+  -- takes the light as the wire left it.
+  self.motion:assumeLit(self.ledger:lit())
   if self.online then
-    self.proxy:sync(self.motion:view(), self.ledger.awaiting)
+    self.proxy:sync(self.motion:view(t), self.ledger.awaiting, t)
     local shown = self.proxy:shown()
     if shown then
       local ok, err = pcall(self.adapter.show, self.adapter, shown)

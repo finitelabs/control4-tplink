@@ -4,6 +4,7 @@
 
 local log = require("lib.logging")
 local Color = require("lib.light.color")
+local Timer = require("lib.light.timer")
 
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
@@ -27,8 +28,10 @@ local ASPECTS = { "on", "level", "color" }
 --- @field offFrom number|nil Where the newest fade to off started, until a command lights the light again.
 --- @field walkUnheard boolean|nil While a report is weighed: it is the first a running walk hears.
 --- @field awaiting table<LightAspect, boolean> What the connection's first report left out: a lit light's level
----   and its color. The proxy isn't told them from what the library holds until a report carries them, a
----   command sets them, or the device's wait for them ends.
+---   and its color, and the level of a light first heard off that a report lights without one. The proxy isn't
+---   told them from what the library holds until a report carries them, a command sets them, or the device's
+---   wait for them ends.
+--- @field levelSet boolean|nil A command has set the level since construction or reset.
 local Ledger = {}
 Ledger.__index = Ledger
 
@@ -69,6 +72,7 @@ function Ledger:sent(cmd, landings)
   end
   if cmd.setsLevel and cmd.on then
     self:_open("level", cmd.level, cmd.from.level, landings.level)
+    self.levelSet = true
   end
   if cmd.setsLevel then
     self.libraryOn = cmd.on
@@ -177,6 +181,20 @@ function Ledger:heard(report, now)
   end
   if opening then
     self:_await(report)
+  elseif
+    report.on == true
+    and report.level == nil
+    and self.device.dims
+    and self.unheard.level
+    and not self.levelSet
+    and not self.awaiting.level
+  then
+    -- A light first heard off, lit with no level of its own: no report or command has given its level yet.
+    local armed = next(self.awaiting) ~= nil
+    self.awaiting.level = true
+    if not armed then
+      self:_armAwaiting()
+    end
   end
   return out
 end
@@ -234,7 +252,7 @@ function Ledger:due(aspect, now)
     window.held ~= nil
     and feedback.refresh
     and not window.asked
-    and not (newest and self:_same(aspect, window.held, newest.value))
+    and not (newest and self:_echoes(aspect, window.held, newest.value))
     and (feedback.shows == "position" or (newest ~= nil and window.kind == "command"))
   then
     -- What was held isn't the newest command's: a position on its way, or a report from before the command,
@@ -272,6 +290,7 @@ function Ledger:reset()
   self:closeAll()
   self.unheard = { on = true, level = true, color = true }
   self.awaiting = {}
+  self.levelSet = nil
   CancelTimer("Light.Awaiting")
   self.reportedOn = nil
   self.offFrom = nil
@@ -416,7 +435,7 @@ function Ledger:_inWindow(aspect, window, value, report, now, out)
     window.kind == "asked"
     and (
       kind == "final"
-      or (kind == "push" and (feedback.shows ~= "position" or self:_same(aspect, value, newest and newest.value)))
+      or (kind == "push" and (feedback.shows ~= "position" or self:_echoes(aspect, value, newest and newest.value)))
     )
   then
     if self:_waitForLevel(aspect, window, value, report, now) then
@@ -446,15 +465,31 @@ function Ledger:_inWindow(aspect, window, value, report, now, out)
   end
   -- The on rides the level: it is moving while the level's ramp runs.
   local ramping = (aspect ~= "color" and now.levelRamping) or (aspect == "color" and now.colorRamping)
-  -- An echo of the newest command is the light's own.
-  if newest and self:_same(aspect, value, newest.value) then
+  -- An echo of the newest command is the light's own. One in another form than sent that is, in that form, what
+  -- the light showed before may be from before the command: it is history.
+  local form = newest ~= nil and not self:_same(aspect, value, newest.value)
+  if newest and self:_echoes(aspect, value, newest.value) and not (form and self:_shown(aspect, window, value)) then
     window.held, window.heard, window.echoed = nil, true, true
-    if feedback.shows == "position" and (aspect ~= "color" or not ramping) then
-      -- The light is at the change's end: where the command sent it, not the report's rounding of it. A color
-      -- its ramp still runs to is a device that reads the color's target at once: the ramp's end tells it.
-      return self:_settle(aspect, newest.value, out)
+    if aspect ~= "color" or not ramping then
+      if feedback.shows == "position" then
+        -- The light is at the change's end: where the command sent it, not the report's rounding of it. A color
+        -- its ramp still runs to is a device that reads the color's target at once: the ramp's end tells it.
+        return self:_settle(aspect, newest.value, out)
+      elseif form then
+        -- A color the light reports in another form than it was sent is told in the light's form.
+        return self:_settle(aspect, value, out)
+      end
+    elseif form and feedback.shows == "target" then
+      -- So is the end of a color fade the light echoes in another form while it runs.
+      out.form = value
     end
     if not ramping then
+      -- Another client's command ended the ramp part way, and the light says it heads to the command's end. An off
+      -- light's level is only the level kept, and says nothing.
+      local lit = aspect ~= "level" or self.libraryOn ~= false
+      if lit and not self:_same(aspect, now[aspect], newest.value) then
+        return self:_settle(aspect, newest.value, out)
+      end
       self:_close(aspect)
     end
     return
@@ -467,7 +502,7 @@ function Ledger:_inWindow(aspect, window, value, report, now, out)
   local walked = self.device.fade.kind == "walk" and ramping and aspect ~= "on" and window.heard
   if
     not window.echoed
-    and (self:_older(aspect, window, value) or (not walked and self:_same(aspect, value, window.before)))
+    and (self:_older(aspect, window, value) or (not walked and self:_echoes(aspect, value, window.before)))
   then
     -- An off light's level is only the level kept, so an earlier command's level, late, is dropped and its
     -- deadline can't light the light.
@@ -561,8 +596,7 @@ end
 --- @param deadline integer
 function Ledger:_arm(aspect, window, deadline)
   window.deadline = deadline
-  -- Director refuses a 0 ms timer, so a deadline already due runs on the shortest one it takes.
-  SetTimer("Light.Wait." .. aspect, math.max(1, deadline - C4:GetTime()), function()
+  Timer.arm("Light.Wait." .. aspect, deadline - C4:GetTime(), function()
     self.light:_due(aspect)
   end)
 end
@@ -579,10 +613,15 @@ function Ledger:_await(report)
     self.awaiting.color = true
   end
   if next(self.awaiting) ~= nil then
-    SetTimer("Light.Awaiting", device.feedback.waitMs, function()
-      self.light:_awaited()
-    end)
+    self:_armAwaiting()
   end
+end
+
+--- @private
+function Ledger:_armAwaiting()
+  Timer.arm("Light.Awaiting", self.device.feedback.waitMs, function()
+    self.light:_awaited()
+  end)
 end
 
 --- An aspect is no longer waited for.
@@ -759,6 +798,22 @@ end
 -- Matching, in device units
 -----------------------------------------------------------------------------------------------------
 
+--- Whether a report carries a value sent, or held before a command: as _same, but a color in any mode, as a
+--- device may report the white it was sent in xy as a Kelvin.
+--- @private
+--- @param aspect LightAspect
+--- @param value LightAspectValue|nil
+--- @param sent LightAspectValue|nil
+--- @return boolean
+function Ledger:_echoes(aspect, value, sent)
+  if aspect ~= "color" or value == nil or sent == nil then
+    return self:_same(aspect, value, sent)
+  end
+  --- @cast value LightColor
+  --- @cast sent LightColor
+  return math.abs(value.x - sent.x) <= Color.TOLERANCE and math.abs(value.y - sent.y) <= Color.TOLERANCE
+end
+
 --- Whether two values of an aspect are one: an on exactly, a level at the device's steps, a color in the same
 --- mode and within Color.TOLERANCE in xy (a white and a full color at one xy are two).
 --- @private
@@ -784,6 +839,21 @@ function Ledger:_same(aspect, a, b)
   return a.mode == b.mode and math.abs(a.x - b.x) <= Color.TOLERANCE and math.abs(a.y - b.y) <= Color.TOLERANCE
 end
 
+--- Whether a value is, in its own form, what the light showed before the window or an older command sent.
+--- @private
+--- @param aspect LightAspect
+--- @param window LightWindow
+--- @param value LightAspectValue
+--- @return boolean
+function Ledger:_shown(aspect, window, value)
+  for i = #window.sent - 1, 1, -1 do
+    if self:_same(aspect, value, window.sent[i].value) then
+      return true
+    end
+  end
+  return self:_same(aspect, value, window.before)
+end
+
 --- Whether a value matches a command older than the window's newest.
 --- @private
 --- @param aspect LightAspect
@@ -792,7 +862,7 @@ end
 --- @return boolean
 function Ledger:_older(aspect, window, value)
   for i = #window.sent - 1, 1, -1 do
-    if self:_same(aspect, value, window.sent[i].value) then
+    if self:_echoes(aspect, value, window.sent[i].value) then
       return true
     end
   end

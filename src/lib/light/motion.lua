@@ -11,6 +11,7 @@ local Caps = require("lib.light.caps")
 local Color = require("lib.light.color")
 local Fade = require("lib.light.fade")
 local Range = require("lib.light.range")
+local Timer = require("lib.light.timer")
 
 require("drivers-common-public.global.timer")
 
@@ -124,10 +125,11 @@ function Motion:now()
   }
 end
 
---- Where the light is now and where it is heading, for LightProxy.
+--- Where the light is and where it is heading, for LightProxy.
+--- @param t integer|nil The C4:GetTime() ms to read it at; now when nil.
 --- @return LightView
-function Motion:view()
-  local t = C4:GetTime()
+function Motion:view(t)
+  t = t or C4:GetTime()
   local shown = self:_levelAt(t)
   local view = {
     on = self.on,
@@ -263,6 +265,14 @@ function Motion:settle(values)
     end
   end
   self:_stopWalkIfDone()
+end
+
+--- A running color ramp ends in the form the light echoed its end in.
+--- @param color LightColor
+function Motion:reform(color)
+  if self.colorRamp then
+    self.color = color
+  end
 end
 
 --- A ramp's timer ran out: the aspect is at its rest value. It sends nothing.
@@ -1020,14 +1030,13 @@ function Motion:_armRamps(fade)
   end
   local t = C4:GetTime()
   local lr, cr = self.levelRamp, self.colorRamp
-  -- Director refuses a 0 ms timer, so a ramp that lands now ends on the shortest one it takes.
   if lr then
-    SetTimer(TIMER_LEVEL, math.max(1, Fade.left(lr.startMs, lr.ms, t)), function()
+    Timer.arm(TIMER_LEVEL, Fade.left(lr.startMs, lr.ms, t), function()
       self.light:_rampEnded("level")
     end)
   end
   if cr then
-    SetTimer(TIMER_COLOR, math.max(1, Fade.left(cr.startMs, cr.ms, t)), function()
+    Timer.arm(TIMER_COLOR, Fade.left(cr.startMs, cr.ms, t), function()
       self.light:_rampEnded("color")
     end)
   end
@@ -1058,7 +1067,7 @@ function Motion:_walk(from, kept)
     self.walkKept = kept
   end
   self.walking = true
-  SetTimer(TIMER_WALK, self:_fade().stepMs, function()
+  Timer.arm(TIMER_WALK, self:_fade().stepMs, function()
     self.light:_walkStep()
   end)
 end
