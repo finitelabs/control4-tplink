@@ -62,8 +62,11 @@ T.section("An off under Dim-To-Warm from 25 %")
 p:send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 25, RATE = 0 })
 clock.run(3000)
 local lit = h.device.state()
-T.check("the bulb is lit at 25 % in a white between the Dim and On colors",
-  lit.on and lit.color.kelvin ~= nil and lit.color.kelvin > 2200 and lit.color.kelvin < 5000, lit.color.kelvin)
+T.check(
+  "the bulb is lit at 25 % in a white between the Dim and On colors",
+  lit.on and lit.color.kelvin ~= nil and lit.color.kelvin > 2200 and lit.color.kelvin < 5000,
+  lit.color.kelvin
+)
 
 p:mark()
 sent = {}

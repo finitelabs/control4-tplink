@@ -2578,7 +2578,10 @@ do
   offInBlue()
   proxy("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 4000 })
   activate(colorStep(nil, BLUE, 2000))
-  T.differs("a step back to the color a rated on began from, as it begins: the proxy is told it at once", ROWS.ON_COLOR_START)
+  T.differs(
+    "a step back to the color a rated on began from, as it begins: the proxy is told it at once",
+    ROWS.ON_COLOR_START
+  )
   run(15000)
   T.eq("and nothing after", told("LIGHT_COLOR_CHANGED", "LIGHT_COLOR_CURRENT_X"), { BLUE[1] })
   proxy("CLEAR_ALL_SCENES")
