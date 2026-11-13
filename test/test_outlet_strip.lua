@@ -164,4 +164,25 @@ do
   T.eq("output 1 on, output 2 as it was", states(2), { true, false })
 end
 
+T.section("a changed button color reaches the keypad links of every output")
+do
+  local toldOn = {}
+  function SendToProxy(idBinding, strCommand, tParams)
+    for n = 1, 6 do
+      local binding = bindings:getDynamicBinding("button", "output_" .. n .. "_on")
+      if strCommand == "BUTTON_COLORS" and binding ~= nil and binding.bindingId == idBinding then
+        toldOn[n] = tParams.ON_COLOR
+      end
+    end
+  end
+  Properties["Button Unlit Color"] = "0,0,0"
+  Properties["Button Lit Color"] = "0,255,0"
+  OnPropertyChanged("Button Lit Color")
+  T.eq(
+    "each output's On link is told the lit color",
+    toldOn,
+    { "00ff00", "00ff00", "00ff00", "00ff00", "00ff00", "00ff00" }
+  )
+end
+
 T.finish()

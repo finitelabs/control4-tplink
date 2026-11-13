@@ -599,6 +599,23 @@
         <default>0</default>
         <description>Seconds the power must stay past a level before In Use or Idle fires.</description>
       </property>
+      <property>
+        <name>Button Links</name>
+        <type>LABEL</type>
+        <default>Button Links</default>
+      </property>
+      <property>
+        <name>Button Lit Color</name>
+        <type>COLOR_SELECTOR</type>
+        <default>0,0,255</default>
+        <description>Keypad LED for On and Toggle links while the output is on, Off links while off.</description>
+      </property>
+      <property>
+        <name>Button Unlit Color</name>
+        <type>COLOR_SELECTOR</type>
+        <default>0,0,0</default>
+        <description>Keypad LED for On and Toggle links while the output is off, Off links while on.</description>
+      </property>
     </properties>
     <actions>
       <!-- #ifndef DRIVERCENTRAL -->
@@ -614,6 +631,10 @@
       <action>
         <name>Reconnect</name>
         <command>Reconnect</command>
+      </action>
+      <action>
+        <name>Reset Button Colors</name>
+        <command>ResetButtonColors</command>
       </action>
       <!-- #ifdef DRIVERCENTRAL -->
       <action>
