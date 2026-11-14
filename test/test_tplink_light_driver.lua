@@ -122,7 +122,9 @@ local held = {}
 local Transport = {}
 Transport.__index = Transport
 
-function Transport:configure() end
+function Transport:configure(config)
+  self.config = config
+end
 
 function Transport:reset()
   self.resets = self.resets + 1
@@ -1744,6 +1746,33 @@ do
     "Looking for the device on the network..."
   )
   T.eq("and shows no MAC of its own", Properties["MAC Address"], "")
+  require("tplink.discovery").stop()
+  require("lib.persist"):delete("discovery_mac")
+end
+
+T.section("an IP Address set by hand connects again there, to whichever light answers")
+do
+  local listeners = 0
+  function C4:CreateServer()
+    listeners = listeners + 1
+    return true
+  end
+  function C4:DestroyServer() end
+  function C4:SendBroadcast() end
+  light({ mac = "02-00-00-00-00-0C" }, { ["MAC Address"] = "" })
+  local handshakes = #klap.handshakes
+  setProperty("IP Address", "192.0.2.25")
+  T.eq("the light is detected again", #klap.handshakes, handshakes + 1)
+  T.eq("at the new address", klap.config.ip, "192.0.2.25")
+  shakeHands()
+  reply(info({ mac = "02-00-00-00-00-0D" }))
+  T.eq("another light there is taken: the address was set by hand", status(), "Connected (SMART)")
+  T.eq("with no search for the old one", listeners, 0)
+  T.eq("and its MAC is shown", Properties["MAC Address"], "02:00:00:00:00:0D")
+
+  setProperty("IP Address", "")
+  T.eq("with no IP Address the driver says what it needs", status(), "Bind to an outlet or set the IP Address property")
+  T.eq("and asks for no handshake", #klap.handshakes, handshakes + 1)
   require("tplink.discovery").stop()
   require("lib.persist"):delete("discovery_mac")
 end
