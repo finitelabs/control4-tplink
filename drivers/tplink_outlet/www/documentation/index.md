@@ -128,8 +128,7 @@ Single-outlet devices appear as output 1.
 <!-- #ifdef DRIVERCENTRAL -->
 
 If you have a model that works and is not listed, or one that does not work,
-please contact us at
-[driver-support@finitelabs.com](mailto:driver-support@finitelabs.com).
+please contact us at [%%SUPPORT_EMAIL%%](mailto:__SUPPORT_EMAIL__).
 
 <!-- #else -->
 
@@ -640,8 +639,8 @@ https://drivercentral.io/platforms/control4-drivers/lighting/tp-link-kasa-and-ta
 
 If you have any questions or issues integrating this driver with Control4 or
 your TP-Link device, you can contact us at
-[driver-support@finitelabs.com](mailto:driver-support@finitelabs.com) or
-call/text us at [+1 (949) 371-5805](tel:+19493715805).
+[%%SUPPORT_EMAIL%%](mailto:__SUPPORT_EMAIL__) or call/text us at
+[%%SUPPORT_PHONE%%](tel:__SUPPORT_PHONE__).
 
 <!-- #else -->
 
