@@ -59,14 +59,14 @@ end
 function TplinkLightProbe:start()
   if self.mode == "TPAP" then
     if not self.hasCredentials then
-      self.adapter:noLight("Set the TP-Link Username and Password properties (required for TPAP)", self.retry)
+      self.adapter:noLight("Set the TP-Link Username and Password properties (required for TPAP)")
       return false
     end
     self.adapter.detecting = true
     self:tryTpap()
   elseif self.mode == "KLAP" or (self.mode == "Auto" and self.hasCredentials) then
     if not self.hasCredentials then
-      self.adapter:noLight("Set the TP-Link Username and Password properties (required for KLAP)", self.retry)
+      self.adapter:noLight("Set the TP-Link Username and Password properties (required for KLAP)")
       return false
     end
     self.adapter.detecting = true
@@ -99,7 +99,7 @@ end
 --- @param reason string
 function TplinkLightProbe:failed(reason)
   self.adapter.detecting = false
-  self.adapter:noLight("Disconnected: " .. reason, self.retry)
+  self.adapter:noLight("Disconnected: " .. reason)
   -- No protocol reached the light at its address: it may have moved.
   self.adapter.follower:lost()
 end
