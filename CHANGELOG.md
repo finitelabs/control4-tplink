@@ -20,6 +20,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added Button Lit Color and Button Unlit Color properties to the TP-Link Outlet
+  driver, which set the LED colors of keypad buttons on its Button Links. They
+  start as the project's button LED colors, and a Reset Button Colors action
+  takes those again.
+
 ### Changed
 
 - After a driver restart or a reconnect the TP-Link Light reports its brightness

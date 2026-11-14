@@ -137,6 +137,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- Added Button Lit Color and Button Unlit Color properties to the TP-Link Outlet
+  driver, which set the LED colors of keypad buttons on its Button Links. They
+  start as the project's button LED colors, and a Reset Button Colors action
+  takes those again.
+
 ### Changed
 
 - After a driver restart or a reconnect the TP-Link Light reports its brightness
@@ -147,10 +154,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   also during a fade or while the device can't be reached.
 - Keypad buttons with no colors of their own show the TP-Link Light's colors
   from Composer, then the standard defaults.
-- Turning a TP-Link Light on fades its color to the on color over the same time
-  as its brightness.
-- With Dim-To-Warm, turning the TP-Link Light off fades its color all the way to
-  the Dim color.
+- A TP-Link Light turned on is in its on color wherever its brightness stops,
+  and under Dim-To-Warm its color follows its brightness.
+- Under Dim-To-Warm a TP-Link Light turned off is shown in its Dim color, the
+  color it next comes on in.
 - With Dim-To-Warm, the color blends in a straight line between the Dim and On
   colors, whites included, and reports the white the TP-Link Light shows.
 - A new fade starts from where the TP-Link Light is, even in the middle of
