@@ -27,6 +27,65 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   start as the project's button LED colors, and a Reset Button Colors action
   takes those again.
 
+### Changed
+
+- After a driver restart or a reconnect the TP-Link Light reports its brightness
+  and color to Control4 as it finds them, even when they have not changed.
+- A command for the brightness or color the TP-Link Light already shows no
+  longer fires a change event in Control4 programming.
+- The TP-Link Light answers brightness queries with the level it last reported,
+  also during a fade or while the device can't be reached.
+- Keypad buttons with no colors of their own show the TP-Link Light's colors
+  from Composer, then the standard defaults.
+- A TP-Link Light turned on is in its on color wherever its brightness stops,
+  and under Dim-To-Warm its color follows its brightness.
+- Under Dim-To-Warm a TP-Link Light turned off is shown in its Dim color, the
+  color it next comes on in.
+- With Dim-To-Warm, the color blends in a straight line between the Dim and On
+  colors, whites included, and reports the white the TP-Link Light shows.
+- A new fade starts from where the TP-Link Light is, even in the middle of
+  another fade.
+- With Dim-To-Warm, a color set by a scene step gives way to Dim-To-Warm at the
+  next brightness change.
+- Choosing the color a TP-Link Light is already fading to holds that color, as
+  any chosen color does.
+- A color chosen while the TP-Link Light is off is kept when another app turns
+  the light on.
+- A color set while a TP-Link Light fades to off is not saved for the next time
+  it turns on.
+- A TP-Link Light turned back on before its fade to off ends keeps the color it
+  had.
+- A keypad press on a dimmable TP-Link Light waits 250 ms to tell a click from a
+  hold, and a click fades over the click rate.
+- A keypad hold takes time in proportion to the distance it has left, and
+  letting go stops only a hold or a scene ramp.
+- Toggle buttons alternate their hold direction after each ramp, and a Toggle
+  press while the TP-Link Light fades up from off keeps it coming on.
+- Ramp Scene Up ramps to full brightness rather than the on level.
+- Stop Scene Ramp lets a scene step's fade finish and stops Ramp Scene Up or
+  Down where it is.
+- A stop or an off just after a TP-Link Light starts fading on leaves it at its
+  lowest level, and the next on returns there.
+- A brightness change that retimes a color fade already under way reports the
+  fade's new timing.
+- The TP-Link Light reports a setting back to Control4 only when it changes, not
+  at every start.
+- A TP-Link Light that only switches on and off changes and reports at once,
+  with no fade.
+- Turning a TP-Link Light off right after changing its color no longer loses
+  that color.
+- A command the TP-Link Light does not take is corrected in Control4 within 2
+  seconds instead of at the next poll.
+- The TP-Link Light reports that it is back online after a reconnect.
+- A color chosen while a TP-Link Light is off is applied when it next turns on.
+- Stopping a fade the driver runs leaves the TP-Link Light exactly where the
+  fade had got to.
+- Fades the driver runs move in steps every 100 ms, can last up to a day, and
+  stay between the TP-Link Light's Min and Max On levels.
+- A fade the driver runs from off lights the TP-Link Light at once at its Min On
+  level, and a color set during the fade goes at once.
+- Kasa lights offer fades of up to 60 seconds.
+
 <!-- #ifdef DRIVERCENTRAL -->
 
 ## v20261110 - 2026-11-10
@@ -60,15 +119,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   of the project's button LED colors, which can now be set for each light in
   Composer.
 
-<!-- #ifdef DRIVERCENTRAL -->
-
-### Changed
-
-- Changed Log Level to stop at 4 - Debug unless a Support Code from Finite Labs
-  support has the Lua tab open.
-
-<!-- #endif -->
-
 ## v20261105 - 2026-11-05
 
 ### Added
@@ -87,16 +137,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added address following to the TP-Link Outlet and TP-Link Light drivers, which
   find a device again by its MAC address when its IP address changes, on OS 4.0
   and later.
-  <!-- #ifdef DRIVERCENTRAL -->
-- Added DriverCentral automatic updates, with one Automatic Updates setting
-  shared by every TP-Link driver in the project.
-- Added a Support Code property to the TP-Link Outlet and TP-Link Light drivers,
-  which opens the driver's Lua tab in Composer for an hour with a code from
-  Finite Labs support.
-- Added a Cloud Monitoring property, Enabled by default, that sends Finite Labs
-  an hourly report of each driver's memory use and a report of each error it
-  hits, and a Diagnostics Snapshot action.
-  <!-- #endif -->
 
 ### Fixed
 
