@@ -584,11 +584,33 @@ end
 -- Polling
 ---------------------------------------------------------------------------
 
---- Forward declarations; defined below with the transport detection logic.
-local missedPoll, anotherDevice
-
 --- Polls in a row the device has not answered.
 local missedPolls = 0
+
+--- A poll the device did not answer. From the third in a row the next poll
+--- detects its protocol again, as a firmware update, a rollback or a reset
+--- can change it; one lost answer keeps the session.
+--- @param reason string?
+local function missedPoll(reason)
+  missedPolls = missedPolls + 1
+  if missedPolls >= 3 then
+    transport = nil
+    transportName = nil
+  end
+  setDeviceOnline(false, reason)
+end
+
+--- Another device answers at the device's address: control nothing there, and
+--- look for the device on the network.
+local function anotherDevice()
+  local ip = Properties["IP Address"] or ""
+  log:warn("A device other than this one answers at %s", ip)
+  missedPolls = 0
+  transport = nil
+  transportName = nil
+  setDeviceOnline(false, "a different device is at " .. ip .. "; looking for this one")
+  follower:lost()
+end
 
 --- Poll output states and device info via get_sysinfo.
 local function pollSysinfo()
@@ -770,30 +792,6 @@ local function pollEnergy()
   pollOutput(1)
 end
 
---- Forward declaration; defined below with the transport detection logic.
-local reconnect
-
---- (Re)start the polling timers from the current property values.
-local function restartPollTimers()
-  CancelTimer("SysinfoPoll")
-  CancelTimer("EnergyPoll")
-
-  local pollSeconds = tointeger(Properties["Poll Rate (Seconds)"]) or 10
-  SetTimer("SysinfoPoll", pollSeconds * ONE_SECOND, function()
-    if transport ~= nil then
-      pollSysinfo()
-    elseif not detecting and configured then
-      -- Detection found no device; keep retrying until it answers.
-      reconnect(true)
-    end
-  end, true)
-
-  local energySeconds = tointeger(Properties["Energy Poll Rate (Seconds)"]) or 0
-  if energySeconds > 0 then
-    SetTimer("EnergyPoll", energySeconds * ONE_SECOND, pollEnergy, true)
-  end
-end
-
 --- Select a transport and mark the device online from a successful probe.
 --- @param t Klap|Legacy|Smart|Tpap
 --- @param name string
@@ -949,31 +947,6 @@ local function tryTpap(ip, generation, onFail)
   )
 end
 
---- A poll the device did not answer. From the third in a row the next poll
---- detects its protocol again, as a firmware update, a rollback or a reset
---- can change it; one lost answer keeps the session.
---- @param reason string?
-function missedPoll(reason)
-  missedPolls = missedPolls + 1
-  if missedPolls >= 3 then
-    transport = nil
-    transportName = nil
-  end
-  setDeviceOnline(false, reason)
-end
-
---- Another device answers at the device's address: control nothing there, and
---- look for the device on the network.
-function anotherDevice()
-  local ip = Properties["IP Address"] or ""
-  log:warn("A device other than this one answers at %s", ip)
-  missedPolls = 0
-  transport = nil
-  transportName = nil
-  setDeviceOnline(false, "a different device is at " .. ip .. "; looking for this one")
-  follower:lost()
-end
-
 --- No protocol reached the device at its address: it may have moved.
 --- @param reason string
 local function detectionFailed(reason)
@@ -982,32 +955,9 @@ local function detectionFailed(reason)
   follower:lost()
 end
 
---- Driver Status while the device is searched for on the network.
-local LOOKING_STATUS = "Looking for the device on the network..."
-
---- Driver Status as it was when the search began.
---- @type string?
-local statusBeforeLooking = nil
-
-follower = Discovery.Follower:new(function(address)
-  if address == Properties["IP Address"] then
-    return
-  end
-  log:info("The device moved to %s", address)
-  UpdateProperty("IP Address", address)
-  reconnect()
-end, function(looking)
-  if looking then
-    statusBeforeLooking = Properties["Driver Status"]
-    updateDriverStatus(LOOKING_STATUS)
-  elseif Properties["Driver Status"] == LOOKING_STATUS then
-    updateDriverStatus(statusBeforeLooking or "")
-  end
-end)
-
 --- Reconfigure the transports from properties, detect the right one, and poll.
 --- @param retry boolean? The poll timer trying again after no device was found.
-function reconnect(retry)
+local function reconnect(retry)
   --#ifdef DRIVERCENTRAL
   if not drivercentral:licensed() then
     updateDriverStatus(drivercentral.UNLICENSED_STATUS)
@@ -1121,6 +1071,50 @@ function reconnect(retry)
       end
       detectionFailed(legacyReason)
     end)
+  end
+end
+
+--- Driver Status while the device is searched for on the network.
+local LOOKING_STATUS = "Looking for the device on the network..."
+
+--- Driver Status as it was when the search began.
+--- @type string?
+local statusBeforeLooking = nil
+
+follower = Discovery.Follower:new(function(address)
+  if address == Properties["IP Address"] then
+    return
+  end
+  log:info("The device moved to %s", address)
+  UpdateProperty("IP Address", address)
+  reconnect()
+end, function(looking)
+  if looking then
+    statusBeforeLooking = Properties["Driver Status"]
+    updateDriverStatus(LOOKING_STATUS)
+  elseif Properties["Driver Status"] == LOOKING_STATUS then
+    updateDriverStatus(statusBeforeLooking or "")
+  end
+end)
+
+--- (Re)start the polling timers from the current property values.
+local function restartPollTimers()
+  CancelTimer("SysinfoPoll")
+  CancelTimer("EnergyPoll")
+
+  local pollSeconds = tointeger(Properties["Poll Rate (Seconds)"]) or 10
+  SetTimer("SysinfoPoll", pollSeconds * ONE_SECOND, function()
+    if transport ~= nil then
+      pollSysinfo()
+    elseif not detecting and configured then
+      -- Detection found no device; keep retrying until it answers.
+      reconnect(true)
+    end
+  end, true)
+
+  local energySeconds = tointeger(Properties["Energy Poll Rate (Seconds)"]) or 0
+  if energySeconds > 0 then
+    SetTimer("EnergyPoll", energySeconds * ONE_SECOND, pollEnergy, true)
   end
 end
 
