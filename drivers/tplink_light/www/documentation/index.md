@@ -95,6 +95,7 @@ All standard light features are available where the light supports them:
 - Color and color temperature, with ramps
 - Click and hold button rates
 - Advanced Lighting Scenes
+- Control4 load groups
 - Brightness and color presets, and Dim-To-Warm as a Color On Mode
 
 # <span style="color:#4ACBD6">Compatibility</span>

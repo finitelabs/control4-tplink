@@ -26,6 +26,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   driver, which set the LED colors of keypad buttons on its Button Links. They
   start as the project's button LED colors, and a Reset Button Colors action
   takes those again.
+- Added Control4 load groups to the TP-Link Light: it joins a load group and
+  follows the group's level, ramps and sync.
 
 ### Changed
 

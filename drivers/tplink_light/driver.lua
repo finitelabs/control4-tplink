@@ -65,6 +65,7 @@ local light = Light.new(adapter, {
   scenes = true,
   onModes = true,
   flash = true,
+  loadGroups = true,
 })
 
 --#ifndef DRIVERCENTRAL
