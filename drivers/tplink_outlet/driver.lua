@@ -587,16 +587,18 @@ end
 --- Polls in a row the device has not answered.
 local missedPolls = 0
 
---- A poll the device did not answer. From the third in a row the next poll
---- detects its protocol again, as a firmware update, a rollback or a reset
---- can change it; one lost answer keeps the session.
+--- A poll the device did not answer. Before OFFLINE_MISSES in a row the device
+--- stays online on the same session. From then it reads offline, and the next
+--- poll detects its protocol again, as a firmware update, a rollback or a
+--- reset can change it.
 --- @param reason string?
 local function missedPoll(reason)
   missedPolls = missedPolls + 1
-  if missedPolls >= 3 then
-    transport = nil
-    transportName = nil
+  if missedPolls < constants.OFFLINE_MISSES then
+    return
   end
+  transport = nil
+  transportName = nil
   setDeviceOnline(false, reason)
 end
 
@@ -1154,8 +1156,8 @@ function setOutput(n, state)
       applyOutputState(n, state)
     end),
     live(generation, function(err)
+      -- Command failures are logged only; the poll loop decides connectivity.
       log:error("Failed to set output %d %s: %s", n, state and "on" or "off", Select(err, "error") or err)
-      setDeviceOnline(false, Select(err, "error"))
     end)
   )
 end

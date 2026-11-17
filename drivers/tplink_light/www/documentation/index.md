@@ -337,7 +337,8 @@ Kasa KL- or LB-series lights on original firmware.
 #### Poll Rate (Seconds) \[ 2 - 300, default: **_5_** \]
 
 Sets how often the driver reads the light's state in direct mode. Default is
-`5`.
+`5`. The light shows offline once three polls in a row go unanswered, and a
+missed poll or two leaves it online.
 
 #### Fades \[ **_Driver_** | Light \]
 

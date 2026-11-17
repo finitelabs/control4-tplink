@@ -370,8 +370,11 @@ end
 T.section("a reconnect, or a level changed, takes the next reading as the output's state")
 do
   plug.reachable = false
-  EC.RefreshNow()
+  for _ = 1, 3 do
+    EC.RefreshNow()
+  end
   plug.reachable = true
+  EC.Reconnect()
   T.eq("idle when it is read again: nothing fires", draw(2), {})
   T.eq("but In Use is cleared", Variables["Output 1 In Use"], "0")
   T.eq("and the next rise fires", draw(60), { 21 })

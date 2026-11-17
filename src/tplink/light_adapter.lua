@@ -623,13 +623,14 @@ function TplinkLightAdapter:disconnect()
   end
 end
 
---- A poll the light did not answer. From the third in a row the next poll
---- detects its protocol again, as a firmware update, a rollback or a reset
---- can change it; one slow answer keeps the session.
+--- A poll the light did not answer. Before OFFLINE_MISSES in a row the light
+--- stays connected on the same session. From then it reads offline, and the
+--- next poll detects its protocol again, as a firmware update, a rollback or a
+--- reset can change it.
 function TplinkLightAdapter:missed()
   self.misses = self.misses + 1
-  self:disconnect()
-  if self.misses >= 3 then
+  if self.misses >= constants.OFFLINE_MISSES then
+    self:disconnect()
     self.schema = nil
     self.bulb = nil
   end
@@ -756,7 +757,7 @@ end
 function TplinkLightAdapter:pollFailed(what, err)
   log:warn("%s failed: %s", what, Select(err, "error") or err)
   self:missed()
-  if Select(err, "code") == 403 then
+  if Select(err, "code") == 403 and not self.connected then
     UpdateProperty("Driver Status", "Disconnected: " .. Select(err, "error"))
   end
 end
@@ -787,8 +788,8 @@ function TplinkLightAdapter:sendNow(opts)
       log:error("set_device_info failed: %s", response)
     end
   end, function(err)
+    -- Command failures are logged only; the poll loop decides connectivity.
     log:error("set_device_info failed: %s", Select(err, "error") or err)
-    self:disconnect()
   end)
   return true
 end

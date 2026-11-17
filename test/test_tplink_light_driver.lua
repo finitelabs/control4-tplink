@@ -723,7 +723,7 @@ do
   T.eq("and the proxy is told nothing", sent, {})
   run(2000)
   T.eq("past 15 s the command that waited goes out", flying()[2], { device_on = true, brightness = 40 })
-  T.eq("and the light is told as not answering", told("ONLINE_CHANGED", "STATE"), { false })
+  T.eq("a command given up on leaves the light online: the polls decide", told("ONLINE_CHANGED", "STATE"), {})
   reply(nil, 1)
   proxy("OFF")
   T.eq(
@@ -732,10 +732,11 @@ do
     { { device_on = true, brightness = 40 } }
   )
   reply()
-  T.eq("an Off made while the light was not answering is dropped: the poll goes next", flying(), { "poll" })
+  T.eq("an Off made meanwhile goes next", flying(), { { device_on = false } })
+  reply()
   mark()
   reply(info({ device_on = false }))
-  T.eq("whose answer is the light connected again", told("ONLINE_CHANGED", "STATE"), { true })
+  T.eq("and the poll after it finds the light online all along", told("ONLINE_CHANGED", "STATE"), {})
 
   bulb()
   run(5000)
@@ -757,7 +758,53 @@ do
   T.eq("a request failed as it is made lets the poll behind it go", flying(), { "poll" })
   proxy("ON")
   run(16000)
-  T.eq("and that poll is given up on in its turn, the On made meanwhile dropped", flying()[2], "poll")
+  T.eq(
+    "and that poll is given up on in its turn, the On made meanwhile next",
+    flying()[2],
+    { device_on = true, brightness = 100 }
+  )
+end
+
+T.section("a light that misses a poll or two stays online at its level, and reads offline at the third in a row")
+do
+  light()
+  run(5000)
+  fail("no answer")
+  run(5000)
+  reply(info())
+  T.eq("one missed poll, then an answer: the light is never told offline", told("ONLINE_CHANGED", "STATE"), {})
+  T.eq("nor any level, so no Light Off or Light On runs", levels(), {})
+  T.eq("and it reads connected all along", status(), "Connected (SMART)")
+  run(5000)
+  fail("no answer")
+  run(5000)
+  fail("no answer")
+  T.eq("two missed polls in a row: still online", told("ONLINE_CHANGED", "STATE"), {})
+  run(5000)
+  fail("no answer")
+  T.eq("the third in a row: offline", told("ONLINE_CHANGED", "STATE"), { false })
+  T.eq("and Driver Status says so", status(), "Disconnected")
+
+  -- A poll the light refuses: its reason is shown once the light reads offline, not while it is online.
+  light()
+  local refused = "Klap: device refused the handshake (HTTP 403); turn on Third-Party Compatibility"
+  for _ = 1, 2 do
+    run(5000)
+    table.remove(held, 1).d:reject({ error = refused, code = 403 })
+  end
+  T.eq("two refused polls: still connected", status(), "Connected (SMART)")
+  run(5000)
+  table.remove(held, 1).d:reject({ error = refused, code = 403 })
+  T.eq("the third: offline with the reason", status(), "Disconnected: " .. refused)
+
+  -- A light that stops answering altogether: each poll is given up on at 15 s.
+  light()
+  run(60000)
+  T.eq(
+    "a light that never answers reads offline 50 s on: three polls in a row, each given up on at 15 s",
+    told("ONLINE_CHANGED", "at"),
+    { 50000 }
+  )
 end
 
 T.section("a Kasa bulb on the IOT schema is sent one request at a time too")
@@ -1561,11 +1608,16 @@ do
   T.eq("a strip that connects with Fades on Light: its own fades are read", flying(), { "fades" })
   T.eq("which are all on: nothing is switched", #serve(1000, 250), 0)
   T.eq("and the proxy is told the fixed rate", rates(), lights(1000))
-  -- The strip goes away, and comes back.
+  -- The strip goes away for three polls in a row, and comes back.
   run(4000)
+  fail("Klap: request timed out")
+  run(5000)
+  fail("Klap: request timed out")
+  run(5000)
   fail("Klap: request timed out")
   mark()
   run(5000)
+  shakeHands()
   reply(info())
   T.eq("a strip that comes back is read again", flying(), { "fades" })
   serve(1000, 250)
@@ -1580,10 +1632,15 @@ do
   -- The strip is away when Driver is chosen.
   run(9000)
   fail("Klap: request timed out")
+  run(10000)
+  fail("Klap: request timed out")
+  run(10000)
+  fail("Klap: request timed out")
   mark()
   setProperty("Fades", "Driver")
   T.eq("Driver chosen while the strip is away: the proxy is told nothing of rates yet", rates(), {})
   run(10000)
+  shakeHands()
   reply(info())
 
   walked({}, NO_POLLS)

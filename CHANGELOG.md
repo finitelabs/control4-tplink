@@ -29,6 +29,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Added Control4 load groups to the TP-Link Light: it joins a load group and
   follows the group's level, ramps and sync.
 
+### Fixed
+
+- A TP-Link Light or Outlet that misses a poll or two stays online, and shows
+  offline only once three polls in a row go unanswered.
+- A light command or an outlet switch the device does not answer no longer marks
+  it offline.
+
 ### Changed
 
 - After a driver restart or a reconnect the TP-Link Light reports its brightness

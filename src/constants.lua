@@ -33,6 +33,12 @@ return {
   --- @type number
   EVENT_DISCONNECTED = 101,
 
+  --- Polls in a row a device may miss before it reads offline, and its
+  --- protocol is detected again. One or two are a slow answer or a lost
+  --- packet, not a device gone.
+  --- @type integer
+  OFFLINE_MISSES = 3,
+
   --- Constant for virtual button identifiers (light_v2 BUTTON_ACTION).
   --- @type table<string, number>
   ButtonIds = {
