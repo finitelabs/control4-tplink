@@ -162,27 +162,43 @@ do
   T.eq("and tells nothing", messages, {})
 end
 
-T.section("the plug going offline disconnects the light")
+T.section("a switch the plug does not answer is left to the poll")
+do
+  plug.reachable = false
+  command("ENTITY_COMMAND", { has_state = true, state = false })
+  T.eq("the light is told nothing", select(2, drain()), {})
+  T.eq("and the plug reads connected", Properties["Driver Status"], "Connected (Legacy)")
+  plug.reachable = true
+  EC.RefreshNow()
+  drain()
+end
+
+T.section("the plug going offline disconnects the light at its third missed poll in a row")
 do
   plug.reachable = false
   EC.RefreshNow()
-  T.eq("UPDATE_DISCONNECT", select(2, drain()), { { "UPDATE_DISCONNECT" } })
-  plug.reachable = true
   EC.RefreshNow()
+  T.eq("two missed polls tell the light nothing", select(2, drain()), {})
+  EC.RefreshNow()
+  T.eq("the third: UPDATE_DISCONNECT", select(2, drain()), { { "UPDATE_DISCONNECT" } })
+  plug.reachable = true
+  ShimFireTimers()
   T.eq("and its next answer tells the state", select(2, drain()), { update(true) })
 end
 
 T.section("while the plug is offline a bind or REFRESH_STATE tells the light nothing")
 do
   plug.reachable = false
-  EC.RefreshNow()
+  for _ = 1, 3 do
+    EC.RefreshNow()
+  end
   drain()
   command("REFRESH_STATE")
   T.eq("REFRESH_STATE", select(2, drain()), {})
   OnBindingChanged(LIGHT, "TPLINK_LIGHT", true, 900, 1)
   T.eq("a bind", select(2, drain()), {})
   plug.reachable = true
-  EC.RefreshNow()
+  ShimFireTimers()
   T.eq("the next answer still tells the state", select(2, drain()), { update(true) })
 end
 

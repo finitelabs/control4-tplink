@@ -654,31 +654,49 @@ do
 end
 
 ---------------------------------------------------------------------------
-T.section("a Tapo light that fails a set reads lost; a Kasa bulb's failed command is left to the poll")
+T.section("a failed command is left to the poll, and a light is lost only at its third missed poll in a row")
 ---------------------------------------------------------------------------
 do
-  local smart, host = tapo("Driver")
-  answer = function()
-    return nil
+  local function failing()
+    answer = function()
+      return nil
+    end
   end
+  --- Poll `times` times, each settled before the next.
+  local function polls(adapter, times)
+    for _ = 1, times do
+      adapter:poll()
+      clock.run(100)
+    end
+  end
+
+  local smart, host = tapo("Driver")
+  failing()
   smart:send(Cases.list[2].commands[1].command)
   clock.run(100)
-  T.eq("a failed set_device_info loses the Tapo light", host.losts, 1)
-  T.falsy("and it is not connected", smart.connected)
+  T.eq("a failed set_device_info loses nothing", host.losts, 0)
+  T.truthy("and the Tapo light stays connected", smart.connected)
+  polls(smart, 1)
+  answering(nil, tapoInfo())
+  polls(smart, 1)
+  failing()
+  polls(smart, 2)
+  T.eq("a missed poll, an answer, then two missed in a row: nothing is lost", host.losts, 0)
+  T.truthy("the light is connected", smart.connected)
+  polls(smart, 1)
+  T.eq("the third in a row loses it", host.losts, 1)
+  T.falsy("which is not connected", smart.connected)
+  T.eq("and its protocol is detected again", smart.schema, nil)
 
   local adapter, kasaHost = kasa()
-  answer = function()
-    return nil
-  end
+  failing()
   adapter:send(Cases.list[2].commands[1].command)
   clock.run(100)
   T.eq("a failed Kasa command loses nothing", kasaHost.losts, 0)
-  answer = function()
-    return nil
-  end
-  adapter:poll()
-  clock.run(100)
-  T.eq("a failed poll loses it", kasaHost.losts, 1)
+  polls(adapter, 2)
+  T.eq("nor do two missed polls", kasaHost.losts, 0)
+  polls(adapter, 1)
+  T.eq("the third loses the bulb", kasaHost.losts, 1)
 end
 
 C4.SendToProxy = priorSend

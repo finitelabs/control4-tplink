@@ -364,7 +364,9 @@ Kasa devices on original firmware.
 
 ##### Poll Rate (Seconds) \[ 2 - 300, default: **_10_** \]
 
-Sets how often the driver reads the outputs' states. Default is `10`.
+Sets how often the driver reads the outputs' states. Default is `10`. The device
+shows `Disconnected` once three polls in a row go unanswered, and a missed poll
+or two leaves it connected.
 
 ##### Energy Poll Rate (Seconds) \[ 0 - 300, default: **_5_** \]
 

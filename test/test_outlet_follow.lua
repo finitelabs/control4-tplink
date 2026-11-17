@@ -191,10 +191,11 @@ T.section("a firmware update that moves the device to KLAP is followed")
 do
   PLUG.protocol = "klap"
   poll(2)
-  T.eq("two missed polls mark it disconnected", Properties["Driver Status"], "Disconnected: no answer")
+  T.eq("two missed polls keep it connected", Properties["Driver Status"], "Connected (Legacy)")
   poll(1)
+  T.eq("the third marks it disconnected", Properties["Driver Status"], "Disconnected: no answer")
   ShimFireTimers()
-  T.eq("the third detects its protocol again", Properties["Driver Status"], "Connected (KLAP)")
+  T.eq("and detects its protocol again", Properties["Driver Status"], "Connected (KLAP)")
   T.eq("with no search for its address", broadcasts, 0)
 end
 
