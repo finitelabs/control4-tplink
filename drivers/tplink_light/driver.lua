@@ -189,7 +189,7 @@ function host:report(report)
 end
 
 function host:lost()
-  light:lost(false)
+  light:lost()
 end
 
 function host:restart(retry)
@@ -209,7 +209,7 @@ local function licenseChanged(licensed)
   end
   log:warn("No active license; stopping the light")
   adapter:stop()
-  light:lost(true)
+  light:lost()
   UpdateProperty("Driver Status", drivercentral.UNLICENSED_STATUS)
 end
 --#endif

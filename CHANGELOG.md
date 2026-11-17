@@ -38,6 +38,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Changed
 
+- A TP-Link Light that can't be reached shows offline and keeps its level and
+  keypad button LEDs until it answers again, where it used to show off.
 - After a driver restart or a reconnect the TP-Link Light reports its brightness
   and color to Control4 as it finds them, even when they have not changed.
 - A command for the brightness or color the TP-Link Light already shows no
