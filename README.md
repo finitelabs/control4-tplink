@@ -208,8 +208,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - A color chosen while a TP-Link Light is off is applied when it next turns on.
 - Stopping a fade the driver runs leaves the TP-Link Light exactly where the
   fade had got to.
-- Fades the driver runs move in steps every 100 ms, can last up to a day, and
-  stay between the TP-Link Light's Min and Max On levels.
+- Fades the driver runs move in steps every 100 ms, can last up to 999999 ms
+  (about 16 minutes), and stay between the TP-Link Light's Min and Max On
+  levels.
 - A fade the driver runs from off lights the TP-Link Light at once at its Min On
   level, and a color set during the fade goes at once.
 - Kasa lights offer fades of up to 60 seconds.
