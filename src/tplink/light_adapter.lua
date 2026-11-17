@@ -34,10 +34,10 @@ local DIRECT_ANSWER_MS = 15000
 
 local DIRECT_ANSWER_TIMER = "DirectAnswer"
 
---- The longest fade the driver walks, in milliseconds: a day, the longest rate
---- Control4's own bulbs take.
+--- The longest fade the driver walks, in milliseconds: the most Composer reads
+--- (lib.light's Caps.RATE_LIMIT).
 --- @type integer
-local WALK_MAX_MS = 86400000
+local WALK_MAX_MS = 999999
 
 --- How long a light takes over its own fade between two states while it is
 --- on, in milliseconds. It reports no length for it: measured on a Tapo strip.
@@ -608,7 +608,7 @@ function TplinkLightAdapter:sendOutlet(opts)
   }, "NOTIFY")
 end
 
---- The light is gone: it reads off.
+--- The light is gone: it shows offline at the level it had.
 function TplinkLightAdapter:lost()
   self.connected = false
   self.entity = nil
