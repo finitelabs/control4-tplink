@@ -152,6 +152,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   offline only once three polls in a row go unanswered.
 - A light command or an outlet switch the device does not answer no longer marks
   it offline.
+- A TP-Link Light fading on to its Default On level shows that level as its
+  brightness target on the way, where it showed 1% until it landed.
 
 ### Changed
 
