@@ -152,6 +152,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   offline only once three polls in a row go unanswered.
 - A light command or an outlet switch the device does not answer no longer marks
   it offline.
+- A TP-Link Light no longer comes on at a removed brightness preset's level when
+  that preset was its on mode.
 
 ### Changed
 
